@@ -3,9 +3,9 @@ import { db } from '@/lib/db'
 
 // Twitter OAuth 2.0 with PKCE implementation
 
-const TWITTER_AUTH_URL = 'https://twitter.com/i/oauth2/authorize'
-const TWITTER_TOKEN_URL = 'https://api.twitter.com/2/oauth2/token'
-const TWITTER_USER_URL = 'https://api.twitter.com/2/users/me'
+const TWITTER_AUTH_URL = 'https://x.com/i/oauth2/authorize'
+const TWITTER_TOKEN_URL = 'https://api.x.com/2/oauth2/token'
+const TWITTER_USER_URL = 'https://api.x.com/2/users/me'
 
 // Get the base URL for OAuth callbacks
 export function getBaseUrl(): string {
@@ -37,7 +37,7 @@ export function buildTwitterAuthUrl(
     response_type: 'code',
     client_id: clientId,
     redirect_uri: redirectUri,
-    scope: 'tweet.read users.read',
+    scope: 'tweet.read users.read offline.access',
     state,
     code_challenge: codeChallenge,
     code_challenge_method: 'S256',
@@ -52,7 +52,7 @@ export async function exchangeCodeForToken(
   code: string,
   redirectUri: string,
   codeVerifier: string
-): Promise<{ access_token: string; token_type: string } | null> {
+): Promise<{ access_token: string; token_type: string; refresh_token?: string } | null> {
   const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64')
 
   const params = new URLSearchParams({
@@ -78,7 +78,9 @@ export async function exchangeCodeForToken(
       return null
     }
 
-    return await res.json()
+    const data = await res.json()
+    console.log('Token exchange successful, scopes:', data.scope)
+    return data
   } catch (error) {
     console.error('Token exchange error:', error)
     return null
