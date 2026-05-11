@@ -8,12 +8,19 @@ const TWITTER_TOKEN_URL = 'https://api.x.com/2/oauth2/token'
 const TWITTER_USER_URL = 'https://api.x.com/2/users/me'
 
 // Get the base URL for OAuth callbacks
+// IMPORTANT: Must match the Callback URI registered in X Developer Portal exactly!
 export function getBaseUrl(): string {
-  // Vercel sets VERCEL_URL automatically
+  // NEXTAUTH_URL should always be set to the production URL (e.g. https://tweetfess.vercel.app)
+  // This takes priority over VERCEL_URL because VERCEL_URL can be a preview deployment URL
+  // which won't match the callback URI registered in X Developer Portal
+  if (process.env.NEXTAUTH_URL) {
+    return process.env.NEXTAUTH_URL
+  }
+  // Fall back to VERCEL_URL only if NEXTAUTH_URL is not set
   if (process.env.VERCEL_URL) {
     return `https://${process.env.VERCEL_URL}`
   }
-  return process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
+  return process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'
 }
 
 // Generate a random string for PKCE code_verifier and state
@@ -60,6 +67,7 @@ export async function exchangeCodeForToken(
     code,
     redirect_uri: redirectUri,
     code_verifier: codeVerifier,
+    client_id: clientId,
   })
 
   try {
