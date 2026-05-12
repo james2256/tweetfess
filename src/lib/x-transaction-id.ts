@@ -62,7 +62,7 @@ export async function fetchXcomHtml(): Promise<string> {
 const ON_DEMAND_CHUNK_NAME = 'ondemand.s'
 const INDICES_REGEX = /\(\w\[(\d{1,2})\],\s*16\)/g
 const ON_DEMAND_FILE_HASH_REGEX =
-  /(\d+):\s*["']ondemand\.s["'][\s\S]*?\}\)\[e\]\s*\|\|\s*e\)\s*\+\s*["']\.["']\s*\+\s*\(\{[\s\S]*?\b\1:\s*["']([a-zA-Z0-9_-]+)["']/s
+  /(\d+):\s*["']ondemand\.s["'][\s\S]*?\}\)\[e\]\s*\|\|\s*e\)\s*\+\s*["']\.["']\s*\+\s*\(\{[\s\S]*?\b\1:\s*["']([a-zA-Z0-9_-]+)["']/
 
 // EPOCH_OFFSET = 1682924400 (2023-05-01 00:00:00 UTC)
 const EPOCH_OFFSET_MS = 1682924400 * 1000
