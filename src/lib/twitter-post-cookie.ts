@@ -28,7 +28,7 @@ import { db } from '@/lib/db'
 // This changes when X updates their frontend (every 2-8 weeks).
 // When it breaks, get the new one from browser DevTools → Network →
 // post a tweet → find the CreateTweet request URL → copy the queryId.
-const DEFAULT_QUERY_ID = 'zDI0bdpYOclPaXNFJkCSKw'
+const DEFAULT_QUERY_ID = 'FtGeaqS11k1UG-kGv_YUVg'
 
 // X's public "consumer" Bearer token — the same one the x.com web
 // client uses. It's not secret and doesn't change frequently, but
@@ -125,32 +125,48 @@ export async function postTweetViaCookie(
       semantic_annotation_ids: [],
     }
 
+    // Feature switches — synced from X's main.05927b2a.js on 2025-07-19.
+    // When queryId 404s, this list may also need updating.
+    // Step 1 — get current bundle name (changes every X deploy):
+    //   curl -sL 'https://x.com' | grep -oP 'main\.[a-z0-9]+\.js' | head -1
+    // Step 2 — extract CreateTweet metadata from that bundle:
+    //   curl -sL 'https://abs.twimg.com/responsive-web/client-web/<BUNDLE>.js' | grep -oP 'CreateTweet.*?fieldToggles:\[.*?\]'
     const features = {
+      premium_content_api_read_enabled: false,
       communities_web_enable_tweet_community_results_fetch: true,
       c9s_tweet_anatomy_moderator_badge_enabled: true,
-      tweetypie_unmention_optimization_enabled: true,
+      responsive_web_grok_analyze_button_fetch_trends_enabled: false,
+      responsive_web_grok_analyze_post_followups_enabled: false,
+      rweb_cashtags_composer_attachment_enabled: false,
+      responsive_web_jetfuel_frame: false,
+      responsive_web_grok_share_attachment_enabled: false,
+      responsive_web_grok_annotations_enabled: false,
       responsive_web_edit_tweet_api_enabled: true,
       graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
       view_counts_everywhere_api_enabled: true,
       longform_notetweets_consumption_enabled: true,
       responsive_web_twitter_article_tweet_consumption_enabled: true,
-      tweet_awards_web_tipping_enabled: false,
-      creator_subscriptions_quote_tweet_preview_enabled: false,
+      content_disclosure_indicator_enabled: false,
+      content_disclosure_ai_generated_indicator_enabled: false,
+      responsive_web_grok_show_grok_translated_post: false,
+      responsive_web_grok_analysis_button_from_backend: false,
+      post_ctas_fetch_enabled: false,
       longform_notetweets_rich_text_read_enabled: true,
       longform_notetweets_inline_media_enabled: true,
-      articles_preview_enabled: true,
-      rweb_video_timestamps_enabled: true,
+      profile_label_improvements_pcf_label_in_post_enabled: false,
+      responsive_web_profile_redirect_enabled: false,
       rweb_tipjar_consumption_enabled: true,
+      verified_phone_label_enabled: false,
+      articles_preview_enabled: true,
+      rweb_cashtags_enabled: false,
+      responsive_web_grok_community_note_auto_translation_is_enabled: false,
+      responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
       freedom_of_speech_not_reach_fetch_enabled: true,
       standardized_nudges_misinfo: true,
       tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
-      rweb_video_tagging_enabled: true,
-      premium_content_api_read_enabled: false,
-      responsive_web_graphql_exclude_directive_enabled: true,
-      verified_phone_label_enabled: false,
-      responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+      responsive_web_grok_image_annotation_enabled: false,
+      responsive_web_grok_imagine_annotation_enabled: false,
       responsive_web_graphql_timeline_navigation_enabled: true,
-      responsive_web_enhance_cards_enabled: false,
     }
 
     const response = await fetch(url, {
@@ -163,7 +179,20 @@ export async function postTweetViaCookie(
         'X-Twitter-Active-User': 'yes',
         'X-Twitter-Client-Language': 'en',
       },
-      body: JSON.stringify({ variables, features }),
+      body: JSON.stringify({
+        variables,
+        features,
+        fieldToggles: {
+          withArticleRichContentState: false,
+          withArticlePlainText: false,
+          withArticleSummaryText: false,
+          withArticleVoiceOver: false,
+          withGrokAnalyze: false,
+          withDisallowedReplyControls: false,
+          withPayments: false,
+          withAuxiliaryUserLabels: false,
+        },
+      }),
     })
 
     // Layer 1: HTTP status
