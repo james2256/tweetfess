@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { postTweetViaCookie, getCookieAuthStatus } from '@/lib/twitter-post-cookie'
 
+// Vercel serverless function timeout — test posting with retries can take time
+export const maxDuration = 30
+
 // GET /api/test-x - Check X auth configuration status
 export async function GET(req: NextRequest) {
   const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'

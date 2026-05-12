@@ -2,7 +2,11 @@ import { db } from '@/lib/db'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { NextRequest, NextResponse } from 'next/server'
 
-// POST /api/submissions/[id]/post - Post submission to X via cookie auth (manual retry)
+// Vercel serverless function timeout — retry loop can take up to 15s
+export const maxDuration = 30
+
+// POST /api/submissions/[id]/post - Post submission to X (manual retry)
+// Uses the full retry + fallback flow from postTweetViaCookie
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -30,28 +34,33 @@ export async function POST(
       return NextResponse.json({ error: 'Submission sudah ditolak' }, { status: 400 })
     }
 
-    // Post to your autobase X account using cookie-based auth
+    // Post to X using cookie-based auth (with retry + fallback)
     const tweetResult = await postTweetViaCookie(submission.message)
 
     if (!tweetResult.success) {
-      // Log the actual X error for debugging (visible in Vercel runtime logs)
       console.error('X API error:', tweetResult.error)
       return NextResponse.json(
-        { error: `Gagal posting ke X: ${tweetResult.error}` },
-        { status: 502 }  // 502 = upstream (X API) rejected, not our server error
+        { error: `Gagal posting ke X: ${tweetResult.error}`, postMethod: tweetResult.method },
+        { status: 502 }
       )
     }
 
-    // Update submission status
+    // Update submission status with postMethod tracking
     const updated = await db.submission.update({
       where: { id },
       data: {
         status: 'posted',
         tweetId: tweetResult.tweetId || null,
+        postMethod: tweetResult.method,
       },
     })
 
-    return NextResponse.json({ submission: updated, tweetId: tweetResult.tweetId })
+    return NextResponse.json({
+      submission: updated,
+      tweetId: tweetResult.tweetId,
+      postMethod: tweetResult.method,
+      retriesUsed: tweetResult.retriesUsed,
+    })
   } catch (error) {
     console.error('Post to X error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })

@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { generateTransactionId, fetchXcomHtml, clearTransactionIdCache as clearXactCache } from '@/lib/x-transaction-id'
+import { postViaTwitterApi } from '@/lib/twitter-api-fallback'
 
 // ============================================================
 // Cookie-based tweet posting via X's internal GraphQL API
@@ -15,10 +16,17 @@ import { generateTransactionId, fetchXcomHtml, clearTransactionIdCache as clearX
 // 5. POST to X GraphQL CreateTweet with Chrome-matching headers
 // 6. Parse response with comprehensive error checking
 //
+// Retry strategy (verified — V2: 226 always resolves on retry):
+// - Attempt 0: Normal POST
+// - Attempt 1: Stale cache (code 48, HTTP 404) → clear caches, retry
+// - Attempt 2: 226 / empty results → wait 3s, regenerate transaction ID, retry
+// - Attempt 3: 226 / empty results → wait 5s, regenerate transaction ID, retry
+// - After all retries fail → fall back to twitterapi.io (V6, V7, V8)
+//
 // Error detection checks THREE layers:
 // - HTTP status (!response.ok)
 // - GraphQL errors array (body.errors)
-// - Missing data (body.data.create_tweet null)
+// - Missing data (body.data.create_tweet null or empty tweet_results)
 //
 // IMPORTANT: Do NOT add `export const runtime = 'edge'` to any
 // route file that uses this module — it requires Node.js runtime
@@ -110,7 +118,7 @@ async function fetchLiveQueryId(): Promise<string | null> {
 async function getSettings(): Promise<Record<string, string>> {
   const settings = await db.setting.findMany({
     where: {
-      key: { in: ['x_cookie_string', 'x_query_id', 'x_bearer_token'] },
+      key: { in: ['x_cookie_string', 'x_query_id', 'x_bearer_token', 'post_method', 'twitterapi_keys'] },
       value: { not: '' },
     },
   })
@@ -157,13 +165,82 @@ function isStaleCacheError(error: string): boolean {
 }
 
 /**
+ * Detect Error 226 — X's transient anti-automation check.
+ * V2: Always resolves on retry with 2-3s delay.
+ * V4: Only affects CreateTweet, not reads.
+ * V5: Clean residential proxies help reduce frequency.
+ */
+function is226Error(error: string): boolean {
+  return (
+    error.includes('HTTP 226') ||
+    error.includes('code: 226') ||
+    error.includes('This request looks like it might be automated')
+  )
+}
+
+/**
+ * Detect empty tweet_results — X silently rejects the tweet.
+ * V3: Always resolves on retry.
+ * The response body has: {"create_tweet":{"tweet_results":{}}}
+ * No error code, no HTTP error — just empty data.
+ */
+function isEmptyResults(body: unknown): boolean {
+  const data = body as { data?: { create_tweet?: { tweet_results?: Record<string, unknown> } } } | null
+  if (!data?.data?.create_tweet) return false
+  const results = data.data.create_tweet.tweet_results
+  // tweet_results exists but is empty object {} or null
+  return !results || Object.keys(results).length === 0
+}
+
+/** Sleep helper for retry delays */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Get the configured post method from DB settings.
+ * Returns 'direct', 'api', or 'auto' (default).
+ */
+async function getPostMethod(): Promise<'direct' | 'api' | 'auto'> {
+  const settings = await getSettings()
+  const method = settings.post_method
+  if (method === 'direct' || method === 'api') return method
+  return 'auto' // default
+}
+
+/**
  * Post a tweet to X using cookie-based authentication.
- * Automatically retries once on stale cache errors (code 48, HTTP 404)
- * by clearing in-memory caches and re-fetching fresh data from X.
+ *
+ * Retry strategy:
+ * - Attempt 0: Normal POST
+ * - Attempt 1: Stale cache (code 48, HTTP 404) → clear caches, retry immediately
+ * - Attempt 2: 226 / empty results → wait 3s, regenerate transaction ID, retry
+ * - Attempt 3: 226 / empty results → wait 5s, regenerate transaction ID, retry
+ * - After all retries fail → fall back to twitterapi.io (if post_method = 'auto')
  */
 export async function postTweetViaCookie(
   text: string
-): Promise<{ success: boolean; tweetId?: string; error?: string; method: 'cookie' }> {
+): Promise<{
+  success: boolean
+  tweetId?: string
+  error?: string
+  method: 'direct' | 'retry' | 'fallback'
+  retriesUsed?: number
+}> {
+  // Check post method setting
+  const postMethod = await getPostMethod()
+
+  // If API-only mode, skip direct posting entirely
+  if (postMethod === 'api') {
+    const fallbackResult = await postViaTwitterApi(text)
+    return {
+      success: fallbackResult.success,
+      tweetId: fallbackResult.tweetId,
+      error: fallbackResult.error,
+      method: 'fallback',
+    }
+  }
+
   // 1. Get all settings in one DB query
   const settings = await getSettings()
 
@@ -175,7 +252,7 @@ export async function postTweetViaCookie(
     return {
       success: false,
       error: 'Cookie string not configured. Go to Admin → X Settings to set it up.',
-      method: 'cookie',
+      method: 'direct',
     }
   }
 
@@ -186,7 +263,7 @@ export async function postTweetViaCookie(
       success: false,
       error:
         'Cookie string is missing auth_token or ct0. Copy the full cookie string from your browser.',
-      method: 'cookie',
+      method: 'direct',
     }
   }
 
@@ -196,15 +273,26 @@ export async function postTweetViaCookie(
     return {
       success: false,
       error: 'x_bearer_token not set. Update in Admin → X Settings.',
-      method: 'cookie',
+      method: 'direct',
     }
   }
 
   // 5-7. Resolve queryId + make request + parse response
-  // Retry once on stale cache errors (X deployed new frontend)
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) {
+  // Retry loop: up to 4 attempts with smart delays
+  const MAX_ATTEMPTS = 4
+  let lastError = ''
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    // On retry for stale cache: clear caches immediately
+    if (attempt === 1 && isStaleCacheError(lastError)) {
       clearAllCaches()
+    }
+
+    // On retry for 226/empty: wait + clear transaction ID cache
+    if (attempt >= 2 && (is226Error(lastError) || isEmptyResultsFromError(lastError))) {
+      const delay = attempt === 2 ? 3000 : 5000 // 3s then 5s (V2)
+      await sleep(delay)
+      clearXactCache() // Regenerate transaction ID on next attempt
     }
 
     // Resolve queryId: in-memory cache → live fetch → DB fallback
@@ -223,7 +311,7 @@ export async function postTweetViaCookie(
       return {
         success: false,
         error: 'x_query_id not set and live fetch failed. Check network or set manually in Admin → X Settings.',
-        method: 'cookie',
+        method: 'direct',
       }
     }
 
@@ -240,12 +328,6 @@ export async function postTweetViaCookie(
 
       // Feature switches — synced from X's main.05927b2a.js on 2025-07-19
       // + TwitterInternalAPIDocument (daily auto-updated Chrome captures).
-      //
-      // When queryId 404s, this list may also need updating.
-      // Step 1 — get current bundle name (changes every X deploy):
-      //   curl -sL 'https://x.com' | grep -oP 'main\.[a-z0-9]+\.js' | head -1
-      // Step 2 — extract CreateTweet metadata from that bundle:
-      //   curl -sL 'https://abs.twimg.com/responsive-web/client-web/<BUNDLE>.js' | grep -oP 'CreateTweet.*?fieldToggles:\[.*?\]'
       const features = {
         premium_content_api_read_enabled: false,
         communities_web_enable_tweet_community_results_fetch: true,
@@ -295,8 +377,6 @@ export async function postTweetViaCookie(
       }
 
       // Build headers — matches real Chrome browser request structure
-      // DO NOT add headers that real Chrome doesn't send — X can detect
-      // non-standard headers as bot signals.
       const headers: Record<string, string> = {
         Authorization: `Bearer ${bearerToken}`,
         Cookie: cookies.raw,
@@ -337,9 +417,20 @@ export async function postTweetViaCookie(
       // Layer 1: HTTP status
       if (!response.ok) {
         const errorText = await response.text()
-        const error = `X API returned HTTP ${response.status}: ${errorText.slice(0, 200)}`
-        if (attempt === 0 && isStaleCacheError(error)) continue
-        return { success: false, error, method: 'cookie' }
+        lastError = `X API returned HTTP ${response.status}: ${errorText.slice(0, 200)}`
+
+        // Stale cache → retry with cleared caches (existing behavior)
+        if (attempt === 0 && isStaleCacheError(lastError)) continue
+        // 226 → retry with delay (V2)
+        if (attempt < MAX_ATTEMPTS - 1 && is226Error(lastError)) continue
+
+        // Other HTTP errors — don't retry (auth, rate limit, etc.)
+        return {
+          success: false,
+          error: lastError,
+          method: attempt > 0 ? 'retry' : 'direct',
+          retriesUsed: attempt,
+        }
       }
 
       const body = await response.json()
@@ -349,38 +440,94 @@ export async function postTweetViaCookie(
         const errorMessages = body.errors
           .map((e: { message: string; code?: number }) => `${e.message} (code: ${e.code || 'unknown'})`)
           .join('; ')
-        const error = `X GraphQL error: ${errorMessages}`
-        if (attempt === 0 && isStaleCacheError(error)) continue
-        return { success: false, error, method: 'cookie' }
+        lastError = `X GraphQL error: ${errorMessages}`
+
+        // Stale cache → retry with cleared caches
+        if (attempt === 0 && isStaleCacheError(lastError)) continue
+        // 226 in GraphQL errors → retry (V2)
+        if (attempt < MAX_ATTEMPTS - 1 && is226Error(lastError)) continue
+
+        return {
+          success: false,
+          error: lastError,
+          method: attempt > 0 ? 'retry' : 'direct',
+          retriesUsed: attempt,
+        }
       }
 
-      // Layer 3: Missing data (tweet wasn't created)
+      // Layer 3: Missing data / empty tweet_results (V3)
       const tweetId = body?.data?.create_tweet?.tweet_results?.result?.rest_id
       if (!tweetId) {
+        // Check for empty tweet_results — X silently rejected the tweet
+        if (isEmptyResults(body)) {
+          lastError = 'Empty tweet_results — X silently rejected the tweet'
+          if (attempt < MAX_ATTEMPTS - 1) continue // Retry (V3)
+        }
+
         return {
           success: false,
           error: `Tweet was not created. Response: ${JSON.stringify(body).slice(0, 300)}`,
-          method: 'cookie',
+          method: attempt > 0 ? 'retry' : 'direct',
+          retriesUsed: attempt,
         }
       }
 
       // Success!
-      return { success: true, tweetId, method: 'cookie' }
+      return {
+        success: true,
+        tweetId,
+        method: attempt > 0 ? 'retry' : 'direct',
+        retriesUsed: attempt,
+      }
     } catch (error) {
+      lastError = `Network error: ${error instanceof Error ? error.message : String(error)}`
+      // Network errors are transient — retry
+      if (attempt < MAX_ATTEMPTS - 1) continue
+
       return {
         success: false,
-        error: `Network error: ${error instanceof Error ? error.message : String(error)}`,
-        method: 'cookie',
+        error: lastError,
+        method: attempt > 0 ? 'retry' : 'direct',
+        retriesUsed: attempt,
       }
     }
   }
 
-  // Should not reach here, but just in case
+  // All direct retries exhausted — try twitterapi.io fallback (if auto mode)
+  if (postMethod === 'auto') {
+    const fallbackResult = await postViaTwitterApi(text)
+    if (fallbackResult.success) {
+      return {
+        success: true,
+        tweetId: fallbackResult.tweetId,
+        method: 'fallback',
+        retriesUsed: MAX_ATTEMPTS,
+      }
+    }
+    // Fallback also failed — return combined error
+    return {
+      success: false,
+      error: `Direct posting gagal setelah ${MAX_ATTEMPTS} percobaan. Fallback API juga gagal: ${fallbackResult.error}`,
+      method: 'retry',
+      retriesUsed: MAX_ATTEMPTS,
+    }
+  }
+
+  // Direct mode only — no fallback
   return {
     success: false,
-    error: 'Post failed after cache retry. Try clearing cache manually in Admin → X Settings.',
-    method: 'cookie',
+    error: `Post gagal setelah ${MAX_ATTEMPTS} percobaan. Coba lagi dalam 1-2 menit atau ubah ke mode Auto untuk fallback API.`,
+    method: 'retry',
+    retriesUsed: MAX_ATTEMPTS,
   }
+}
+
+/**
+ * Helper: check if an error string indicates empty results.
+ * Used to determine retry strategy for the error string format.
+ */
+function isEmptyResultsFromError(error: string): boolean {
+  return error.includes('Empty tweet_results') || error.includes('silently rejected')
 }
 
 /**

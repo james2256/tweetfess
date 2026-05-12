@@ -26,6 +26,9 @@ import {
   RotateCcw,
   EyeOff,
   Settings,
+  Activity,
+  Key,
+  Globe,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -67,11 +70,30 @@ interface Submission {
   message: string
   status: 'pending' | 'approved' | 'rejected' | 'posted'
   tweetId: string | null
+  postMethod: string | null // "direct" | "retry" | "fallback"
   category: string | null
   submitterId: string
   submitter: SubmitterInfo
   createdAt: string
   updatedAt: string
+}
+
+interface KeyCredits {
+  apiKey: string
+  rechargeCredits: number
+  bonusCredits: number
+  totalCredits: number
+  error?: string
+}
+
+interface PostMethodStats {
+  total: number
+  direct: number
+  retry: number
+  fallback: number
+  directRate: number
+  retryRate: number
+  fallbackRate: number
 }
 
 interface Stats {
@@ -87,6 +109,8 @@ interface Stats {
     lastUpdated: string | null
     missing: string[]
   } | null
+  postMethodStats: PostMethodStats | null
+  apiCredits: KeyCredits[] | null
 }
 
 // Status config
@@ -190,6 +214,15 @@ export default function HomePage() {
   const [showBearerGuide, setShowBearerGuide] = useState(false)
   const [isClearingCache, setIsClearingCache] = useState(false)
 
+  // API Settings state
+  const [apiKeys, setApiKeys] = useState('') // JSON array string
+  const [apiProxy, setApiProxy] = useState('')
+  const [postMethodSetting, setPostMethodSetting] = useState<'direct' | 'api' | 'auto'>('auto')
+  const [apiCredits, setApiCredits] = useState<KeyCredits[]>([])
+  const [isLoadingCredits, setIsLoadingCredits] = useState(false)
+  const [showApiSettings, setShowApiSettings] = useState(false)
+  const [postMethodStats, setPostMethodStats] = useState<PostMethodStats | null>(null)
+
   const { toast } = useToast()
 
   const isLoggedOut = !submitter
@@ -258,6 +291,11 @@ export default function HomePage() {
     setCookieString('')
     setQueryId('')
     setBearerToken('')
+    setPostMethodStats(null)
+    setApiCredits([])
+    setApiKeys('')
+    setApiProxy('')
+    setPostMethodSetting('auto')
     toast({ title: 'Logout berhasil' })
   }
 
@@ -332,6 +370,8 @@ export default function HomePage() {
         const data = await res.json()
         setStats(data)
         setCookieStatus(data.cookieAuthStatus)
+        if (data.postMethodStats) setPostMethodStats(data.postMethodStats)
+        if (data.apiCredits) setApiCredits(data.apiCredits)
       }
     } catch {
       // silently fail
@@ -360,6 +400,9 @@ export default function HomePage() {
           const labels: Record<string, string> = {
             x_query_id: 'Query ID',
             x_bearer_token: 'Bearer Token',
+            twitterapi_keys: 'API Keys',
+            twitterapi_proxy: 'Proxy URL',
+            post_method: 'Post Method',
           }
           toast({ title: `${labels[key] || key} disimpan!` })
         }
@@ -387,7 +430,10 @@ export default function HomePage() {
       const data = await res.json()
       if (res.ok) {
         if (data.autoPosted) {
-          toast({ title: 'Disetujui & diposting!', description: 'Pesan otomatis diposting ke X.' })
+          let desc = 'Pesan otomatis diposting ke X.'
+          if (data.postMethod === 'retry') desc = data.description || 'Pesan diposting setelah retry.'
+          else if (data.postMethod === 'fallback') desc = data.description || 'Pesan diposting via fallback API.'
+          toast({ title: 'Disetujui & diposting!', description: desc })
         } else if (data.warning) {
           toast({ title: 'Disetujui', description: data.warning })
         } else if (data.error) {
@@ -842,6 +888,73 @@ export default function HomePage() {
                   </div>
                 )}
 
+                {/* Post Method Ratio Card */}
+                {postMethodStats && postMethodStats.total > 0 && (
+                  <Card className="shadow-sm border-slate-200">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <Activity className="w-4 h-4 text-sky-500" /> Post Method Rate
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          {postMethodStats.total} post terakhir
+                        </span>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {/* Direct */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-green-500" />
+                            Normal POST
+                          </span>
+                          <span className="text-xs font-bold text-slate-900">{postMethodStats.directRate}%</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2">
+                          <div
+                            className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${postMethodStats.directRate}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-400">{postMethodStats.direct}/{postMethodStats.total} via direct cookie</span>
+                      </div>
+                      {/* Retry */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-amber-500" />
+                            Retry (226/empty)
+                          </span>
+                          <span className="text-xs font-bold text-slate-900">{postMethodStats.retryRate}%</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2">
+                          <div
+                            className="bg-amber-500 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${postMethodStats.retryRate}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-400">{postMethodStats.retry}/{postMethodStats.total} setelah retry</span>
+                      </div>
+                      {/* Fallback */}
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-purple-500" />
+                            API Fallback
+                          </span>
+                          <span className="text-xs font-bold text-slate-900">{postMethodStats.fallbackRate}%</span>
+                        </div>
+                        <div className="w-full bg-slate-100 rounded-full h-2">
+                          <div
+                            className="bg-purple-500 h-2 rounded-full transition-all duration-500"
+                            style={{ width: `${postMethodStats.fallbackRate}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-400">{postMethodStats.fallback}/{postMethodStats.total} via twitterapi.io</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {/* X Settings Card */}
                 <Card className="shadow-sm border-slate-200">
                   <CardHeader className="pb-3">
@@ -1084,6 +1197,146 @@ export default function HomePage() {
                   </CardContent>
                 </Card>
 
+                {/* API Settings Card */}
+                <Card className="shadow-sm border-slate-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle
+                      className="text-base flex items-center gap-2 cursor-pointer"
+                      onClick={() => setShowApiSettings(!showApiSettings)}
+                    >
+                      <Key className="w-4 h-4 text-purple-500" /> API Fallback Settings
+                      <Badge variant="outline" className={`text-[10px] px-1.5 ${apiCredits.length > 0 ? 'bg-green-50 text-green-700 border-green-300' : 'bg-slate-50 text-slate-500 border-slate-300'}`}>
+                        {apiCredits.length > 0 ? `${apiCredits.length} key(s)` : 'Not configured'}
+                      </Badge>
+                      <ChevronDown className={`w-4 h-4 text-slate-400 ml-auto transition-transform ${showApiSettings ? 'rotate-180' : ''}`} />
+                    </CardTitle>
+                  </CardHeader>
+                  {showApiSettings && (
+                    <CardContent className="space-y-4">
+                      {/* Post Method Toggle */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium text-slate-600">Post Method</label>
+                        <div className="flex gap-2">
+                          {([
+                            { value: 'direct', label: 'Direct', desc: 'Cookie only' },
+                            { value: 'auto', label: 'Auto', desc: 'Cookie → Retry → API' },
+                            { value: 'api', label: 'API Only', desc: 'TwitterAPI.io only' },
+                          ] as const).map((opt) => (
+                            <Button
+                              key={opt.value}
+                              size="sm"
+                              variant={postMethodSetting === opt.value ? 'default' : 'outline'}
+                              onClick={() => {
+                                setPostMethodSetting(opt.value)
+                                handleSaveSetting('post_method', opt.value)
+                              }}
+                              className={`text-xs h-8 ${postMethodSetting === opt.value ? 'bg-purple-500 hover:bg-purple-600' : 'border-slate-200'}`}
+                            >
+                              {opt.label}
+                            </Button>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          {postMethodSetting === 'direct' && 'Hanya cookie-based posting, tanpa fallback.'}
+                          {postMethodSetting === 'auto' && 'Coba direct → retry 226/empty → fallback ke API jika gagal.'}
+                          {postMethodSetting === 'api' && 'Selalu gunakan twitterapi.io (untuk testing).'}
+                        </p>
+                      </div>
+
+                      {/* API Keys */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                          <Key className="w-3 h-3" /> API Keys (JSON array)
+                        </label>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder='["key1","key2","key3"]'
+                            value={apiKeys}
+                            onChange={(e) => setApiKeys(e.target.value)}
+                            className="border-slate-200 text-xs"
+                          />
+                          <Button
+                            onClick={() => handleSaveSetting('twitterapi_keys', apiKeys, () => setApiKeys(''))}
+                            disabled={!!isSavingSetting || !apiKeys.trim()}
+                            className="bg-purple-500 hover:bg-purple-600 shrink-0"
+                          >
+                            {isSavingSetting === 'twitterapi_keys' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          Format: JSON array. Setiap key ~33 tweet gratis (10k credits). Tambahkan lebih banyak key untuk lebih banyak tweet gratis.
+                        </p>
+                      </div>
+
+                      {/* Proxy */}
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                          <Globe className="w-3 h-3" /> Proxy URL (opsional)
+                        </label>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="http://user:pass@ip:port"
+                            value={apiProxy}
+                            onChange={(e) => setApiProxy(e.target.value)}
+                            className="border-slate-200 text-xs"
+                          />
+                          <Button
+                            onClick={() => handleSaveSetting('twitterapi_proxy', apiProxy, () => setApiProxy(''))}
+                            disabled={!!isSavingSetting || !apiProxy.trim()}
+                            variant="outline"
+                            className="border-purple-200 text-purple-700 hover:bg-purple-50 shrink-0"
+                          >
+                            {isSavingSetting === 'twitterapi_proxy' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
+                          </Button>
+                        </div>
+                        <p className="text-[10px] text-slate-400">
+                          Hanya diperlukan jika menggunakan user_login_v2. Create_tweet_v2 tidak memerlukan proxy (V21).
+                        </p>
+                      </div>
+
+                      {/* Credit Status */}
+                      {apiCredits.length > 0 && (
+                        <div className="space-y-2">
+                          <label className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                            <BarChart3 className="w-3 h-3" /> Credit Status
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-5 w-5 p-0 ml-1"
+                              onClick={async () => {
+                                setIsLoadingCredits(true)
+                                await fetchStats()
+                                setIsLoadingCredits(false)
+                              }}
+                            >
+                              <RefreshCw className={`w-3 h-3 ${isLoadingCredits ? 'animate-spin' : ''}`} />
+                            </Button>
+                          </label>
+                          <div className="space-y-1.5">
+                            {apiCredits.map((credit, idx) => (
+                              <div key={idx} className="flex items-center justify-between bg-slate-50 rounded-lg p-2 border border-slate-100">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-mono text-slate-500">{credit.apiKey}</span>
+                                  {credit.error && (
+                                    <Badge variant="outline" className="text-[8px] px-1 bg-red-50 text-red-600 border-red-200">
+                                      {credit.error}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-slate-400">Bonus: {credit.bonusCredits}</span>
+                                  <span className="text-[10px] font-medium text-slate-700">Total: {credit.totalCredits}</span>
+                                  <span className="text-[8px] text-slate-400">(~{Math.floor(credit.totalCredits / 300)} tweets)</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  )}
+                </Card>
+
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium text-slate-600">Filter:</span>
                   {['all', 'pending', 'approved', 'rejected', 'posted'].map((status) => (
@@ -1154,6 +1407,17 @@ export default function HomePage() {
                                       <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${config.color}`}>
                                         {config.label}
                                       </Badge>
+                                      {sub.status === 'posted' && sub.postMethod && sub.postMethod !== 'direct' && (
+                                        <Badge variant="outline" className={`text-[8px] px-1 py-0 ${
+                                          sub.postMethod === 'retry'
+                                            ? 'bg-amber-50 text-amber-600 border-amber-200'
+                                            : sub.postMethod === 'fallback'
+                                            ? 'bg-purple-50 text-purple-600 border-purple-200'
+                                            : 'bg-slate-50 text-slate-500 border-slate-200'
+                                        }`}>
+                                          {sub.postMethod === 'retry' ? 'retry' : sub.postMethod === 'fallback' ? 'API' : sub.postMethod}
+                                        </Badge>
+                                      )}
                                     </div>
                                     <p className="text-sm text-slate-800 whitespace-pre-wrap break-words">{sub.message}</p>
                                     {sub.category && (

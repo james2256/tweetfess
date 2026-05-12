@@ -26,6 +26,7 @@ model Submission {
   message     String
   status      String    @default("pending") // pending, approved, rejected, posted
   tweetId     String?   // X tweet ID after posting
+  postMethod  String?   // "direct" | "retry" | "fallback" — which method posted this tweet
   category    String?   // optional category/tag
   submitterId String
   submitter   Submitter @relation(fields: [submitterId], references: [id])

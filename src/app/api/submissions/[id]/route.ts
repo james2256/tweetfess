@@ -2,6 +2,9 @@ import { db } from '@/lib/db'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { NextRequest, NextResponse } from 'next/server'
 
+// Vercel serverless function timeout — approve+post can take up to 15s with retries
+export const maxDuration = 30
+
 // PATCH /api/submissions/[id] - Approve (auto-post) or reject
 export async function PATCH(
   req: NextRequest,
@@ -35,7 +38,7 @@ export async function PATCH(
       )
     }
 
-    // If approving, auto-post to X via cookie auth
+    // If approving, auto-post to X via cookie auth (with retry + fallback)
     if (status === 'approved') {
       const tweetResult = await postTweetViaCookie(submission.message)
 
@@ -45,15 +48,29 @@ export async function PATCH(
           data: {
             status: 'posted',
             tweetId: tweetResult.tweetId || null,
+            postMethod: tweetResult.method,
           },
         })
+
+        // Build descriptive message based on method used
+        let description = ''
+        if (tweetResult.method === 'direct') {
+          description = 'Pesan otomatis diposting ke X.'
+        } else if (tweetResult.method === 'retry') {
+          description = `Pesan diposting setelah retry (${tweetResult.retriesUsed}x).`
+        } else if (tweetResult.method === 'fallback') {
+          description = 'Pesan diposting via fallback API.'
+        }
+
         return NextResponse.json({
           submission: updated,
           autoPosted: true,
           tweetId: tweetResult.tweetId,
+          postMethod: tweetResult.method,
+          description,
         })
       } else {
-        // Cookie failed — mark as approved but NOT posted
+        // Cookie + retry + fallback all failed — mark as approved but NOT posted
         const updated = await db.submission.update({
           where: { id },
           data: { status: 'approved' },
@@ -68,6 +85,12 @@ export async function PATCH(
           hint = 'Cookie expired. Perbarui cookie di X Settings lalu klik "Post to X".'
         } else if (errorMsg.includes('code: 88') || errorMsg.includes('Rate limit')) {
           hint = 'Rate limit tercapai. Tunggu beberapa menit lalu coba lagi.'
+        } else if (errorMsg.includes('226') || errorMsg.includes('automated')) {
+          hint = 'X mendeteksi otomatisasi (226). Semua retry gagal. Coba lagi dalam 1-2 menit.'
+        } else if (errorMsg.includes('Empty tweet_results') || errorMsg.includes('silently rejected')) {
+          hint = 'Tweet ditolak X (empty results). Semua retry gagal. Coba lagi dalam 1-2 menit.'
+        } else if (errorMsg.includes('Fallback API') || errorMsg.includes('fallback')) {
+          hint = 'Direct post gagal, fallback API juga gagal. Periksa API keys dan cookie.'
         } else {
           hint = 'Cek X Settings lalu klik "Post to X" untuk retry.'
         }
@@ -76,6 +99,7 @@ export async function PATCH(
           submission: updated,
           autoPosted: false,
           error: `Disetujui, tapi gagal posting ke X: ${errorMsg}. ${hint}`,
+          postMethod: tweetResult.method,
         })
       }
     }
