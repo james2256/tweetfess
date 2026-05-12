@@ -144,7 +144,22 @@ export function parseXCookies(cookieString: string): {
 }
 
 /**
+ * Detect errors likely caused by stale cached data.
+ * When X updates their frontend, cached queryIds and transaction ID
+ * configs become stale, causing 404s or code 48/344 errors.
+ * Auto-clearing cache and retrying once avoids manual intervention.
+ */
+function isStaleCacheError(error: string): boolean {
+  return (
+    error.includes('code: 48') ||   // Endpoint retired — stale queryId
+    error.includes('HTTP 404')       // Not found — stale queryId in URL
+  )
+}
+
+/**
  * Post a tweet to X using cookie-based authentication.
+ * Automatically retries once on stale cache errors (code 48, HTTP 404)
+ * by clearing in-memory caches and re-fetching fresh data from X.
  */
 export async function postTweetViaCookie(
   text: string
@@ -175,29 +190,7 @@ export async function postTweetViaCookie(
     }
   }
 
-  // 4. Resolve queryId: in-memory cache → live fetch → DB fallback
-  let queryId = await fetchLiveQueryId()
-
-  if (queryId && queryId !== settings.x_query_id) {
-    // Auto-update DB with fresh value so cold starts can skip the live fetch
-    await db.setting.upsert({
-      where: { key: 'x_query_id' },
-      update: { value: queryId },
-      create: { key: 'x_query_id', value: queryId },
-    })
-  }
-
-  // Fall back to DB if live fetch failed
-  queryId = queryId || settings.x_query_id || null
-  if (!queryId) {
-    return {
-      success: false,
-      error: 'x_query_id not set and live fetch failed. Check network or set manually in Admin → X Settings.',
-      method: 'cookie',
-    }
-  }
-
-  // 5. Resolve bearer token (required — no default)
+  // 4. Resolve bearer token (required — no default)
   const bearerToken = settings.x_bearer_token || null
   if (!bearerToken) {
     return {
@@ -207,180 +200,186 @@ export async function postTweetViaCookie(
     }
   }
 
-  // 6. Make the request
-  try {
-    const url = `https://twitter.com/i/api/graphql/${queryId}/CreateTweet`
-
-    const variables = {
-      tweet_text: text,
-      dark_request: false,
-      media: { media_entities: [], possibly_sensitive: false },
-      semantic_annotation_ids: [],
+  // 5-7. Resolve queryId + make request + parse response
+  // Retry once on stale cache errors (X deployed new frontend)
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) {
+      clearAllCaches()
     }
 
-    // Feature switches — synced from X's main.05927b2a.js on 2025-07-19
-    // + TwitterInternalAPIDocument (daily auto-updated Chrome captures).
-    //
-    // Grok flags updated: 7 flags changed from false → true.
-    // Having ALL Grok features disabled was a suspicious pattern — Grok is
-    // X's flagship AI product and virtually all modern accounts have it enabled.
-    // Values sourced from TwitterInternalAPIDocument's Chrome DevTools captures.
-    //
-    // When queryId 404s, this list may also need updating.
-    // Step 1 — get current bundle name (changes every X deploy):
-    //   curl -sL 'https://x.com' | grep -oP 'main\.[a-z0-9]+\.js' | head -1
-    // Step 2 — extract CreateTweet metadata from that bundle:
-    //   curl -sL 'https://abs.twimg.com/responsive-web/client-web/<BUNDLE>.js' | grep -oP 'CreateTweet.*?fieldToggles:\[.*?\]'
-    const features = {
-      premium_content_api_read_enabled: false,
-      communities_web_enable_tweet_community_results_fetch: true,
-      c9s_tweet_anatomy_moderator_badge_enabled: true,
-      responsive_web_grok_analyze_button_fetch_trends_enabled: false,
-      responsive_web_grok_analyze_post_followups_enabled: false,
-      rweb_cashtags_composer_attachment_enabled: false,
-      responsive_web_jetfuel_frame: true,
-      responsive_web_grok_share_attachment_enabled: true,
-      responsive_web_grok_annotations_enabled: true,
-      responsive_web_edit_tweet_api_enabled: true,
-      graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
-      view_counts_everywhere_api_enabled: true,
-      longform_notetweets_consumption_enabled: true,
-      responsive_web_twitter_article_tweet_consumption_enabled: true,
-      content_disclosure_indicator_enabled: true,
-      content_disclosure_ai_generated_indicator_enabled: true,
-      responsive_web_grok_show_grok_translated_post: true,
-      responsive_web_grok_analysis_button_from_backend: true,
-      post_ctas_fetch_enabled: false,
-      longform_notetweets_rich_text_read_enabled: true,
-      longform_notetweets_inline_media_enabled: false,   // TwitterInternalAPIDocument: false
-      profile_label_improvements_pcf_label_in_post_enabled: true,
-      responsive_web_profile_redirect_enabled: false,
-      rweb_tipjar_consumption_enabled: false,   // TwitterInternalAPIDocument: false
-      verified_phone_label_enabled: false,
-      articles_preview_enabled: true,
-      rweb_cashtags_enabled: true,
-      responsive_web_grok_community_note_auto_translation_is_enabled: true,
-      responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
-      freedom_of_speech_not_reach_fetch_enabled: true,
-      standardized_nudges_misinfo: true,
-      tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
-      responsive_web_grok_image_annotation_enabled: true,
-      responsive_web_grok_imagine_annotation_enabled: true,
-      responsive_web_graphql_timeline_navigation_enabled: true,
-      responsive_web_enhance_cards_enabled: false,
+    // Resolve queryId: in-memory cache → live fetch → DB fallback
+    let queryId = await fetchLiveQueryId()
+
+    if (queryId && queryId !== settings.x_query_id) {
+      await db.setting.upsert({
+        where: { key: 'x_query_id' },
+        update: { value: queryId },
+        create: { key: 'x_query_id', value: queryId },
+      })
     }
 
-    // Generate x-client-transaction-id (X's primary anti-bot header)
-    const apiPath = `/i/api/graphql/${queryId}/CreateTweet`
-    let transactionId: string | null = null
+    queryId = queryId || settings.x_query_id || null
+    if (!queryId) {
+      return {
+        success: false,
+        error: 'x_query_id not set and live fetch failed. Check network or set manually in Admin → X Settings.',
+        method: 'cookie',
+      }
+    }
+
+    // Make the request
     try {
-      transactionId = await generateTransactionId('POST', apiPath)
-    } catch {
-      // Non-fatal: if transaction ID generation fails, continue without it
-    }
+      const url = `https://twitter.com/i/api/graphql/${queryId}/CreateTweet`
 
-    // Build headers — matches real Chrome browser request structure
-    // Verified against Chrome DevTools captures + emusks + TwitterInternalAPIDocument
-    //
-    // DO NOT add headers that real Chrome doesn't send — X can detect
-    // non-standard headers (like x-client-uuid, x-xp-forwarded-for)
-    // as bot signals. See Phase 1 analysis for details.
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${bearerToken}`,
-      Cookie: cookies.raw,
-      'X-Csrf-Token': cookies.ct0,
-      'Content-Type': 'application/json',
-      'X-Twitter-Auth-Type': 'OAuth2Session',
-      'X-Twitter-Active-User': 'yes',
-      'X-Twitter-Client-Language': 'en',
-      'User-Agent': BROWSER_UA,
-      Referer: 'https://x.com/',
-      // Chrome Client Hints — every Chromium browser sends these
-      'sec-ch-ua': SEC_CH_UA,
-      'sec-ch-ua-mobile': '?0',
-      'sec-ch-ua-platform': '"Windows"',
-      // Origin — required by Fetch spec for POST with application/json
-      // (even same-origin). Missing Origin is impossible from a real browser.
-      origin: 'https://x.com',
-      // Fetch Metadata — standard browser behavior
-      'sec-fetch-dest': 'empty',
-      'sec-fetch-mode': 'cors',
-      'sec-fetch-site': 'same-origin',
-      // Additional Chrome headers (verified present in emusks)
-      'sec-gpc': '1',
-      'priority': 'u=1, i',
-      // Standard HTTP headers
-      Accept: '*/*',
-      'Accept-Language': 'en-US,en;q=0.9',
-    }
+      const variables = {
+        tweet_text: text,
+        dark_request: false,
+        media: { media_entities: [], possibly_sensitive: false },
+        semantic_annotation_ids: [],
+      }
 
-    // Add x-client-transaction-id (non-fatal if generation fails)
-    if (transactionId) {
-      headers['x-client-transaction-id'] = transactionId
-    }
+      // Feature switches — synced from X's main.05927b2a.js on 2025-07-19
+      // + TwitterInternalAPIDocument (daily auto-updated Chrome captures).
+      //
+      // When queryId 404s, this list may also need updating.
+      // Step 1 — get current bundle name (changes every X deploy):
+      //   curl -sL 'https://x.com' | grep -oP 'main\.[a-z0-9]+\.js' | head -1
+      // Step 2 — extract CreateTweet metadata from that bundle:
+      //   curl -sL 'https://abs.twimg.com/responsive-web/client-web/<BUNDLE>.js' | grep -oP 'CreateTweet.*?fieldToggles:\[.*?\]'
+      const features = {
+        premium_content_api_read_enabled: false,
+        communities_web_enable_tweet_community_results_fetch: true,
+        c9s_tweet_anatomy_moderator_badge_enabled: true,
+        responsive_web_grok_analyze_button_fetch_trends_enabled: false,
+        responsive_web_grok_analyze_post_followups_enabled: false,
+        rweb_cashtags_composer_attachment_enabled: false,
+        responsive_web_jetfuel_frame: true,
+        responsive_web_grok_share_attachment_enabled: true,
+        responsive_web_grok_annotations_enabled: true,
+        responsive_web_edit_tweet_api_enabled: true,
+        graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
+        view_counts_everywhere_api_enabled: true,
+        longform_notetweets_consumption_enabled: true,
+        responsive_web_twitter_article_tweet_consumption_enabled: true,
+        content_disclosure_indicator_enabled: true,
+        content_disclosure_ai_generated_indicator_enabled: true,
+        responsive_web_grok_show_grok_translated_post: true,
+        responsive_web_grok_analysis_button_from_backend: true,
+        post_ctas_fetch_enabled: false,
+        longform_notetweets_rich_text_read_enabled: true,
+        longform_notetweets_inline_media_enabled: false,
+        profile_label_improvements_pcf_label_in_post_enabled: true,
+        responsive_web_profile_redirect_enabled: false,
+        rweb_tipjar_consumption_enabled: false,
+        verified_phone_label_enabled: false,
+        articles_preview_enabled: true,
+        rweb_cashtags_enabled: true,
+        responsive_web_grok_community_note_auto_translation_is_enabled: true,
+        responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+        freedom_of_speech_not_reach_fetch_enabled: true,
+        standardized_nudges_misinfo: true,
+        tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
+        responsive_web_grok_image_annotation_enabled: true,
+        responsive_web_grok_imagine_annotation_enabled: true,
+        responsive_web_graphql_timeline_navigation_enabled: true,
+        responsive_web_enhance_cards_enabled: false,
+      }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        variables,
-        queryId,  // Required by X's GraphQL schema — must match URL path
-        features,
-        // NOTE: fieldToggles intentionally omitted.
-        // Real Chrome does NOT send fieldToggles for CreateTweet
-        // (confirmed by twitter-openapi Chrome captures + emusks + twikit).
-        // Sending it was a bot signal.
-      }),
-    })
+      // Generate x-client-transaction-id (X's primary anti-bot header)
+      const apiPath = `/i/api/graphql/${queryId}/CreateTweet`
+      let transactionId: string | null = null
+      try {
+        transactionId = await generateTransactionId('POST', apiPath)
+      } catch {
+        // Non-fatal: if transaction ID generation fails, continue without it
+      }
 
-    // Layer 1: HTTP status
-    if (!response.ok) {
-      const errorText = await response.text()
+      // Build headers — matches real Chrome browser request structure
+      // DO NOT add headers that real Chrome doesn't send — X can detect
+      // non-standard headers as bot signals.
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${bearerToken}`,
+        Cookie: cookies.raw,
+        'X-Csrf-Token': cookies.ct0,
+        'Content-Type': 'application/json',
+        'X-Twitter-Auth-Type': 'OAuth2Session',
+        'X-Twitter-Active-User': 'yes',
+        'X-Twitter-Client-Language': 'en',
+        'User-Agent': BROWSER_UA,
+        Referer: 'https://x.com/',
+        'sec-ch-ua': SEC_CH_UA,
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        origin: 'https://x.com',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-origin',
+        'sec-gpc': '1',
+        'priority': 'u=1, i',
+        Accept: '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
+      }
+
+      if (transactionId) {
+        headers['x-client-transaction-id'] = transactionId
+      }
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          variables,
+          queryId,
+          features,
+        }),
+      })
+
+      // Layer 1: HTTP status
+      if (!response.ok) {
+        const errorText = await response.text()
+        const error = `X API returned HTTP ${response.status}: ${errorText.slice(0, 200)}`
+        if (attempt === 0 && isStaleCacheError(error)) continue
+        return { success: false, error, method: 'cookie' }
+      }
+
+      const body = await response.json()
+
+      // Layer 2: GraphQL errors array
+      if (body.errors?.length) {
+        const errorMessages = body.errors
+          .map((e: { message: string; code?: number }) => `${e.message} (code: ${e.code || 'unknown'})`)
+          .join('; ')
+        const error = `X GraphQL error: ${errorMessages}`
+        if (attempt === 0 && isStaleCacheError(error)) continue
+        return { success: false, error, method: 'cookie' }
+      }
+
+      // Layer 3: Missing data (tweet wasn't created)
+      const tweetId = body?.data?.create_tweet?.tweet_results?.result?.rest_id
+      if (!tweetId) {
+        return {
+          success: false,
+          error: `Tweet was not created. Response: ${JSON.stringify(body).slice(0, 300)}`,
+          method: 'cookie',
+        }
+      }
+
+      // Success!
+      return { success: true, tweetId, method: 'cookie' }
+    } catch (error) {
       return {
         success: false,
-        error: `X API returned HTTP ${response.status}: ${errorText.slice(0, 200)}`,
+        error: `Network error: ${error instanceof Error ? error.message : String(error)}`,
         method: 'cookie',
       }
     }
+  }
 
-    const body = await response.json()
-
-    // Layer 2: GraphQL errors array
-    // Common error codes:
-    //   32  → Could not authenticate you (bad/expired token)
-    //   131 → Internal error (possibly bad queryId)
-    //   48  → Endpoint retired (queryId outdated)
-    //   88  → Rate limit exceeded
-    //   344 → Bot detection / daily tweet limit (may not be a real limit)
-    if (body.errors?.length) {
-      const errorMessages = body.errors
-        .map((e: { message: string; code?: number }) => `${e.message} (code: ${e.code || 'unknown'})`)
-        .join('; ')
-      return {
-        success: false,
-        error: `X GraphQL error: ${errorMessages}`,
-        method: 'cookie',
-      }
-    }
-
-    // Layer 3: Missing data (tweet wasn't created)
-    const tweetId = body?.data?.create_tweet?.tweet_results?.result?.rest_id
-    if (!tweetId) {
-      return {
-        success: false,
-        error: `Tweet was not created. Response: ${JSON.stringify(body).slice(0, 300)}`,
-        method: 'cookie',
-      }
-    }
-
-    // Success!
-    return { success: true, tweetId, method: 'cookie' }
-  } catch (error) {
-    return {
-      success: false,
-      error: `Network error: ${error instanceof Error ? error.message : String(error)}`,
-      method: 'cookie',
-    }
+  // Should not reach here, but just in case
+  return {
+    success: false,
+    error: 'Post failed after cache retry. Try clearing cache manually in Admin → X Settings.',
+    method: 'cookie',
   }
 }
 

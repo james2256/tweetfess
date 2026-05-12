@@ -70,69 +70,80 @@ const DEFAULT_KEYWORD = 'obfiowerehiring'
 const ADDITIONAL_RANDOM_NUMBER = 3
 
 // --- Cubic Bezier Interpolation ---
-// Implements proper CSS cubic-bezier(x1, y1, x2, y2) evaluation.
+// Implements CSS cubic-bezier(x1, y1, x2, y2) evaluation.
 //
 // The curve goes from (0,0) to (1,1) with control points (x1,y1) and (x2,y2).
-// Given an x-value (time), we need to find the corresponding y-value:
-//   1. Find t such that bezierX(t) = x  (Newton-Raphson root-finding)
-//   2. Return bezierY(t)
+// Given a time value, we need to find the corresponding y-value:
+//   1. Find t such that X(t) = time  (binary search)
+//   2. Return Y(t)
 //
-// This replaces the previous broken implementation which:
-//   - Had a confused constructor that overwrote itself 3 times
-//   - Used a linear approximation instead of proper cubic bezier math
-//   - Produced detectably wrong animation keys → wrong transaction IDs
+// Uses binary search instead of Newton-Raphson to exactly match the
+// reference implementation (Lqm1/x-client-transaction-id). Newton-Raphson
+// can prematurely break when the derivative is near-zero, which happens
+// with negative control points produced by isOdd() returning -1.0.
 //
-// Reference: Lqm1/x-client-transaction-id npm package, WebKit CSS animation code
+// Reference: Lqm1/x-client-transaction-id npm package (cubic.js)
 
 class Cubic {
-  // Polynomial coefficients for X(t) = ax·t³ + bx·t² + cx·t
-  // Derived from: X(t) = 3(1-t)²t·x1 + 3(1-t)t²·x2 + t³
-  private ax: number
-  private bx: number
-  private cx: number
-  // Polynomial coefficients for Y(t) = ay·t³ + by·t² + cy·t
-  private ay: number
-  private by: number
-  private cy: number
+  private curves: number[]
 
   constructor(curves: number[]) {
-    // curves = [x1, y1, x2, y2] — CSS cubic-bezier control points
-    const x1 = curves[0]
-    const y1 = curves[1]
-    const x2 = curves[2]
-    const y2 = curves[3]
-
-    // X(t) = (1 - 3x2 + 3x1)·t³ + (3x2 - 6x1)·t² + 3x1·t
-    this.ax = 1.0 - 3.0 * x2 + 3.0 * x1
-    this.bx = 3.0 * x2 - 6.0 * x1
-    this.cx = 3.0 * x1
-
-    // Y(t) = (1 - 3y2 + 3y1)·t³ + (3y2 - 6y1)·t² + 3y1·t
-    this.ay = 1.0 - 3.0 * y2 + 3.0 * y1
-    this.by = 3.0 * y2 - 6.0 * y1
-    this.cy = 3.0 * y1
+    this.curves = curves
   }
 
   /**
-   * Evaluate the cubic bezier curve at the given x-position.
-   * Uses Newton-Raphson iteration to find the parameter t where X(t) = x,
-   * then returns Y(t) — the actual animation value at that time.
+   * Evaluate the cubic bezier curve at the given time position.
+   * Uses binary search to find the parameter t where X(t) ≈ time,
+   * then returns Y(t) — the interpolated animation value.
    */
-  getValue(x: number): number {
-    // Newton-Raphson: find t such that X(t) = x
-    let t = x // initial guess (good for monotonic curves)
-    for (let i = 0; i < 8; i++) {
-      // f(t) = X(t) - x  (we want f(t) = 0)
-      const fx = ((this.ax * t + this.bx) * t + this.cx) * t - x
-      // f'(t) = X'(t) = 3ax·t² + 2bx·t + cx
-      const dfx = (3.0 * this.ax * t + 2.0 * this.bx) * t + this.cx
-      if (Math.abs(dfx) < 1e-6) break // avoid division by near-zero
-      t -= fx / dfx
+  getValue(time: number): number {
+    // Handle values outside [0, 1] with tangent extrapolation
+    if (time <= 0.0) {
+      if (this.curves[0] > 0.0) {
+        return (this.curves[1] / this.curves[0]) * time
+      }
+      if (this.curves[0] === 0.0 && this.curves[2] > 0.0) {
+        return (this.curves[3] / this.curves[2]) * time
+      }
+      return 0.0
     }
-    // Clamp to [0, 1] — Newton-Raphson can overshoot
-    t = Math.max(0, Math.min(1, t))
-    // Return Y(t) — the interpolated animation value
-    return ((this.ay * t + this.by) * t + this.cy) * t
+    if (time >= 1.0) {
+      if (this.curves[2] < 1.0) {
+        return 1.0 + ((this.curves[3] - 1.0) / (this.curves[2] - 1.0)) * (time - 1.0)
+      }
+      if (this.curves[2] === 1.0 && this.curves[0] < 1.0) {
+        return 1.0 + ((this.curves[1] - 1.0) / (this.curves[0] - 1.0)) * (time - 1.0)
+      }
+      return 1.0
+    }
+
+    // Binary search to find t where X(t) ≈ time
+    let start = 0.0
+    let mid = 0.0
+    let end = 1.0
+
+    while (start < end) {
+      mid = (start + end) / 2
+      const xEst = this.calculate(this.curves[0], this.curves[2], mid)
+      if (Math.abs(time - xEst) < 0.00001) {
+        return this.calculate(this.curves[1], this.curves[3], mid)
+      }
+      if (xEst < time) {
+        start = mid
+      } else {
+        end = mid
+      }
+    }
+
+    return this.calculate(this.curves[1], this.curves[3], mid)
+  }
+
+  /**
+   * Calculate cubic bezier value: 3·a·(1-m)²·m + 3·b·(1-m)·m² + m³
+   * When a=x1, b=x2 → X(t); when a=y1, b=y2 → Y(t)
+   */
+  private calculate(a: number, b: number, m: number): number {
+    return 3.0 * a * (1 - m) * (1 - m) * m + 3.0 * b * (1 - m) * m * m + m * m * m
   }
 }
 
@@ -146,7 +157,7 @@ function solve(value: number, minVal: number, maxVal: number, rounding: boolean)
 }
 
 function isOdd(n: number): number {
-  return n % 2 !== 0 ? 1 : 0
+  return n % 2 !== 0 ? -1.0 : 0.0
 }
 
 /**
@@ -292,19 +303,33 @@ function extractAnimationFrames(html: string, keyBytes: number[]): number[][] {
   const frameContent = frames[frameIndex]
 
   // Navigate: first child's second child's "d" attribute
-  // In HTML: frame.children[0].children[1].getAttribute("d")
-  // In regex: find <g> or <path> with "d" attribute
-  const pathMatch = frameContent.match(/<path[^>]*\sd=["']([^"']+)["']/i)
-  if (!pathMatch) {
-    // Try alternate structure: <g><path d="..."/></g>
-    const gMatch = frameContent.match(/<g[^>]*>[\s\S]*?<path[^>]*\sd=["']([^"']+)["']/i)
-    if (!gMatch) {
-      throw new Error('Could not extract SVG path data from animation frame')
+  // Reference (DOM): frame.children[0].children[1].getAttribute("d")
+  // That means: first <g> → second child <path> → "d" attribute
+  const gMatch = frameContent.match(/<g[^>]*>([\s\S]*?)<\/g>/i)
+  if (gMatch) {
+    const gContent = gMatch[1]
+    const pathRegex = /<path[^>]*\sd=["']([^"']+)["']/gi
+    const paths: string[] = []
+    let pMatch: RegExpExecArray | null
+    while ((pMatch = pathRegex.exec(gContent)) !== null) {
+      paths.push(pMatch[1])
     }
-    return parseDAttribute(gMatch[1])
+    // Reference: children[1] → second path element
+    if (paths.length >= 2) {
+      return parseDAttribute(paths[1])
+    }
+    if (paths.length === 1) {
+      return parseDAttribute(paths[0])
+    }
   }
 
-  return parseDAttribute(pathMatch[1])
+  // Fallback: find any path with "d" attribute directly in the SVG
+  const pathMatch = frameContent.match(/<path[^>]*\sd=["']([^"']+)["']/i)
+  if (pathMatch) {
+    return parseDAttribute(pathMatch[1])
+  }
+
+  throw new Error('Could not extract SVG path data from animation frame')
 }
 
 function parseDAttribute(d: string): number[][] {
@@ -313,7 +338,8 @@ function parseDAttribute(d: string): number[][] {
 
   return items.map((item) => {
     // Replace non-digits with spaces, split, convert to ints
-    const cleaned = item.replace(/[^\d-]+/g, ' ').trim()
+    // Reference strips hyphens — SVG path coords are always positive
+    const cleaned = item.replace(/[^\d]+/g, ' ').trim()
     if (cleaned === '') return []
     return cleaned.split(/\s+/).map((s) => parseInt(s, 10))
   })
