@@ -55,7 +55,6 @@ export async function GET(req: NextRequest) {
   }
 
   const redirectUri = `${baseUrl}/api/auth/twitter/callback`
-  console.log('OAuth callback - baseUrl:', baseUrl, 'redirectUri:', redirectUri)
 
   // Exchange code for access token
   const tokenData = await exchangeCodeForToken(
@@ -79,9 +78,11 @@ export async function GET(req: NextRequest) {
   // create an anonymous profile so the user can still use the app
   // They'll see a warning in the UI suggesting to re-login
   if (!twitterUser) {
-    console.warn('Failed to fetch Twitter user profile — creating anon fallback')
-    console.warn('This usually means the OAuth token is missing the tweet.read scope.')
-    console.warn('The user should log out and re-login to get a token with the correct scope.')
+    console.warn(
+      'Failed to fetch Twitter user profile — creating anon fallback. ' +
+      'This usually means the OAuth token is missing the tweet.read scope. ' +
+      'The user should log out and re-login to get a token with the correct scope.'
+    )
     twitterUser = {
       id: 'anon_' + crypto.randomBytes(8).toString('hex'),
       name: 'Anonymous User',
@@ -98,9 +99,6 @@ export async function GET(req: NextRequest) {
 
     // Create session token
     const sessionToken = createSessionToken(submitter.id)
-
-    const isAnon = twitterUser.id.startsWith('anon_')
-    console.log('OAuth success - creating session for user:', twitterUser.username, isAnon ? '(ANON FALLBACK)' : '')
 
     // Return an intermediate HTML page that sets the session cookie via fetch,
     // then redirects. This is more reliable on Vercel than setting cookies

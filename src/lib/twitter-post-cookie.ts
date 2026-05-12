@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { generateTransactionId, fetchXcomHtml, clearTransactionIdCache as clearXactCache } from '@/lib/x-transaction-id'
 import { postViaTwitterApi } from '@/lib/twitter-api-fallback'
+import { decrypt, isEncrypted } from '@/lib/encrypt'
 
 // ============================================================
 // Cookie-based tweet posting via X's internal GraphQL API
@@ -124,7 +125,14 @@ async function getSettings(): Promise<Record<string, string>> {
   })
   const map: Record<string, string> = {}
   for (const s of settings) {
-    if (s.value) map[s.key] = s.value
+    if (s.value) {
+      // Decrypt if encrypted, use as-is if plaintext (migration support)
+      try {
+        map[s.key] = isEncrypted(s.value) ? decrypt(s.value) : s.value
+      } catch {
+        map[s.key] = s.value // Fallback to raw value if decryption fails
+      }
+    }
   }
   return map
 }

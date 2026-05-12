@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
+import { verifyAdmin } from '@/lib/admin-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — retry loop can take up to 15s
@@ -11,12 +12,8 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authHeader = req.headers.get('authorization')
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
-
-  if (authHeader !== `Bearer ${adminPassword}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = verifyAdmin(req.headers.get('authorization'))
+  if (!auth.authorized) return auth.response
 
   try {
     const { id } = await params

@@ -1,15 +1,12 @@
 import { db } from '@/lib/db'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
+import { verifyAdmin } from '@/lib/admin-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
 // GET /api/submissions - List all submissions (admin only, includes submitter info)
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
-
-  if (authHeader !== `Bearer ${adminPassword}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = verifyAdmin(req.headers.get('authorization'))
+  if (!auth.authorized) return auth.response
 
   const { searchParams } = new URL(req.url)
   const status = searchParams.get('status')

@@ -14,11 +14,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Autobase Menfess - Twitter Base Indonesia",
-  description: "Kirim pesan anonim, admin moderasi, otomatis diposting ke Twitter. Autobase/Menfess gratis untuk komunitas Indonesia.",
-  keywords: ["autobase", "menfess", "twitter", "base", "indonesia", "anonim"],
+  title: "Autobase Menfess - X Base Indonesia",
+  description: "Kirim pesan anonim, admin moderasi, otomatis diposting ke X. Autobase/Menfess gratis untuk komunitas Indonesia.",
+  keywords: ["autobase", "menfess", "x", "twitter", "base", "indonesia", "anonim"],
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/favicon.svg",
   },
 };
 

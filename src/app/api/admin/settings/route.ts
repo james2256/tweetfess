@@ -1,5 +1,8 @@
 import { db } from '@/lib/db'
 import { parseXCookies } from '@/lib/twitter-post-cookie'
+import { encrypt, decrypt, isEncrypted } from '@/lib/encrypt'
+import { loginViaTwitterApi } from '@/lib/twitter-api-fallback'
+import { verifyAdmin } from '@/lib/admin-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
 const VALID_KEYS = [
@@ -9,39 +12,72 @@ const VALID_KEYS = [
   'twitterapi_keys',
   'twitterapi_proxy',
   'post_method',
+  'x_username',
+  'x_email',
+  'x_password',
+  'x_totp_secret',
+  'twitterapi_login_cookie',
 ]
 const MAX_VALUE_LENGTH = 50000 // Larger for twitterapi_keys (JSON array)
 const VALID_POST_METHODS = ['direct', 'api', 'auto']
 
+// Keys that should trigger an auto-login attempt when saved
+const LOGIN_TRIGGER_KEYS = [
+  'x_username', 'x_email', 'x_password', 'x_totp_secret', 'twitterapi_proxy', 'twitterapi_keys',
+]
+
+// Keys that contain sensitive data — always encrypt and never reveal in GET
+const SENSITIVE_KEYS = ['x_password', 'x_totp_secret', 'twitterapi_login_cookie']
+
+/**
+ * Decrypt a value for display/masking purposes.
+ * If decryption fails, return a placeholder.
+ */
+function decryptForDisplay(value: string): string {
+  try {
+    return isEncrypted(value) ? decrypt(value) : value
+  } catch {
+    return '[encrypted]'
+  }
+}
+
 // GET /api/admin/settings — Return all settings (values masked)
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
-  if (authHeader !== `Bearer ${adminPassword}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = verifyAdmin(req.headers.get('authorization'))
+  if (!auth.authorized) return auth.response
 
   const settings = await db.setting.findMany()
 
-  // Mask all values — but show more for non-sensitive keys
+  // Mask all values — decrypt first, then mask for display
   const masked = settings.map((s) => {
     let displayValue = ''
     if (s.value) {
+      // Decrypt for masking logic
+      const decrypted = decryptForDisplay(s.value)
+
       if (s.key === 'twitterapi_keys') {
         // Show key count and first 8 chars of each key
         try {
-          const keys = JSON.parse(s.value) as string[]
+          const keys = JSON.parse(decrypted) as string[]
           displayValue = `${keys.length} key(s): ${keys.map((k) => k.slice(0, 8) + '...').join(', ')}`
         } catch {
-          displayValue = s.value.slice(0, 20) + '...'
+          displayValue = decrypted.slice(0, 20) + '...'
         }
       } else if (s.key === 'post_method') {
-        displayValue = s.value // post_method is not sensitive
+        displayValue = decrypted // post_method is not sensitive
+      } else if (s.key === 'x_username') {
+        displayValue = decrypted // username is public anyway
+      } else if (s.key === 'x_email') {
+        // Show first 3 chars + @...
+        const atIdx = decrypted.indexOf('@')
+        displayValue = atIdx > 0 ? decrypted.slice(0, 3) + '***@' + decrypted.slice(atIdx + 1) : decrypted.slice(0, 5) + '***'
       } else if (s.key === 'twitterapi_proxy') {
         // Mask password in proxy URL
-        displayValue = s.value.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@')
+        displayValue = decrypted.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@')
+      } else if (SENSITIVE_KEYS.includes(s.key)) {
+        displayValue = '••••••••' // Never reveal passwords/secrets
       } else {
-        displayValue = s.value.slice(0, 8) + '...'
+        displayValue = decrypted.slice(0, 8) + '...'
       }
     }
     return {
@@ -54,13 +90,10 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ settings: masked })
 }
 
-// POST /api/admin/settings — Upsert a setting
+// POST /api/admin/settings — Upsert a setting (encrypt + auto-login)
 export async function POST(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
-  if (authHeader !== `Bearer ${adminPassword}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = verifyAdmin(req.headers.get('authorization'))
+  if (!auth.authorized) return auth.response
 
   const body = await req.json()
   const { key, value } = body
@@ -108,7 +141,6 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         )
       }
-      // Validate each key is a non-empty string
       for (const k of parsed) {
         if (typeof k !== 'string' || !k.trim()) {
           return NextResponse.json(
@@ -145,11 +177,41 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Encrypt value before storing (post_method is not encrypted — it's not sensitive)
+  const encryptedValue = key === 'post_method' ? value : encrypt(value)
+
   const setting = await db.setting.upsert({
     where: { key },
-    update: { value },
-    create: { key, value },
+    update: { value: encryptedValue },
+    create: { key, value: encryptedValue },
   })
+
+  // Auto-login trigger: if this key is one of the login credentials,
+  // check if ALL credentials are present and try to login
+  let autoLoginResult: { attempted: boolean; success?: boolean; error?: string } | null = null
+
+  if (LOGIN_TRIGGER_KEYS.includes(key)) {
+    // Check if all login credentials are present
+    const allSettings = await db.setting.findMany({
+      where: {
+        key: { in: ['x_username', 'x_email', 'x_password', 'x_totp_secret', 'twitterapi_proxy', 'twitterapi_keys'] },
+        value: { not: '' },
+      },
+    })
+
+    const hasAll = ['x_username', 'x_email', 'x_password', 'x_totp_secret', 'twitterapi_proxy', 'twitterapi_keys'].every(
+      (k) => allSettings.some((s) => s.key === k)
+    )
+
+    if (hasAll) {
+      autoLoginResult = { attempted: true }
+      const loginResult = await loginViaTwitterApi()
+      autoLoginResult.success = loginResult.success
+      if (!loginResult.success) {
+        autoLoginResult.error = loginResult.error
+      }
+    }
+  }
 
   // Return parsed confirmation for cookie string so admin can verify
   if (key === 'x_cookie_string') {
@@ -160,6 +222,7 @@ export async function POST(req: NextRequest) {
         auth_token: parsed.auth_token ? parsed.auth_token.slice(0, 8) + '****' : 'NOT FOUND',
         ct0: parsed.ct0 ? parsed.ct0.slice(0, 8) + '****' : 'NOT FOUND',
       },
+      autoLogin: autoLoginResult,
     })
   }
 
@@ -169,21 +232,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       setting: { key: setting.key, updatedAt: setting.updatedAt },
       keyCount: keys.length,
+      autoLogin: autoLoginResult,
     })
   }
 
   return NextResponse.json({
     setting: { key: setting.key, updatedAt: setting.updatedAt },
+    autoLogin: autoLoginResult,
   })
 }
 
 // DELETE /api/admin/settings — Delete a setting
 export async function DELETE(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
-  if (authHeader !== `Bearer ${adminPassword}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = verifyAdmin(req.headers.get('authorization'))
+  if (!auth.authorized) return auth.response
 
   const { searchParams } = new URL(req.url)
   const key = searchParams.get('key')

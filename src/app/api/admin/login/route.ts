@@ -3,10 +3,16 @@ import { NextRequest, NextResponse } from 'next/server'
 // POST /api/admin/login - Verify admin password
 export async function POST(req: NextRequest) {
   try {
+    const adminPassword = process.env.ADMIN_PASSWORD
+    if (!adminPassword) {
+      return NextResponse.json(
+        { error: 'ADMIN_PASSWORD env var is not set. Configure it in Vercel → Settings → Environment Variables.' },
+        { status: 500 }
+      )
+    }
+
     const body = await req.json()
     const { password } = body
-
-    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
 
     if (password === adminPassword) {
       return NextResponse.json({ success: true, token: adminPassword })

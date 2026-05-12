@@ -74,9 +74,6 @@ export async function exchangeCodeForToken(
     code_verifier: codeVerifier,
   })
 
-  console.log('Exchanging code for token, redirect_uri:', redirectUri)
-  console.log('Client ID:', clientId.substring(0, 8) + '...')
-
   try {
     const res = await fetch(TWITTER_TOKEN_URL, {
       method: 'POST',
@@ -94,7 +91,6 @@ export async function exchangeCodeForToken(
     }
 
     const data = await res.json()
-    console.log('Token exchange successful, scopes:', data.scope)
     return data
   } catch (error) {
     console.error('Token exchange error:', error)
@@ -196,7 +192,10 @@ const SESSION_COOKIE_NAME = 'menfess_session'
 const SESSION_MAX_AGE = 30 * 24 * 60 * 60 * 1000 // 30 days
 
 function getSessionSecret(): string {
-  const secret = process.env.NEXTAUTH_SECRET || process.env.SESSION_SECRET || 'menfess-default-secret-change-me'
+  const secret = process.env.NEXTAUTH_SECRET || process.env.SESSION_SECRET
+  if (!secret) {
+    throw new Error('NEXTAUTH_SECRET or SESSION_SECRET env var is not set. Configure it in Vercel → Settings → Environment Variables. Generate one with: openssl rand -hex 32')
+  }
   return secret
 }
 
@@ -260,51 +259,5 @@ export async function getSubmitterFromNextRequest(request: NextRequest): Promise
   return submitter
 }
 
-// Get submitter from generic Request (fallback, uses manual cookie parsing)
-export async function getSubmitterFromRequest(request: Request): Promise<{
-  id: string
-  username: string
-  displayName: string | null
-  profileImage: string | null
-  twitterId: string | null
-} | null> {
-  // Try NextRequest cookies API first
-  if ('cookies' in request && typeof (request as any).cookies?.get === 'function') {
-    const tokenCookie = (request as any).cookies.get(SESSION_COOKIE_NAME)
-    const token = tokenCookie?.value
-    if (token) {
-      const session = verifySessionToken(token)
-      if (session) {
-        const submitter = await db.submitter.findUnique({
-          where: { id: session.submitterId },
-          select: { id: true, username: true, displayName: true, profileImage: true, twitterId: true },
-        })
-        if (submitter) return submitter
-      }
-    }
-  }
-
-  // Fallback: manual cookie parsing
-  const cookieHeader = request.headers.get('cookie') || ''
-  const cookies = Object.fromEntries(
-    cookieHeader.split(';').map(c => {
-      const [k, ...v] = c.trim().split('=')
-      return [k, v.join('=')]
-    })
-  )
-
-  const token = cookies[SESSION_COOKIE_NAME]
-  if (!token) return null
-
-  const session = verifySessionToken(token)
-  if (!session) return null
-
-  const submitter = await db.submitter.findUnique({
-    where: { id: session.submitterId },
-    select: { id: true, username: true, displayName: true, profileImage: true, twitterId: true },
-  })
-
-  return submitter
-}
 
 export { SESSION_COOKIE_NAME }

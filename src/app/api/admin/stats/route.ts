@@ -1,18 +1,18 @@
 import { db } from '@/lib/db'
 import { getCookieAuthStatus } from '@/lib/twitter-post-cookie'
-import { getAllKeyCredits } from '@/lib/twitter-api-fallback'
+import { getAllKeyCredits, getApiLoginStatus } from '@/lib/twitter-api-fallback'
+import { verifyAdmin } from '@/lib/admin-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
-// GET /api/admin/stats - Get dashboard stats + post method ratio + API credits
+// Vercel serverless function timeout — multiple DB queries + external API calls
+export const maxDuration = 30
+
+// GET /api/admin/stats - Get dashboard stats + post method ratio + API credits + login status
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization')
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
+  const auth = verifyAdmin(req.headers.get('authorization'))
+  if (!auth.authorized) return auth.response
 
-  if (authHeader !== `Bearer ${adminPassword}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
-
-  const [pending, approved, rejected, posted, total, submitters, cookieAuthStatus, postMethodStats, apiCredits] =
+  const [pending, approved, rejected, posted, total, submitters, cookieAuthStatus, postMethodStats, apiCredits, apiLoginStatus] =
     await Promise.all([
       db.submission.count({ where: { status: 'pending' } }),
       db.submission.count({ where: { status: 'approved' } }),
@@ -23,6 +23,7 @@ export async function GET(req: NextRequest) {
       getCookieAuthStatus(),
       getPostMethodStats(),
       getAllKeyCredits(),
+      getApiLoginStatus(),
     ])
 
   return NextResponse.json({
@@ -35,6 +36,7 @@ export async function GET(req: NextRequest) {
     cookieAuthStatus,
     postMethodStats,
     apiCredits,
+    apiLoginStatus,
   })
 }
 

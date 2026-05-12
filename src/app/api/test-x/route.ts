@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { postTweetViaCookie, getCookieAuthStatus } from '@/lib/twitter-post-cookie'
+import { verifyAdmin } from '@/lib/admin-auth'
 
 // Vercel serverless function timeout — test posting with retries can take time
 export const maxDuration = 30
 
 // GET /api/test-x - Check X auth configuration status
 export async function GET(req: NextRequest) {
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
-  const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${adminPassword}`) {
-    return NextResponse.json({ error: 'Unauthorized - pass admin password as Bearer token' }, { status: 401 })
-  }
+  const auth = verifyAdmin(req.headers.get('authorization'))
+  if (!auth.authorized) return auth.response
 
   // Check OAuth 2.0 (login) credentials — still needed for user authentication
   const oauth2ClientId = process.env.OAUTH2_CLIENT_ID || process.env.TWITTER_CLIENT_ID
@@ -34,11 +32,8 @@ export async function GET(req: NextRequest) {
 
 // POST /api/test-x - Test posting a tweet via cookie auth
 export async function POST(req: NextRequest) {
-  const adminPassword = process.env.ADMIN_PASSWORD || 'admin123'
-  const authHeader = req.headers.get('authorization')
-  if (authHeader !== `Bearer ${adminPassword}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const auth = verifyAdmin(req.headers.get('authorization'))
+  if (!auth.authorized) return auth.response
 
   // Get optional custom text from body
   let testText = 'Tweetfess test! 🚀'

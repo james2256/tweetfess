@@ -6,7 +6,6 @@ import {
   Send,
   Shield,
   CheckCircle,
-  Twitter,
   LogOut,
   Clock,
   CheckCheck,
@@ -29,6 +28,9 @@ import {
   Activity,
   Key,
   Globe,
+  LayoutDashboard,
+  Wifi,
+  CircleDot,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -54,6 +56,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { useToast } from '@/hooks/use-toast'
 
 // Types
@@ -86,6 +89,13 @@ interface KeyCredits {
   error?: string
 }
 
+interface ApiLoginStatus {
+  hasLoginCookie: boolean
+  lastLoginAt: string | null
+  hasCredentials: boolean
+  missingCredentials: string[]
+}
+
 interface PostMethodStats {
   total: number
   direct: number
@@ -111,6 +121,7 @@ interface Stats {
   } | null
   postMethodStats: PostMethodStats | null
   apiCredits: KeyCredits[] | null
+  apiLoginStatus: ApiLoginStatus | null
 }
 
 // Status config
@@ -118,7 +129,15 @@ const statusConfig = {
   pending: { label: 'Menunggu', color: 'bg-yellow-100 text-yellow-800 border-yellow-300', icon: Clock },
   approved: { label: 'Disetujui', color: 'bg-green-100 text-green-800 border-green-300', icon: CheckCheck },
   rejected: { label: 'Ditolak', color: 'bg-red-100 text-red-800 border-red-300', icon: Ban },
-  posted: { label: 'Diposting', color: 'bg-sky-100 text-sky-800 border-sky-300', icon: CheckCircle },
+  posted: { label: 'Diposting', color: 'bg-[#F7F9F9] text-[#3D4145] border-[#EFF3F4]', icon: CheckCircle },
+}
+
+function XLogo({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+    </svg>
+  )
 }
 
 // Custom hook for submitter auth via cookie-based session
@@ -189,6 +208,22 @@ export default function HomePage() {
   const [adminLoginPassword, setAdminLoginPassword] = useState('')
   const [adminLoginOpen, setAdminLoginOpen] = useState(false)
 
+  // Admin sub-tab state
+  const [adminSubTab, setAdminSubTab] = useState<'dashboard' | 'settings'>('dashboard')
+
+  // Admin cookie helpers
+  const ADMIN_COOKIE = 'tweetfess_admin'
+  const setAdminCookie = (token: string) => {
+    document.cookie = `${ADMIN_COOKIE}=${encodeURIComponent(token)};path=/;max-age=${7 * 24 * 60 * 60};samesite=strict`
+  }
+  const getAdminCookie = (): string => {
+    const match = document.cookie.match(new RegExp(`(?:^|; )${ADMIN_COOKIE}=([^;]*)`))
+    return match ? decodeURIComponent(match[1]) : ''
+  }
+  const clearAdminCookie = () => {
+    document.cookie = `${ADMIN_COOKIE}=;path=/;max-age=0`
+  }
+
   // Submission form state
   const [message, setMessage] = useState('')
   const [category, setCategory] = useState('')
@@ -220,8 +255,23 @@ export default function HomePage() {
   const [postMethodSetting, setPostMethodSetting] = useState<'direct' | 'api' | 'auto'>('auto')
   const [apiCredits, setApiCredits] = useState<KeyCredits[]>([])
   const [isLoadingCredits, setIsLoadingCredits] = useState(false)
-  const [showApiSettings, setShowApiSettings] = useState(false)
   const [postMethodStats, setPostMethodStats] = useState<PostMethodStats | null>(null)
+  const [apiLoginStatus, setApiLoginStatus] = useState<ApiLoginStatus | null>(null)
+
+  // X Login Credentials state (for twitterapi.io user_login_v2)
+  const [xUsername, setXUsername] = useState('')
+  const [xEmail, setXEmail] = useState('')
+  const [xPassword, setXPassword] = useState('')
+  const [xTotpSecret, setXTotpSecret] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showTotpSecret, setShowTotpSecret] = useState(false)
+
+  // Settings collapsible state
+  const [directPostingOpen, setDirectPostingOpen] = useState(true)
+  const [apiFallbackOpen, setApiFallbackOpen] = useState(true)
+
+  // Batch saving state
+  const [isSavingAllCredentials, setIsSavingAllCredentials] = useState(false)
 
   const { toast } = useToast()
 
@@ -229,6 +279,27 @@ export default function HomePage() {
   const submitterUsername = submitter?.username
   const submitterImage = submitter?.profileImage
   const isAnonUser = submitter?.username?.startsWith('anon_')
+
+  // Restore admin session from cookie on page load
+  useEffect(() => {
+    const savedToken = getAdminCookie()
+    if (savedToken) {
+      // Verify the token is still valid by calling stats
+      fetch('/api/admin/stats', {
+        headers: { authorization: `Bearer ${savedToken}` },
+      }).then((res) => {
+        if (res.ok) {
+          setIsAdmin(true)
+          setAdminToken(savedToken)
+        } else {
+          // Token invalid — clear cookie
+          clearAdminCookie()
+        }
+      }).catch(() => {
+        clearAdminCookie()
+      })
+    }
+  }, [])
 
   // Check for auth callback params
   useEffect(() => {
@@ -269,6 +340,7 @@ export default function HomePage() {
       if (res.ok) {
         setIsAdmin(true)
         setAdminToken(data.token)
+        setAdminCookie(data.token)
         setAdminLoginOpen(false)
         setAdminLoginPassword('')
         toast({ title: 'Login berhasil!', description: 'Selamat datang, Admin.' })
@@ -285,6 +357,7 @@ export default function HomePage() {
   const handleAdminLogout = () => {
     setIsAdmin(false)
     setAdminToken('')
+    clearAdminCookie()
     setSubmissions([])
     setStats(null)
     setCookieStatus(null)
@@ -296,6 +369,11 @@ export default function HomePage() {
     setApiKeys('')
     setApiProxy('')
     setPostMethodSetting('auto')
+    setApiLoginStatus(null)
+    setXUsername('')
+    setXEmail('')
+    setXPassword('')
+    setXTotpSecret('')
     toast({ title: 'Logout berhasil' })
   }
 
@@ -372,6 +450,7 @@ export default function HomePage() {
         setCookieStatus(data.cookieAuthStatus)
         if (data.postMethodStats) setPostMethodStats(data.postMethodStats)
         if (data.apiCredits) setApiCredits(data.apiCredits)
+        if (data.apiLoginStatus) setApiLoginStatus(data.apiLoginStatus)
       }
     } catch {
       // silently fail
@@ -403,8 +482,17 @@ export default function HomePage() {
             twitterapi_keys: 'API Keys',
             twitterapi_proxy: 'Proxy URL',
             post_method: 'Post Method',
+            x_username: 'X Username',
+            x_email: 'X Email',
+            x_password: 'X Password',
+            x_totp_secret: '2FA Secret',
           }
-          toast({ title: `${labels[key] || key} disimpan!` })
+          const desc = data.autoLogin?.attempted
+            ? data.autoLogin.success
+              ? 'Auto-login berhasil — cookie tersimpan.'
+              : `Disimpan, tapi auto-login gagal: ${data.autoLogin.error || 'Unknown error'}`
+            : undefined
+          toast({ title: `${labels[key] || key} disimpan!`, description: desc })
         }
         onSuccess?.()
         fetchStats()
@@ -416,6 +504,58 @@ export default function HomePage() {
     } finally {
       setIsSavingSetting(null)
     }
+  }
+
+  // Save all X login credentials in batch
+  const handleSaveAllCredentials = async () => {
+    setIsSavingAllCredentials(true)
+    const fields: { key: string; value: string; label: string }[] = [
+      { key: 'x_username', value: xUsername, label: 'Username' },
+      { key: 'x_email', value: xEmail, label: 'Email' },
+      { key: 'x_password', value: xPassword, label: 'Password' },
+      { key: 'x_totp_secret', value: xTotpSecret, label: '2FA Secret' },
+    ]
+
+    let savedCount = 0
+    let failedFields: string[] = []
+
+    for (const field of fields) {
+      if (field.value.trim()) {
+        try {
+          const res = await fetch('/api/admin/settings', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              authorization: `Bearer ${adminToken}`,
+            },
+            body: JSON.stringify({ key: field.key, value: field.value }),
+          })
+          if (res.ok) {
+            savedCount++
+          } else {
+            failedFields.push(field.label)
+          }
+        } catch {
+          failedFields.push(field.label)
+        }
+      }
+    }
+
+    if (failedFields.length > 0) {
+      toast({
+        title: 'Sebagian gagal disimpan',
+        description: `Gagal: ${failedFields.join(', ')}. Berhasil: ${savedCount} field.`,
+        variant: 'destructive',
+      })
+    } else {
+      toast({
+        title: 'Semua kredensial disimpan!',
+        description: `${savedCount} field berhasil disimpan.`,
+      })
+    }
+
+    fetchStats()
+    setIsSavingAllCredentials(false)
   }
 
   // Approve submission (auto-posts to X)
@@ -536,44 +676,47 @@ export default function HomePage() {
     })
   }
 
+  // Pending count for badge
+  const pendingCount = stats?.pending ?? 0
+
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-50 via-white to-slate-50">
+    <div className="min-h-screen flex flex-col bg-[#F7F9F9]">
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur-lg">
+      <header className="sticky top-0 z-50 border-b border-[#EFF3F4] bg-white/80 backdrop-blur-lg">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-sky-600 flex items-center justify-center shadow-md shadow-sky-200">
-              <Twitter className="w-5 h-5 text-white" />
+            <div className="w-9 h-9 rounded-xl bg-[#0F1419] flex items-center justify-center shadow-md shadow-gray-200">
+              <XLogo className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-slate-900 leading-tight">Autobase</h1>
-              <p className="text-xs text-slate-500">Twitter Menfess</p>
+              <h1 className="text-lg font-bold text-[#0F1419] leading-tight">Autobase</h1>
+              <p className="text-xs text-[#536471]">X Menfess</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             {/* User info / login */}
             {isChecking ? (
-              <div className="flex items-center gap-2 text-slate-400">
+              <div className="flex items-center gap-2 text-[#71767B]">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 <span className="text-xs hidden sm:inline">Memeriksa...</span>
               </div>
             ) : !isLoggedOut ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="flex items-center gap-2 px-2 h-9 hover:bg-sky-50">
+                  <Button variant="ghost" className="flex items-center gap-2 px-2 h-9 hover:bg-[#F7F9F9]">
                     <Avatar className="w-6 h-6">
                       {submitterImage ? (
                         <AvatarImage src={submitterImage} alt={submitterUsername || ''} />
                       ) : null}
-                      <AvatarFallback className="bg-gradient-to-br from-sky-400 to-sky-600 text-white text-[10px] font-bold">
+                      <AvatarFallback className="bg-[#272c30] text-white text-[10px] font-bold">
                         {(submitterUsername || 'U').charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <Badge variant="outline" className="text-xs gap-1 border-sky-300 text-sky-700 bg-sky-50">
+                    <Badge variant="outline" className="text-xs gap-1 border-[#EFF3F4] text-[#3D4145] bg-[#F7F9F9]">
                       @{submitterUsername || 'user'}
                     </Badge>
-                    <ChevronDown className="w-3 h-3 text-slate-400" />
+                    <ChevronDown className="w-3 h-3 text-[#71767B]" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
@@ -605,9 +748,9 @@ export default function HomePage() {
               <Button
                 size="sm"
                 onClick={handleTwitterLogin}
-                className="bg-sky-500 hover:bg-sky-600 text-white h-9 px-4"
+                className="bg-[#0F1419] hover:bg-[#272c30] text-white h-9 px-4"
               >
-                <Twitter className="w-4 h-4 mr-2" /> Login X
+                <XLogo className="w-4 h-4 mr-2" /> Login X
               </Button>
             )}
 
@@ -619,21 +762,21 @@ export default function HomePage() {
                 <Badge variant="outline" className="text-xs gap-1 border-green-300 text-green-700 bg-green-50">
                   <Shield className="w-3 h-3" /> Admin
                 </Badge>
-                <Button variant="ghost" size="sm" onClick={handleAdminLogout} className="text-slate-400 h-7 w-7 p-0">
+                <Button variant="ghost" size="sm" onClick={handleAdminLogout} className="text-[#71767B] h-7 w-7 p-0">
                   <LogOut className="w-3.5 h-3.5" />
                 </Button>
               </div>
             ) : (
               <Dialog open={adminLoginOpen} onOpenChange={setAdminLoginOpen}>
                 <DialogTrigger asChild>
-                  <Button variant="ghost" size="sm" className="text-slate-400 hover:text-slate-600">
+                  <Button variant="ghost" size="sm" className="text-[#71767B] hover:text-[#536471]">
                     <Shield className="w-4 h-4 mr-1" /> Admin
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-sm">
                   <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                      <Shield className="w-5 h-5 text-sky-500" /> Login Admin
+                      <Shield className="w-5 h-5 text-[#536471]" /> Login Admin
                     </DialogTitle>
                     <DialogDescription>Masukkan password admin untuk mengakses dashboard.</DialogDescription>
                   </DialogHeader>
@@ -645,7 +788,7 @@ export default function HomePage() {
                       onChange={(e) => setAdminLoginPassword(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
                     />
-                    <Button onClick={handleAdminLogin} className="w-full bg-sky-500 hover:bg-sky-600">
+                    <Button onClick={handleAdminLogin} className="w-full bg-[#0F1419] hover:bg-[#272c30]">
                       Masuk
                     </Button>
                   </div>
@@ -659,7 +802,7 @@ export default function HomePage() {
       {/* Main Content */}
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 mb-6 bg-slate-100 p-1 rounded-xl">
+          <TabsList className="grid w-full grid-cols-2 mb-6 bg-[#F7F9F9] p-1 rounded-xl">
             <TabsTrigger value="submit" className="rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm">
               <Send className="w-4 h-4 mr-2" /> Kirim Pesan
             </TabsTrigger>
@@ -672,14 +815,14 @@ export default function HomePage() {
           <TabsContent value="submit">
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
               <div className="text-center mb-8">
-                <h2 className="text-2xl font-bold text-slate-900 mb-2">Kirim Pesan Anonim</h2>
-                <p className="text-slate-500">Tulis pesanmu, admin akan memeriksa dan mempostingnya ke Twitter.</p>
+                <h2 className="text-2xl font-bold text-[#0F1419] mb-2">Kirim Pesan Anonim</h2>
+                <p className="text-[#536471]">Tulis pesanmu, admin akan memeriksa dan mempostingnya ke X.</p>
               </div>
 
               {isChecking ? (
                 <Card className="max-w-lg mx-auto py-12">
                   <CardContent className="flex items-center justify-center">
-                    <Loader2 className="w-6 h-6 animate-spin text-sky-500" />
+                    <Loader2 className="w-6 h-6 animate-spin text-[#536471]" />
                   </CardContent>
                 </Card>
               ) : authError ? (
@@ -688,34 +831,34 @@ export default function HomePage() {
                     <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto">
                       <AlertTriangle className="w-7 h-7 text-amber-500" />
                     </div>
-                    <h3 className="text-lg font-semibold text-slate-800">Koneksi Bermasalah</h3>
-                    <p className="text-sm text-slate-500">{authError}</p>
+                    <h3 className="text-lg font-semibold text-[#0F1419]">Koneksi Bermasalah</h3>
+                    <p className="text-sm text-[#536471]">{authError}</p>
                     <Button
                       onClick={checkAuth}
                       variant="outline"
-                      className="border-slate-200"
+                      className="border-[#EFF3F4]"
                     >
                       <RotateCcw className="w-4 h-4 mr-2" /> Coba Lagi
                     </Button>
                   </CardContent>
                 </Card>
               ) : isLoggedOut ? (
-                <Card className="max-w-lg mx-auto shadow-lg border-slate-200">
+                <Card className="max-w-lg mx-auto shadow-lg border-[#EFF3F4]">
                   <CardContent className="py-10 text-center space-y-5">
-                    <div className="w-14 h-14 rounded-2xl bg-sky-50 flex items-center justify-center mx-auto">
-                      <Twitter className="w-7 h-7 text-sky-500" />
+                    <div className="w-14 h-14 rounded-2xl bg-[#F7F9F9] flex items-center justify-center mx-auto">
+                      <XLogo className="w-7 h-7 text-[#0F1419]" />
                     </div>
-                    <h3 className="text-lg font-semibold text-slate-800">Login Dulu Ya!</h3>
-                    <p className="text-sm text-slate-500">
+                    <h3 className="text-lg font-semibold text-[#0F1419]">Login Dulu Ya!</h3>
+                    <p className="text-sm text-[#536471]">
                       Login dengan akun X untuk mengirim pesan. <br />
-                      <span className="text-slate-400 text-xs">Tenang, identitasmu tetap anonim di tweet!</span>
+                      <span className="text-[#71767B] text-xs">Tenang, identitasmu tetap anonim di tweet!</span>
                     </p>
                     <Button
                       onClick={handleTwitterLogin}
-                      className="bg-sky-500 hover:bg-sky-600 text-white h-11 text-base px-8"
+                      className="bg-[#0F1419] hover:bg-[#272c30] text-white h-11 text-base px-8"
                       size="lg"
                     >
-                      <Twitter className="w-5 h-5 mr-2" /> Login dengan X
+                      <XLogo className="w-5 h-5 mr-2" /> Login dengan X
                     </Button>
                   </CardContent>
                 </Card>
@@ -726,22 +869,22 @@ export default function HomePage() {
                     <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto">
                       <AlertTriangle className="w-7 h-7 text-amber-500" />
                     </div>
-                    <h3 className="text-lg font-semibold text-slate-800">Profil X Gagal Dimuat</h3>
-                    <p className="text-sm text-slate-500">
+                    <h3 className="text-lg font-semibold text-[#0F1419]">Profil X Gagal Dimuat</h3>
+                    <p className="text-sm text-[#536471]">
                       Login berhasil tapi profil X kamu tidak bisa dimuat. <br />
-                      <span className="text-slate-400 text-xs">Kamu tetap bisa mengirim pesan, atau coba login ulang.</span>
+                      <span className="text-[#71767B] text-xs">Kamu tetap bisa mengirim pesan, atau coba login ulang.</span>
                     </p>
                     <div className="flex items-center justify-center gap-3">
                       <Button
                         onClick={handleLogout}
                         variant="outline"
-                        className="border-slate-200"
+                        className="border-[#EFF3F4]"
                       >
                         <LogOut className="w-4 h-4 mr-2" /> Logout & Coba Lagi
                       </Button>
                       <Button
                         onClick={handleTwitterLogin}
-                        className="bg-sky-500 hover:bg-sky-600 text-white"
+                        className="bg-[#0F1419] hover:bg-[#272c30] text-white"
                       >
                         <RotateCcw className="w-4 h-4 mr-2" /> Re-Login X
                       </Button>
@@ -749,16 +892,16 @@ export default function HomePage() {
                   </CardContent>
                 </Card>
               ) : (
-                <Card className="max-w-lg mx-auto shadow-lg border-slate-200">
+                <Card className="max-w-lg mx-auto shadow-lg border-[#EFF3F4]">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
-                      <MessageSquare className="w-4 h-4 text-sky-500" /> Tulis Pesan
+                      <MessageSquare className="w-4 h-4 text-[#536471]" /> Tulis Pesan
                     </CardTitle>
                     <CardDescription className="flex items-center gap-1.5">
                       {submitterImage ? (
                         <img src={submitterImage} alt="" className="w-4 h-4 rounded-full" />
                       ) : null}
-                      Login sebagai <span className="font-medium text-sky-600">@{submitterUsername || 'user'}</span> · Pesan akan diperiksa admin sebelum diposting
+                      Login sebagai <span className="font-medium text-[#0F1419]">@{submitterUsername || 'user'}</span> · Pesan akan diperiksa admin sebelum diposting
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -767,12 +910,12 @@ export default function HomePage() {
                         placeholder="Tulis pesan anonimmu di sini..."
                         value={message}
                         onChange={(e) => setMessage(e.target.value)}
-                        className="min-h-[120px] resize-none border-slate-200 focus:border-sky-400 focus:ring-sky-400"
+                        className="min-h-[120px] resize-none border-[#EFF3F4]"
                         maxLength={280}
                       />
                       <div className="flex justify-between items-center">
-                        <span className="text-xs text-slate-400">Maks 280 karakter (batas tweet X)</span>
-                        <span className={`text-xs font-medium ${message.length > 280 ? 'text-red-500' : message.length > 220 ? 'text-amber-500' : 'text-slate-400'}`}>
+                        <span className="text-xs text-[#71767B]">Maks 280 karakter (batas tweet X)</span>
+                        <span className={`text-xs font-medium ${message.length > 280 ? 'text-red-500' : message.length > 220 ? 'text-amber-500' : 'text-[#71767B]'}`}>
                           {message.length}/280
                         </span>
                       </div>
@@ -782,14 +925,14 @@ export default function HomePage() {
                         placeholder="Kategori (opsional, contoh: curhat, confes, dll)"
                         value={category}
                         onChange={(e) => setCategory(e.target.value)}
-                        className="border-slate-200 focus:border-sky-400 focus:ring-sky-400"
+                        className="border-[#EFF3F4]"
                         maxLength={30}
                       />
                     </div>
                     <Button
                       onClick={handleSubmit}
                       disabled={isSubmitting || !message.trim()}
-                      className="w-full bg-sky-500 hover:bg-sky-600 disabled:opacity-50"
+                      className="w-full bg-[#0F1419] hover:bg-[#272c30] disabled:opacity-50"
                       size="lg"
                     >
                       {isSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
@@ -800,20 +943,20 @@ export default function HomePage() {
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-lg mx-auto mt-6">
-                <div className="flex items-center gap-2 p-3 rounded-xl bg-sky-50 border border-sky-100">
-                  <Shield className="w-4 h-4 text-sky-500 shrink-0" />
-                  <span className="text-xs text-sky-700">Dimoderasi admin</span>
+                <div className="flex items-center gap-2 p-3 rounded-xl bg-[#F7F9F9] border border-[#EFF3F4]">
+                  <Shield className="w-4 h-4 text-[#536471] shrink-0" />
+                  <span className="text-xs text-[#536471]">Dimoderasi admin</span>
                 </div>
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-100">
                   <Eye className="w-4 h-4 text-green-500 shrink-0" />
-                  <span className="text-xs text-green-700">Anonim di Twitter</span>
+                  <span className="text-xs text-green-700">Anonim di X</span>
                 </div>
                 <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-100">
                   <Zap className="w-4 h-4 text-amber-500 shrink-0" />
                   <span className="text-xs text-amber-700">Gratis selamanya</span>
                 </div>
               </div>
-              <p className="text-center text-xs text-slate-400 mt-4">
+              <p className="text-center text-xs text-[#71767B] mt-4">
                 * Identitasmu hanya diketahui admin untuk moderasi. Tweet yang diposting 100% anonim.
               </p>
             </motion.div>
@@ -825,21 +968,21 @@ export default function HomePage() {
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
                 <Card className="max-w-md mx-auto text-center py-12">
                   <CardContent className="space-y-4">
-                    <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto">
-                      <Shield className="w-8 h-8 text-slate-400" />
+                    <div className="w-16 h-16 rounded-2xl bg-[#F7F9F9] flex items-center justify-center mx-auto">
+                      <Shield className="w-8 h-8 text-[#71767B]" />
                     </div>
-                    <h3 className="text-lg font-semibold text-slate-700">Akses Terbatas</h3>
-                    <p className="text-sm text-slate-500">Login sebagai admin untuk mengelola pesan masuk.</p>
+                    <h3 className="text-lg font-semibold text-[#3D4145]">Akses Terbatas</h3>
+                    <p className="text-sm text-[#536471]">Login sebagai admin untuk mengelola pesan masuk.</p>
                     <Dialog open={adminLoginOpen} onOpenChange={setAdminLoginOpen}>
                       <DialogTrigger asChild>
-                        <Button className="bg-sky-500 hover:bg-sky-600">
+                        <Button className="bg-[#0F1419] hover:bg-[#272c30]">
                           <LogIn className="w-4 h-4 mr-2" /> Login Admin
                         </Button>
                       </DialogTrigger>
                       <DialogContent className="sm:max-w-sm">
                         <DialogHeader>
                           <DialogTitle className="flex items-center gap-2">
-                            <Shield className="w-5 h-5 text-sky-500" /> Login Admin
+                            <Shield className="w-5 h-5 text-[#536471]" /> Login Admin
                           </DialogTitle>
                           <DialogDescription>Masukkan password admin.</DialogDescription>
                         </DialogHeader>
@@ -851,7 +994,7 @@ export default function HomePage() {
                             onChange={(e) => setAdminLoginPassword(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleAdminLogin()}
                           />
-                          <Button onClick={handleAdminLogin} className="w-full bg-sky-500 hover:bg-sky-600">
+                          <Button onClick={handleAdminLogin} className="w-full bg-[#0F1419] hover:bg-[#272c30]">
                             Masuk
                           </Button>
                         </div>
@@ -862,443 +1005,221 @@ export default function HomePage() {
               </motion.div>
             ) : (
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
-                {stats && (
-                  <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                    {[
-                      { label: 'Total', value: stats.total, icon: BarChart3, color: 'bg-slate-100 text-slate-700' },
-                      { label: 'Menunggu', value: stats.pending, icon: Clock, color: 'bg-yellow-50 text-yellow-700' },
-                      { label: 'Disetujui', value: stats.approved, icon: CheckCheck, color: 'bg-green-50 text-green-700' },
-                      { label: 'Ditolak', value: stats.rejected, icon: Ban, color: 'bg-red-50 text-red-700' },
-                      { label: 'Diposting', value: stats.posted, icon: CheckCircle, color: 'bg-sky-50 text-sky-700' },
-                      { label: 'Pengguna', value: stats.submitters, icon: Users, color: 'bg-purple-50 text-purple-700' },
-                    ].map((stat) => (
-                      <Card key={stat.label} className="border-0 shadow-sm">
-                        <CardContent className="p-4">
-                          <div className="flex items-center gap-2 mb-1">
-                            <div className={`w-7 h-7 rounded-lg ${stat.color} flex items-center justify-center`}>
-                              <stat.icon className="w-3.5 h-3.5" />
+                {/* Admin Sub-Tabs */}
+                <div className="flex items-center gap-1 bg-[#F7F9F9] p-1 rounded-xl">
+                  <button
+                    onClick={() => setAdminSubTab('dashboard')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      adminSubTab === 'dashboard'
+                        ? 'bg-white shadow-sm text-[#0F1419]'
+                        : 'text-[#536471] hover:text-[#3D4145]'
+                    }`}
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                    Dashboard
+                    {pendingCount > 0 && (
+                      <Badge className="bg-yellow-400 text-yellow-900 text-[10px] px-1.5 py-0 h-5 min-w-[20px] flex items-center justify-center">
+                        {pendingCount}
+                      </Badge>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => setAdminSubTab('settings')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                      adminSubTab === 'settings'
+                        ? 'bg-white shadow-sm text-[#0F1419]'
+                        : 'text-[#536471] hover:text-[#3D4145]'
+                    }`}
+                  >
+                    <Settings className="w-4 h-4" />
+                    Settings
+                  </button>
+                </div>
+
+                {/* ===== DASHBOARD SUB-TAB ===== */}
+                {adminSubTab === 'dashboard' && (
+                  <motion.div
+                    key="dashboard"
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="space-y-6"
+                  >
+                    {/* Stats Grid */}
+                    {stats && (
+                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                        {[
+                          { label: 'Total', value: stats.total, icon: BarChart3, color: 'bg-[#F7F9F9] text-[#3D4145]' },
+                          { label: 'Menunggu', value: stats.pending, icon: Clock, color: stats.pending > 0 ? 'bg-yellow-50 text-yellow-700 ring-2 ring-yellow-300' : 'bg-yellow-50 text-yellow-700' },
+                          { label: 'Disetujui', value: stats.approved, icon: CheckCheck, color: 'bg-green-50 text-green-700' },
+                          { label: 'Ditolak', value: stats.rejected, icon: Ban, color: 'bg-red-50 text-red-700' },
+                          { label: 'Diposting', value: stats.posted, icon: CheckCircle, color: 'bg-[#F7F9F9] text-[#536471]' },
+                          { label: 'Pengguna', value: stats.submitters, icon: Users, color: 'bg-purple-50 text-purple-700' },
+                        ].map((stat) => (
+                          <Card key={stat.label} className="border-0 shadow-sm">
+                            <CardContent className="p-4">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className={`w-7 h-7 rounded-lg ${stat.color} flex items-center justify-center`}>
+                                  <stat.icon className="w-3.5 h-3.5" />
+                                </div>
+                                <span className="text-xs text-[#536471] hidden sm:inline">{stat.label}</span>
+                              </div>
+                              <p className="text-2xl font-bold text-[#0F1419]">{stat.value}</p>
+                              <span className="text-xs text-[#71767B] sm:hidden">{stat.label}</span>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Connection Status Banner */}
+                    <Card className="shadow-sm border-[#EFF3F4]">
+                      <CardContent className="p-3">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                          <span className="font-medium text-[#536471] flex items-center gap-1.5">
+                            <Wifi className="w-3.5 h-3.5" /> Connection
+                          </span>
+                          {/* Direct (Cookie) Status */}
+                          <span className="flex items-center gap-1.5">
+                            <CircleDot className={`w-3 h-3 ${
+                              cookieStatus?.configured
+                                ? 'text-green-500 fill-green-500'
+                                : 'text-red-500 fill-red-500'
+                            }`} />
+                            <span className={cookieStatus?.configured ? 'text-green-700 font-medium' : 'text-red-600'}>
+                              Direct: {cookieStatus?.configured ? 'Connected' : 'Not configured'}
+                            </span>
+                            {cookieStatus?.source && (
+                              <span className="text-[#71767B]">(via {cookieStatus.source === 'database' ? 'Database' : 'Env Var'})</span>
+                            )}
+                          </span>
+                          <span className="text-[#71767B] hidden sm:inline">|</span>
+                          {/* API (Login Cookie) Status */}
+                          <span className="flex items-center gap-1.5">
+                            <CircleDot className={`w-3 h-3 ${
+                              apiLoginStatus?.hasLoginCookie
+                                ? 'text-green-500 fill-green-500'
+                                : apiLoginStatus?.hasCredentials
+                                ? 'text-amber-500 fill-amber-500'
+                                : 'text-red-500 fill-red-500'
+                            }`} />
+                            <span className={
+                              apiLoginStatus?.hasLoginCookie
+                                ? 'text-green-700 font-medium'
+                                : apiLoginStatus?.hasCredentials
+                                ? 'text-amber-600 font-medium'
+                                : 'text-red-600'
+                            }>
+                              API: {apiLoginStatus?.hasLoginCookie ? 'Logged in' : apiLoginStatus?.hasCredentials ? 'Need login' : 'Not configured'}
+                            </span>
+                            {apiLoginStatus?.lastLoginAt && (
+                              <span className="text-[#71767B]">
+                                Last: {new Date(apiLoginStatus.lastLoginAt).toLocaleDateString('id-ID', { day: '2-digit', month: 'numeric', year: 'numeric' })}
+                              </span>
+                            )}
+                          </span>
+                          {/* Missing credentials warning */}
+                          {(cookieStatus?.missing && cookieStatus.missing.length > 0 && !cookieStatus.configured) && (
+                            <>
+                              <span className="text-[#71767B] hidden sm:inline">|</span>
+                              <span className="text-red-500 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" />
+                                Missing: {cookieStatus.missing
+                                  .filter(k => k !== 'x_query_id')
+                                  .map(k => k.replace('x_', '').replace(/_/g, ' '))
+                                  .join(', ')
+                                }
+                                {cookieStatus.missing.includes('x_query_id') && (
+                                  <span className="text-[#71767B]">(query ID: auto-fetch)</span>
+                                )}
+                              </span>
+                            </>
+                          )}
+                          {(apiLoginStatus?.missingCredentials && apiLoginStatus.missingCredentials.length > 0 && !apiLoginStatus.hasLoginCookie) && (
+                            <>
+                              <span className="text-[#71767B] hidden sm:inline">|</span>
+                              <span className="text-amber-600">
+                                API missing: {apiLoginStatus.missingCredentials.join(', ')}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Post Method Rate (compact) */}
+                    {postMethodStats && postMethodStats.total > 0 && (
+                      <Card className="shadow-sm border-[#EFF3F4]">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-[#536471]" /> Post Method Rate
+                            <span className="text-[10px] text-[#71767B] font-normal">
+                              {postMethodStats.total} post terakhir
+                            </span>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {/* Direct */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-green-500" />
+                                Normal POST
+                              </span>
+                              <span className="text-xs font-bold text-[#0F1419]">{postMethodStats.directRate}%</span>
                             </div>
-                            <span className="text-xs text-slate-500 hidden sm:inline">{stat.label}</span>
+                            <div className="w-full bg-[#F7F9F9] rounded-full h-2">
+                              <div
+                                className="bg-green-500 h-2 rounded-full transition-all duration-500"
+                                style={{ width: `${postMethodStats.directRate}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-[#71767B]">{postMethodStats.direct}/{postMethodStats.total} via direct cookie</span>
                           </div>
-                          <p className="text-2xl font-bold text-slate-900">{stat.value}</p>
-                          <span className="text-xs text-slate-400 sm:hidden">{stat.label}</span>
+                          {/* Retry */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-amber-500" />
+                                Retry (226/empty)
+                              </span>
+                              <span className="text-xs font-bold text-[#0F1419]">{postMethodStats.retryRate}%</span>
+                            </div>
+                            <div className="w-full bg-[#F7F9F9] rounded-full h-2">
+                              <div
+                                className="bg-amber-500 h-2 rounded-full transition-all duration-500"
+                                style={{ width: `${postMethodStats.retryRate}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-[#71767B]">{postMethodStats.retry}/{postMethodStats.total} setelah retry</span>
+                          </div>
+                          {/* Fallback */}
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full bg-purple-500" />
+                                API Fallback
+                              </span>
+                              <span className="text-xs font-bold text-[#0F1419]">{postMethodStats.fallbackRate}%</span>
+                            </div>
+                            <div className="w-full bg-[#F7F9F9] rounded-full h-2">
+                              <div
+                                className="bg-purple-500 h-2 rounded-full transition-all duration-500"
+                                style={{ width: `${postMethodStats.fallbackRate}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-[#71767B]">{postMethodStats.fallback}/{postMethodStats.total} via twitterapi.io</span>
+                          </div>
                         </CardContent>
                       </Card>
-                    ))}
-                  </div>
-                )}
-
-                {/* Post Method Ratio Card */}
-                {postMethodStats && postMethodStats.total > 0 && (
-                  <Card className="shadow-sm border-slate-200">
-                    <CardHeader className="pb-3">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <Activity className="w-4 h-4 text-sky-500" /> Post Method Rate
-                        <span className="text-[10px] text-slate-400 font-normal">
-                          {postMethodStats.total} post terakhir
-                        </span>
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {/* Direct */}
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                            <div className="w-2 h-2 rounded-full bg-green-500" />
-                            Normal POST
-                          </span>
-                          <span className="text-xs font-bold text-slate-900">{postMethodStats.directRate}%</span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-2">
-                          <div
-                            className="bg-green-500 h-2 rounded-full transition-all duration-500"
-                            style={{ width: `${postMethodStats.directRate}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-slate-400">{postMethodStats.direct}/{postMethodStats.total} via direct cookie</span>
-                      </div>
-                      {/* Retry */}
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                            <div className="w-2 h-2 rounded-full bg-amber-500" />
-                            Retry (226/empty)
-                          </span>
-                          <span className="text-xs font-bold text-slate-900">{postMethodStats.retryRate}%</span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-2">
-                          <div
-                            className="bg-amber-500 h-2 rounded-full transition-all duration-500"
-                            style={{ width: `${postMethodStats.retryRate}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-slate-400">{postMethodStats.retry}/{postMethodStats.total} setelah retry</span>
-                      </div>
-                      {/* Fallback */}
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                            <div className="w-2 h-2 rounded-full bg-purple-500" />
-                            API Fallback
-                          </span>
-                          <span className="text-xs font-bold text-slate-900">{postMethodStats.fallbackRate}%</span>
-                        </div>
-                        <div className="w-full bg-slate-100 rounded-full h-2">
-                          <div
-                            className="bg-purple-500 h-2 rounded-full transition-all duration-500"
-                            style={{ width: `${postMethodStats.fallbackRate}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-slate-400">{postMethodStats.fallback}/{postMethodStats.total} via twitterapi.io</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {/* X Settings Card */}
-                <Card className="shadow-sm border-slate-200">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                      <Settings className="w-4 h-4 text-sky-500" /> X Settings
-                      {cookieStatus?.configured ? (
-                        <Badge variant="outline" className="text-[10px] px-1.5 bg-green-50 text-green-700 border-green-300">
-                          Terhubung
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] px-1.5 bg-red-50 text-red-700 border-red-300">
-                          Belum lengkap
-                        </Badge>
-                      )}
-                      {cookieStatus?.source && (
-                        <span className="text-[10px] text-slate-400">
-                          via {cookieStatus.source === 'database' ? 'Database' : 'Env Var'}
-                        </span>
-                      )}
-                      {cookieStatus?.missing && cookieStatus.missing.length > 0 && (
-                        <span className="text-[10px] text-red-500">
-                          Kurang: {cookieStatus.missing
-                            .filter(k => k !== 'x_query_id')
-                            .map(k => k.replace('x_', '').replace(/_/g, ' '))
-                            .join(', ')
-                          }
-                          {cookieStatus.missing.includes('x_query_id') && (
-                            <span className="text-slate-400"> (query ID: auto-fetch)</span>
-                          )}
-                        </span>
-                      )}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {/* Cookie String */}
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-slate-600">Cookie String</label>
-                      <div className="flex gap-2">
-                        <div className="flex-1 relative">
-                          <Input
-                            type={showCookieValue ? 'text' : 'password'}
-                            placeholder="auth_token=...; ct0=...; ..."
-                            value={cookieString}
-                            onChange={(e) => setCookieString(e.target.value)}
-                            className="pr-10 border-slate-200"
-                          />
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-1 top-1 h-7 w-7 p-0"
-                            onClick={() => setShowCookieValue(!showCookieValue)}
-                          >
-                            {showCookieValue ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </Button>
-                        </div>
-                        <Button
-                          onClick={() => handleSaveSetting('x_cookie_string', cookieString, () => setCookieString(''))}
-                          disabled={!!isSavingSetting || !cookieString.trim()}
-                          className="bg-sky-500 hover:bg-sky-600"
-                        >
-                          {isSavingSetting === 'x_cookie_string' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Simpan'}
-                        </Button>
-                      </div>
-                      <button
-                        onClick={() => setShowCookieGuide(!showCookieGuide)}
-                        className="text-xs text-sky-600 hover:underline flex items-center gap-1"
-                      >
-                        <ChevronDown className={`w-3 h-3 transition-transform ${showCookieGuide ? 'rotate-180' : ''}`} />
-                        Cara mendapatkan cookie string
-                      </button>
-                      {showCookieGuide && (
-                        <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600 space-y-2 border border-slate-200">
-                          <ol className="list-decimal list-inside space-y-1">
-                            <li>Login ke <strong>x.com</strong> di browser (Chrome/Firefox)</li>
-                            <li>Tekan <kbd className="bg-slate-200 px-1 rounded">F12</kbd> → tab <strong>Application</strong></li>
-                            <li>Klik <strong>Cookies</strong> → <strong>https://x.com</strong></li>
-                            <li>Temukan baris <code className="bg-slate-200 px-1 rounded">auth_token</code> → copy value-nya</li>
-                            <li>Temukan baris <code className="bg-slate-200 px-1 rounded">ct0</code> → copy value-nya</li>
-                            <li>Temukan baris <code className="bg-slate-200 px-1 rounded">guest_id</code> → copy value-nya</li>
-                            <li>Gabungkan: <code className="bg-slate-200 px-1 rounded">auth_token=...; ct0=...; guest_id=...</code></li>
-                            <li>Paste di atas, lalu klik <strong>Simpan</strong></li>
-                          </ol>
-                          <div className="flex items-start gap-1.5 text-amber-600 pt-1">
-                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span>Gunakan akun X yang ingin kamu jadikan autobase! Cookie dari akun lain tidak akan bekerja.</span>
-                          </div>
-                          <div className="flex items-start gap-1.5 text-sky-600 pt-1">
-                            <Zap className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <span>Sertikan semua cookie dari browser untuk hasil terbaik. Cookie yang lengkap membuat request lebih mirip browser asli.</span>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <Separator />
-
-                    {/* Query ID (auto-fetch, manual fallback) */}
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <label className="text-xs font-medium text-slate-600">Query ID</label>
-                        <Badge variant="outline" className="text-[9px] px-1 py-0 bg-sky-50 text-sky-600 border-sky-200">
-                          Auto-fetch
-                        </Badge>
-                      </div>
-                      <div className="flex gap-2">
-                        <Input
-                          type="text"
-                          placeholder="Manual fallback (optional)"
-                          value={queryId}
-                          onChange={(e) => setQueryId(e.target.value)}
-                          className="border-slate-200"
-                        />
-                        <Button
-                          onClick={() => handleSaveSetting('x_query_id', queryId, () => setQueryId(''))}
-                          disabled={!!isSavingSetting || !queryId.trim()}
-                          className="bg-sky-500 hover:bg-sky-600"
-                        >
-                          {isSavingSetting === 'x_query_id' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Simpan'}
-                        </Button>
-                      </div>
-                      <button
-                        onClick={() => setShowQueryIdGuide(!showQueryIdGuide)}
-                        className="text-xs text-sky-600 hover:underline flex items-center gap-1"
-                      >
-                        <ChevronDown className={`w-3 h-3 transition-transform ${showQueryIdGuide ? 'rotate-180' : ''}`} />
-                        Tentang auto-fetch & manual fallback
-                      </button>
-                      {showQueryIdGuide && (
-                        <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600 space-y-2 border border-slate-200">
-                          <p>Query ID otomatis di-fetch dari JS bundle X sebelum setiap post. Kamu <strong>tidak perlu mengisi ini manual</strong>.</p>
-                          <p>Isi manual hanya jika auto-fetch gagal (jarang terjadi). Cara manual:</p>
-                          <ol className="list-decimal list-inside space-y-1">
-                            <li>Step 1 — ambil nama bundle terbaru:<br />
-                              <code className="bg-slate-200 px-1 rounded text-[10px]">curl -sL &apos;https://x.com&apos; | grep -oP &apos;main\.[a-z0-9]+\.js&apos; | head -1</code>
-                            </li>
-                            <li>Step 2 — extract dari bundle tersebut:<br />
-                              <code className="bg-slate-200 px-1 rounded text-[10px] break-all">curl -sL &apos;https://abs.twimg.com/responsive-web/client-web/&lt;BUNDLE&gt;.js&apos; | grep -oP &apos;queryId:&quot;[^&quot;]+&quot;,operationName:&quot;CreateTweet&apos;</code>
-                            </li>
-                            <li>Copy value setelah <code className="bg-slate-200 px-1 rounded">queryId:</code> → paste di atas</li>
-                          </ol>
-                        </div>
-                      )}
-                    </div>
-
-                    <Separator />
-
-                    {/* Bearer Token */}
-                    <div className="space-y-2">
-                      <label className="text-xs font-medium text-slate-600">Bearer Token</label>
-                      <div className="flex gap-2">
-                        <div className="flex-1 relative">
-                          <Input
-                            type={showBearerValue ? 'text' : 'password'}
-                            placeholder="AAAAAAAAAAAAAAAAAAAAANRILg..."
-                            value={bearerToken}
-                            onChange={(e) => setBearerToken(e.target.value)}
-                            className="pr-10 border-slate-200"
-                          />
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="absolute right-1 top-1 h-7 w-7 p-0"
-                            onClick={() => setShowBearerValue(!showBearerValue)}
-                          >
-                            {showBearerValue ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </Button>
-                        </div>
-                        <Button
-                          onClick={() => handleSaveSetting('x_bearer_token', bearerToken, () => setBearerToken(''))}
-                          disabled={!!isSavingSetting || !bearerToken.trim()}
-                          className="bg-sky-500 hover:bg-sky-600"
-                        >
-                          {isSavingSetting === 'x_bearer_token' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Simpan'}
-                        </Button>
-                      </div>
-                      <button
-                        onClick={() => setShowBearerGuide(!showBearerGuide)}
-                        className="text-xs text-sky-600 hover:underline flex items-center gap-1"
-                      >
-                        <ChevronDown className={`w-3 h-3 transition-transform ${showBearerGuide ? 'rotate-180' : ''}`} />
-                        Cara mendapatkan Bearer Token
-                      </button>
-                      {showBearerGuide && (
-                        <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-600 space-y-2 border border-slate-200">
-                          <ol className="list-decimal list-inside space-y-1">
-                            <li>Login ke <strong>x.com</strong> di browser</li>
-                            <li>Tekan <kbd className="bg-slate-200 px-1 rounded">F12</kbd> → tab <strong>Network</strong></li>
-                            <li>Lakukan aksi apapun (scroll, like, dll)</li>
-                            <li>Klik salah satu request ke <code className="bg-slate-200 px-1 rounded">/i/api/</code></li>
-                            <li>Cek header <strong>Authorization</strong> → copy value setelah <code className="bg-slate-200 px-1 rounded">Bearer </code></li>
-                            <li>Paste di atas, lalu klik <strong>Simpan</strong></li>
-                          </ol>
-                          <p className="text-slate-400 pt-1">Token ini sama untuk semua user X (public consumer token). Jarang berubah.</p>
-                        </div>
-                      )}
-                    </div>
-
-                    <Separator />
-
-                    {/* Clear Cache */}
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-xs text-slate-500">
-                        <span className="font-medium">Cache</span> — queryId & transaction ID di-cache di memori (4 jam). Bersihkan jika X update frontend-nya.
-                      </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={async () => {
-                          setIsClearingCache(true)
-                          try {
-                            const res = await fetch('/api/admin/clear-cache', {
-                              method: 'POST',
-                              headers: { authorization: `Bearer ${adminToken}` },
-                            })
-                            if (res.ok) {
-                              toast({ title: 'Cache dibersihkan!', description: 'Query ID & transaction ID cache telah direset.' })
-                            } else {
-                              toast({ title: 'Gagal', description: 'Tidak dapat membersihkan cache', variant: 'destructive' })
-                            }
-                          } catch {
-                            toast({ title: 'Error', description: 'Tidak dapat terhubung ke server', variant: 'destructive' })
-                          } finally {
-                            setIsClearingCache(false)
-                          }
-                        }}
-                        disabled={isClearingCache}
-                        className="border-slate-200 text-slate-600 shrink-0"
-                      >
-                        {isClearingCache ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 mr-1" />}
-                        Clear Cache
-                      </Button>
-                    </div>
-
-                    {/* Last updated info */}
-                    {cookieStatus?.lastUpdated && (
-                      <span className="text-[10px] text-slate-400">
-                        Terakhir diperbarui: {new Date(cookieStatus.lastUpdated).toLocaleString('id-ID')}
-                      </span>
                     )}
-                  </CardContent>
-                </Card>
 
-                {/* API Settings Card */}
-                <Card className="shadow-sm border-slate-200">
-                  <CardHeader className="pb-3">
-                    <CardTitle
-                      className="text-base flex items-center gap-2 cursor-pointer"
-                      onClick={() => setShowApiSettings(!showApiSettings)}
-                    >
-                      <Key className="w-4 h-4 text-purple-500" /> API Fallback Settings
-                      <Badge variant="outline" className={`text-[10px] px-1.5 ${apiCredits.length > 0 ? 'bg-green-50 text-green-700 border-green-300' : 'bg-slate-50 text-slate-500 border-slate-300'}`}>
-                        {apiCredits.length > 0 ? `${apiCredits.length} key(s)` : 'Not configured'}
-                      </Badge>
-                      <ChevronDown className={`w-4 h-4 text-slate-400 ml-auto transition-transform ${showApiSettings ? 'rotate-180' : ''}`} />
-                    </CardTitle>
-                  </CardHeader>
-                  {showApiSettings && (
-                    <CardContent className="space-y-4">
-                      {/* Post Method Toggle */}
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600">Post Method</label>
-                        <div className="flex gap-2">
-                          {([
-                            { value: 'direct', label: 'Direct', desc: 'Cookie only' },
-                            { value: 'auto', label: 'Auto', desc: 'Cookie → Retry → API' },
-                            { value: 'api', label: 'API Only', desc: 'TwitterAPI.io only' },
-                          ] as const).map((opt) => (
-                            <Button
-                              key={opt.value}
-                              size="sm"
-                              variant={postMethodSetting === opt.value ? 'default' : 'outline'}
-                              onClick={() => {
-                                setPostMethodSetting(opt.value)
-                                handleSaveSetting('post_method', opt.value)
-                              }}
-                              className={`text-xs h-8 ${postMethodSetting === opt.value ? 'bg-purple-500 hover:bg-purple-600' : 'border-slate-200'}`}
-                            >
-                              {opt.label}
-                            </Button>
-                          ))}
-                        </div>
-                        <p className="text-[10px] text-slate-400">
-                          {postMethodSetting === 'direct' && 'Hanya cookie-based posting, tanpa fallback.'}
-                          {postMethodSetting === 'auto' && 'Coba direct → retry 226/empty → fallback ke API jika gagal.'}
-                          {postMethodSetting === 'api' && 'Selalu gunakan twitterapi.io (untuk testing).'}
-                        </p>
-                      </div>
-
-                      {/* API Keys */}
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                          <Key className="w-3 h-3" /> API Keys (JSON array)
-                        </label>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder='["key1","key2","key3"]'
-                            value={apiKeys}
-                            onChange={(e) => setApiKeys(e.target.value)}
-                            className="border-slate-200 text-xs"
-                          />
-                          <Button
-                            onClick={() => handleSaveSetting('twitterapi_keys', apiKeys, () => setApiKeys(''))}
-                            disabled={!!isSavingSetting || !apiKeys.trim()}
-                            className="bg-purple-500 hover:bg-purple-600 shrink-0"
-                          >
-                            {isSavingSetting === 'twitterapi_keys' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
-                          </Button>
-                        </div>
-                        <p className="text-[10px] text-slate-400">
-                          Format: JSON array. Setiap key ~33 tweet gratis (10k credits). Tambahkan lebih banyak key untuk lebih banyak tweet gratis.
-                        </p>
-                      </div>
-
-                      {/* Proxy */}
-                      <div className="space-y-2">
-                        <label className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                          <Globe className="w-3 h-3" /> Proxy URL (opsional)
-                        </label>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="http://user:pass@ip:port"
-                            value={apiProxy}
-                            onChange={(e) => setApiProxy(e.target.value)}
-                            className="border-slate-200 text-xs"
-                          />
-                          <Button
-                            onClick={() => handleSaveSetting('twitterapi_proxy', apiProxy, () => setApiProxy(''))}
-                            disabled={!!isSavingSetting || !apiProxy.trim()}
-                            variant="outline"
-                            className="border-purple-200 text-purple-700 hover:bg-purple-50 shrink-0"
-                          >
-                            {isSavingSetting === 'twitterapi_proxy' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
-                          </Button>
-                        </div>
-                        <p className="text-[10px] text-slate-400">
-                          Hanya diperlukan jika menggunakan user_login_v2. Create_tweet_v2 tidak memerlukan proxy (V21).
-                        </p>
-                      </div>
-
-                      {/* Credit Status */}
-                      {apiCredits.length > 0 && (
-                        <div className="space-y-2">
-                          <label className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
-                            <BarChart3 className="w-3 h-3" /> Credit Status
+                    {/* API Credits (compact) */}
+                    {apiCredits.length > 0 && (
+                      <Card className="shadow-sm border-[#EFF3F4]">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base flex items-center gap-2">
+                            <BarChart3 className="w-4 h-4 text-purple-500" /> API Credits
                             <Button
                               variant="ghost"
                               size="sm"
@@ -1311,12 +1232,14 @@ export default function HomePage() {
                             >
                               <RefreshCw className={`w-3 h-3 ${isLoadingCredits ? 'animate-spin' : ''}`} />
                             </Button>
-                          </label>
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent>
                           <div className="space-y-1.5">
                             {apiCredits.map((credit, idx) => (
-                              <div key={idx} className="flex items-center justify-between bg-slate-50 rounded-lg p-2 border border-slate-100">
+                              <div key={idx} className="flex items-center justify-between bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[10px] font-mono text-slate-500">{credit.apiKey}</span>
+                                  <span className="text-[10px] font-mono text-[#536471]">{credit.apiKey}</span>
                                   {credit.error && (
                                     <Badge variant="outline" className="text-[8px] px-1 bg-red-50 text-red-600 border-red-200">
                                       {credit.error}
@@ -1324,172 +1247,689 @@ export default function HomePage() {
                                   )}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[10px] text-slate-400">Bonus: {credit.bonusCredits}</span>
-                                  <span className="text-[10px] font-medium text-slate-700">Total: {credit.totalCredits}</span>
-                                  <span className="text-[8px] text-slate-400">(~{Math.floor(credit.totalCredits / 300)} tweets)</span>
+                                  <span className="text-[10px] text-[#71767B]">Bonus: {credit.bonusCredits}</span>
+                                  <span className="text-[10px] font-medium text-[#3D4145]">Total: {credit.totalCredits}</span>
+                                  <span className="text-[8px] text-[#71767B]">(~{Math.floor(credit.totalCredits / 300)} tweets)</span>
                                 </div>
                               </div>
                             ))}
                           </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  )}
-                </Card>
+                        </CardContent>
+                      </Card>
+                    )}
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-slate-600">Filter:</span>
-                  {['all', 'pending', 'approved', 'rejected', 'posted'].map((status) => (
-                    <Button
-                      key={status}
-                      variant={filterStatus === status ? 'default' : 'outline'}
-                      size="sm"
-                      onClick={() => setFilterStatus(status)}
-                      className={filterStatus === status ? 'bg-sky-500 hover:bg-sky-600' : 'border-slate-200'}
-                    >
-                      {status === 'all' ? 'Semua' : statusConfig[status as keyof typeof statusConfig]?.label}
-                    </Button>
-                  ))}
-                  <Button variant="ghost" size="sm" onClick={() => { fetchSubmissions(); fetchStats() }} className="ml-auto text-slate-400">
-                    <RefreshCw className={`w-4 h-4 ${isLoadingAdmin ? 'animate-spin' : ''}`} />
-                  </Button>
-                </div>
+                    {/* Filter Bar + Submission List */}
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-medium text-[#536471]">Filter:</span>
+                        {['all', 'pending', 'approved', 'rejected', 'posted'].map((status) => (
+                          <Button
+                            key={status}
+                            variant={filterStatus === status ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={() => setFilterStatus(status)}
+                            className={filterStatus === status ? 'bg-[#0F1419] hover:bg-[#272c30]' : 'border-[#EFF3F4]'}
+                          >
+                            {status === 'all' ? 'Semua' : statusConfig[status as keyof typeof statusConfig]?.label}
+                          </Button>
+                        ))}
+                        <Button variant="ghost" size="sm" onClick={() => { fetchSubmissions(); fetchStats() }} className="ml-auto text-[#71767B]">
+                          <RefreshCw className={`w-4 h-4 ${isLoadingAdmin ? 'animate-spin' : ''}`} />
+                        </Button>
+                      </div>
 
-                <div className="space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto pr-1">
-                  {isLoadingAdmin ? (
-                    <Card className="py-12">
-                      <CardContent className="flex items-center justify-center gap-2 text-slate-400">
-                        <Loader2 className="w-5 h-5 animate-spin" /> Memuat data...
-                      </CardContent>
-                    </Card>
-                  ) : submissions.length === 0 ? (
-                    <Card className="py-12">
-                      <CardContent className="text-center">
-                        <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center mx-auto mb-3">
-                          <MessageSquare className="w-6 h-6 text-slate-300" />
-                        </div>
-                        <p className="text-slate-500">Belum ada pesan</p>
-                        <p className="text-xs text-slate-400 mt-1">Pesan yang masuk akan muncul di sini</p>
-                      </CardContent>
-                    </Card>
-                  ) : (
-                    <AnimatePresence mode="popLayout">
-                      {submissions.map((sub) => {
-                        const config = statusConfig[sub.status as keyof typeof statusConfig]
-                        return (
-                          <motion.div key={sub.id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}>
-                            <Card className="shadow-sm border-slate-200 hover:shadow-md transition-shadow">
-                              <CardContent className="p-4">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-2">
-                                      {sub.submitter.profileImage ? (
-                                        <img src={sub.submitter.profileImage} alt="" className="w-6 h-6 rounded-full border border-slate-200" />
-                                      ) : (
-                                        <div className="w-6 h-6 rounded-full bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
-                                          {sub.submitter.username.charAt(0).toUpperCase()}
+                      <div className="space-y-3 max-h-[calc(100vh-500px)] overflow-y-auto pr-1">
+                        {isLoadingAdmin ? (
+                          <Card className="py-12">
+                            <CardContent className="flex items-center justify-center gap-2 text-[#71767B]">
+                              <Loader2 className="w-5 h-5 animate-spin" /> Memuat data...
+                            </CardContent>
+                          </Card>
+                        ) : submissions.length === 0 ? (
+                          <Card className="py-12">
+                            <CardContent className="text-center">
+                              <div className="w-12 h-12 rounded-xl bg-[#F7F9F9] flex items-center justify-center mx-auto mb-3">
+                                <MessageSquare className="w-6 h-6 text-[#71767B]" />
+                              </div>
+                              <p className="text-[#536471]">Belum ada pesan</p>
+                              <p className="text-xs text-[#71767B] mt-1">Pesan yang masuk akan muncul di sini</p>
+                            </CardContent>
+                          </Card>
+                        ) : (
+                          <AnimatePresence mode="popLayout">
+                            {submissions.map((sub) => {
+                              const config = statusConfig[sub.status as keyof typeof statusConfig]
+                              return (
+                                <motion.div key={sub.id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}>
+                                  <Card className="shadow-sm border-[#EFF3F4] hover:shadow-md transition-shadow">
+                                    <CardContent className="p-4">
+                                      <div className="flex items-start justify-between gap-3">
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2 mb-2">
+                                            {sub.submitter.profileImage ? (
+                                              <img src={sub.submitter.profileImage} alt="" className="w-6 h-6 rounded-full border border-[#EFF3F4]" />
+                                            ) : (
+                                              <div className="w-6 h-6 rounded-full bg-[#272c30] flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                                                {sub.submitter.username.charAt(0).toUpperCase()}
+                                              </div>
+                                            )}
+                                            <span className="text-xs font-medium text-[#536471]">
+                                              @{sub.submitter.username}
+                                            </span>
+                                            {sub.submitter.twitterId && (
+                                              <a
+                                                href={`https://x.com/i/user/${sub.submitter.twitterId}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-xs text-[#536471] hover:underline flex items-center gap-0.5"
+                                              >
+                                                <XLogo className="w-3 h-3" />
+                                                <ExternalLink className="w-2.5 h-2.5" />
+                                              </a>
+                                            )}
+                                            <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${config.color}`}>
+                                              {config.label}
+                                            </Badge>
+                                            {sub.status === 'posted' && sub.postMethod && sub.postMethod !== 'direct' && (
+                                              <Badge variant="outline" className={`text-[8px] px-1 py-0 ${
+                                                sub.postMethod === 'retry'
+                                                  ? 'bg-amber-50 text-amber-600 border-amber-200'
+                                                  : sub.postMethod === 'fallback'
+                                                  ? 'bg-purple-50 text-purple-600 border-purple-200'
+                                                  : 'bg-[#F7F9F9] text-[#536471] border-[#EFF3F4]'
+                                              }`}>
+                                                {sub.postMethod === 'retry' ? 'retry' : sub.postMethod === 'fallback' ? 'API' : sub.postMethod}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                          <p className="text-sm text-[#0F1419] whitespace-pre-wrap break-words">{sub.message}</p>
+                                          {sub.category && (
+                                            <span className="inline-block text-xs text-[#71767B] mt-1">#{sub.category}</span>
+                                          )}
+                                          <p className="text-[10px] text-[#71767B] mt-1">{formatDate(sub.createdAt)}</p>
+                                          {sub.tweetId && (
+                                            <a
+                                              href={`https://x.com/i/status/${sub.tweetId}`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-[10px] text-[#536471] hover:underline mt-0.5 inline-flex items-center gap-0.5"
+                                            >
+                                              Lihat tweet <ExternalLink className="w-2.5 h-2.5" />
+                                            </a>
+                                          )}
                                         </div>
-                                      )}
-                                      <span className="text-xs font-medium text-slate-600">
-                                        @{sub.submitter.username}
-                                      </span>
-                                      {sub.submitter.twitterId && (
-                                        <a
-                                          href={`https://x.com/i/user/${sub.submitter.twitterId}`}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="text-xs text-sky-500 hover:underline flex items-center gap-0.5"
-                                        >
-                                          <Twitter className="w-3 h-3" />
-                                          <ExternalLink className="w-2.5 h-2.5" />
-                                        </a>
-                                      )}
-                                      <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${config.color}`}>
-                                        {config.label}
-                                      </Badge>
-                                      {sub.status === 'posted' && sub.postMethod && sub.postMethod !== 'direct' && (
-                                        <Badge variant="outline" className={`text-[8px] px-1 py-0 ${
-                                          sub.postMethod === 'retry'
-                                            ? 'bg-amber-50 text-amber-600 border-amber-200'
-                                            : sub.postMethod === 'fallback'
-                                            ? 'bg-purple-50 text-purple-600 border-purple-200'
-                                            : 'bg-slate-50 text-slate-500 border-slate-200'
-                                        }`}>
-                                          {sub.postMethod === 'retry' ? 'retry' : sub.postMethod === 'fallback' ? 'API' : sub.postMethod}
-                                        </Badge>
-                                      )}
-                                    </div>
-                                    <p className="text-sm text-slate-800 whitespace-pre-wrap break-words">{sub.message}</p>
-                                    {sub.category && (
-                                      <span className="inline-block text-xs text-slate-400 mt-1">#{sub.category}</span>
-                                    )}
-                                    <p className="text-[10px] text-slate-300 mt-1">{formatDate(sub.createdAt)}</p>
-                                    {sub.tweetId && (
-                                      <a
-                                        href={`https://x.com/i/status/${sub.tweetId}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-[10px] text-sky-500 hover:underline mt-0.5 inline-flex items-center gap-0.5"
-                                      >
-                                        Lihat tweet <ExternalLink className="w-2.5 h-2.5" />
-                                      </a>
-                                    )}
-                                  </div>
 
-                                  {/* Action buttons */}
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    {sub.status === 'pending' && (
-                                      <>
-                                        <Button
-                                          size="sm"
-                                          onClick={() => handleApprove(sub.id)}
-                                          disabled={actionLoading === sub.id}
-                                          className="h-7 px-2 text-xs bg-green-500 hover:bg-green-600 text-white"
-                                        >
-                                          {actionLoading === sub.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
-                                          Setujui
-                                        </Button>
-                                        <Button
-                                          size="sm"
-                                          variant="destructive"
-                                          onClick={() => handleReject(sub.id)}
-                                          disabled={actionLoading === sub.id}
-                                          className="h-7 px-2 text-xs"
-                                        >
-                                          Tolak
-                                        </Button>
-                                      </>
-                                    )}
-                                    {sub.status === 'approved' && (
-                                      <Button
-                                        size="sm"
-                                        onClick={() => handlePostToX(sub.id)}
-                                        disabled={actionLoading === `post-${sub.id}`}
-                                        className="h-7 px-2 text-xs bg-sky-500 hover:bg-sky-600 text-white"
-                                      >
-                                        {actionLoading === `post-${sub.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Twitter className="w-3 h-3 mr-1" />}
-                                        Post
-                                      </Button>
-                                    )}
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => handleDelete(sub.id)}
-                                      disabled={actionLoading === `del-${sub.id}`}
-                                      className="h-7 w-7 p-0 text-slate-300 hover:text-red-500"
-                                    >
-                                      {actionLoading === `del-${sub.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <span className="text-xs">&times;</span>}
-                                    </Button>
+                                        {/* Action buttons */}
+                                        <div className="flex items-center gap-1 shrink-0">
+                                          {sub.status === 'pending' && (
+                                            <>
+                                              <Button
+                                                size="sm"
+                                                onClick={() => handleApprove(sub.id)}
+                                                disabled={actionLoading === sub.id}
+                                                className="h-7 px-2 text-xs bg-green-500 hover:bg-green-600 text-white"
+                                              >
+                                                {actionLoading === sub.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
+                                                Setujui
+                                              </Button>
+                                              <Button
+                                                size="sm"
+                                                variant="destructive"
+                                                onClick={() => handleReject(sub.id)}
+                                                disabled={actionLoading === sub.id}
+                                                className="h-7 px-2 text-xs"
+                                              >
+                                                Tolak
+                                              </Button>
+                                            </>
+                                          )}
+                                          {sub.status === 'approved' && (
+                                            <Button
+                                              size="sm"
+                                              onClick={() => handlePostToX(sub.id)}
+                                              disabled={actionLoading === `post-${sub.id}`}
+                                              className="h-7 px-2 text-xs bg-[#0F1419] hover:bg-[#272c30] text-white"
+                                            >
+                                              {actionLoading === `post-${sub.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <XLogo className="w-3 h-3 mr-1" />}
+                                              Post
+                                            </Button>
+                                          )}
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            onClick={() => handleDelete(sub.id)}
+                                            disabled={actionLoading === `del-${sub.id}`}
+                                            className="h-7 w-7 p-0 text-[#71767B] hover:text-red-500"
+                                          >
+                                            {actionLoading === `del-${sub.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <span className="text-xs">&times;</span>}
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                </motion.div>
+                              )
+                            })}
+                          </AnimatePresence>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* ===== SETTINGS SUB-TAB ===== */}
+                {adminSubTab === 'settings' && (
+                  <motion.div
+                    key="settings"
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="space-y-4"
+                  >
+                    {/* Section 1: Direct Posting (Cookie Method) */}
+                    <Collapsible open={directPostingOpen} onOpenChange={setDirectPostingOpen}>
+                      <Card className="shadow-sm border-[#EFF3F4]">
+                        <CollapsibleTrigger asChild>
+                          <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
+                            <CardTitle className="text-base flex items-center gap-2">
+                              <Settings className="w-4 h-4 text-[#536471]" /> Direct Posting (Cookie Method)
+                              {cookieStatus?.configured ? (
+                                <Badge variant="outline" className="text-[10px] px-1.5 bg-green-50 text-green-700 border-green-300">
+                                  <CircleDot className="w-2.5 h-2.5 mr-1 fill-green-500 text-green-500" />
+                                  Connected
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] px-1.5 bg-red-50 text-red-700 border-red-300">
+                                  <CircleDot className="w-2.5 h-2.5 mr-1 fill-red-500 text-red-500" />
+                                  Not configured
+                                </Badge>
+                              )}
+                              <ChevronDown className={`w-4 h-4 text-[#71767B] ml-auto transition-transform ${directPostingOpen ? 'rotate-180' : ''}`} />
+                            </CardTitle>
+                          </CardHeader>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <CardContent className="space-y-4">
+                            {/* Cookie String */}
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium text-[#536471]">Cookie String</label>
+                              <div className="flex gap-2">
+                                <div className="flex-1 relative">
+                                  <Input
+                                    type={showCookieValue ? 'text' : 'password'}
+                                    placeholder="auth_token=...; ct0=...; ..."
+                                    value={cookieString}
+                                    onChange={(e) => setCookieString(e.target.value)}
+                                    className="pr-10 border-[#EFF3F4]"
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="absolute right-1 top-1 h-7 w-7 p-0"
+                                    onClick={() => setShowCookieValue(!showCookieValue)}
+                                  >
+                                    {showCookieValue ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                  </Button>
+                                </div>
+                                <Button
+                                  onClick={() => handleSaveSetting('x_cookie_string', cookieString, () => setCookieString(''))}
+                                  disabled={!!isSavingSetting || !cookieString.trim()}
+                                  className="bg-[#0F1419] hover:bg-[#272c30]"
+                                >
+                                  {isSavingSetting === 'x_cookie_string' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Simpan'}
+                                </Button>
+                              </div>
+                              <button
+                                onClick={() => setShowCookieGuide(!showCookieGuide)}
+                                className="text-xs text-[#536471] hover:underline flex items-center gap-1"
+                              >
+                                <ChevronDown className={`w-3 h-3 transition-transform ${showCookieGuide ? 'rotate-180' : ''}`} />
+                                Cara mendapatkan cookie string
+                              </button>
+                              {showCookieGuide && (
+                                <div className="bg-[#F7F9F9] rounded-lg p-3 text-xs text-[#536471] space-y-2 border border-[#EFF3F4]">
+                                  <ol className="list-decimal list-inside space-y-1">
+                                    <li>Login ke <strong>x.com</strong> di browser (Chrome/Firefox)</li>
+                                    <li>Tekan <kbd className="bg-[#EFF3F4] px-1 rounded">F12</kbd> → tab <strong>Application</strong></li>
+                                    <li>Klik <strong>Cookies</strong> → <strong>https://x.com</strong></li>
+                                    <li>Temukan baris <code className="bg-[#EFF3F4] px-1 rounded">auth_token</code> → copy value-nya</li>
+                                    <li>Temukan baris <code className="bg-[#EFF3F4] px-1 rounded">ct0</code> → copy value-nya</li>
+                                    <li>Temukan baris <code className="bg-[#EFF3F4] px-1 rounded">guest_id</code> → copy value-nya</li>
+                                    <li>Gabungkan: <code className="bg-[#EFF3F4] px-1 rounded">auth_token=...; ct0=...; guest_id=...</code></li>
+                                    <li>Paste di atas, lalu klik <strong>Simpan</strong></li>
+                                  </ol>
+                                  <div className="flex items-start gap-1.5 text-amber-600 pt-1">
+                                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                    <span>Gunakan akun X yang ingin kamu jadikan autobase! Cookie dari akun lain tidak akan bekerja.</span>
+                                  </div>
+                                  <div className="flex items-start gap-1.5 text-[#536471] pt-1">
+                                    <Zap className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                    <span>Sertikan semua cookie dari browser untuk hasil terbaik. Cookie yang lengkap membuat request lebih mirip browser asli.</span>
                                   </div>
                                 </div>
-                              </CardContent>
-                            </Card>
-                          </motion.div>
-                        )
-                      })}
-                    </AnimatePresence>
-                  )}
-                </div>
+                              )}
+                            </div>
+
+                            <Separator />
+
+                            {/* Bearer Token */}
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium text-[#536471]">Bearer Token</label>
+                              <div className="flex gap-2">
+                                <div className="flex-1 relative">
+                                  <Input
+                                    type={showBearerValue ? 'text' : 'password'}
+                                    placeholder="AAAAAAAAAAAAAAAAAAAAANRILg..."
+                                    value={bearerToken}
+                                    onChange={(e) => setBearerToken(e.target.value)}
+                                    className="pr-10 border-[#EFF3F4]"
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="absolute right-1 top-1 h-7 w-7 p-0"
+                                    onClick={() => setShowBearerValue(!showBearerValue)}
+                                  >
+                                    {showBearerValue ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                  </Button>
+                                </div>
+                                <Button
+                                  onClick={() => handleSaveSetting('x_bearer_token', bearerToken, () => setBearerToken(''))}
+                                  disabled={!!isSavingSetting || !bearerToken.trim()}
+                                  className="bg-[#0F1419] hover:bg-[#272c30]"
+                                >
+                                  {isSavingSetting === 'x_bearer_token' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Simpan'}
+                                </Button>
+                              </div>
+                              <button
+                                onClick={() => setShowBearerGuide(!showBearerGuide)}
+                                className="text-xs text-[#536471] hover:underline flex items-center gap-1"
+                              >
+                                <ChevronDown className={`w-3 h-3 transition-transform ${showBearerGuide ? 'rotate-180' : ''}`} />
+                                Cara mendapatkan Bearer Token
+                              </button>
+                              {showBearerGuide && (
+                                <div className="bg-[#F7F9F9] rounded-lg p-3 text-xs text-[#536471] space-y-2 border border-[#EFF3F4]">
+                                  <ol className="list-decimal list-inside space-y-1">
+                                    <li>Login ke <strong>x.com</strong> di browser</li>
+                                    <li>Tekan <kbd className="bg-[#EFF3F4] px-1 rounded">F12</kbd> → tab <strong>Network</strong></li>
+                                    <li>Lakukan aksi apapun (scroll, like, dll)</li>
+                                    <li>Klik salah satu request ke <code className="bg-[#EFF3F4] px-1 rounded">/i/api/</code></li>
+                                    <li>Cek header <strong>Authorization</strong> → copy value setelah <code className="bg-[#EFF3F4] px-1 rounded">Bearer </code></li>
+                                    <li>Paste di atas, lalu klik <strong>Simpan</strong></li>
+                                  </ol>
+                                  <p className="text-[#71767B] pt-1">Token ini sama untuk semua user X (public consumer token). Jarang berubah.</p>
+                                </div>
+                              )}
+                            </div>
+
+                            <Separator />
+
+                            {/* Query ID (auto-fetch, manual fallback) */}
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <label className="text-xs font-medium text-[#536471]">Query ID</label>
+                                <Badge variant="outline" className="text-[9px] px-1 py-0 bg-[#F7F9F9] text-[#536471] border-[#EFF3F4]">
+                                  Auto-fetch
+                                </Badge>
+                              </div>
+                              <div className="flex gap-2">
+                                <Input
+                                  type="text"
+                                  placeholder="Manual fallback (optional)"
+                                  value={queryId}
+                                  onChange={(e) => setQueryId(e.target.value)}
+                                  className="border-[#EFF3F4]"
+                                />
+                                <Button
+                                  onClick={() => handleSaveSetting('x_query_id', queryId, () => setQueryId(''))}
+                                  disabled={!!isSavingSetting || !queryId.trim()}
+                                  className="bg-[#0F1419] hover:bg-[#272c30]"
+                                >
+                                  {isSavingSetting === 'x_query_id' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Simpan'}
+                                </Button>
+                              </div>
+                              <button
+                                onClick={() => setShowQueryIdGuide(!showQueryIdGuide)}
+                                className="text-xs text-[#536471] hover:underline flex items-center gap-1"
+                              >
+                                <ChevronDown className={`w-3 h-3 transition-transform ${showQueryIdGuide ? 'rotate-180' : ''}`} />
+                                Tentang auto-fetch & manual fallback
+                              </button>
+                              {showQueryIdGuide && (
+                                <div className="bg-[#F7F9F9] rounded-lg p-3 text-xs text-[#536471] space-y-2 border border-[#EFF3F4]">
+                                  <p>Query ID otomatis di-fetch dari JS bundle X sebelum setiap post. Kamu <strong>tidak perlu mengisi ini manual</strong>.</p>
+                                  <p>Isi manual hanya jika auto-fetch gagal (jarang terjadi). Cara manual:</p>
+                                  <ol className="list-decimal list-inside space-y-1">
+                                    <li>Step 1 — ambil nama bundle terbaru:<br />
+                                      <code className="bg-[#EFF3F4] px-1 rounded text-[10px]">curl -sL &apos;https://x.com&apos; | grep -oP &apos;main\.[a-z0-9]+\.js&apos; | head -1</code>
+                                    </li>
+                                    <li>Step 2 — extract dari bundle tersebut:<br />
+                                      <code className="bg-[#EFF3F4] px-1 rounded text-[10px] break-all">curl -sL &apos;https://abs.twimg.com/responsive-web/client-web/&lt;BUNDLE&gt;.js&apos; | grep -oP &apos;queryId:&quot;[^&quot;]+&quot;,operationName:&quot;CreateTweet&apos;</code>
+                                    </li>
+                                    <li>Copy value setelah <code className="bg-[#EFF3F4] px-1 rounded">queryId:</code> → paste di atas</li>
+                                  </ol>
+                                </div>
+                              )}
+                            </div>
+
+                            <Separator />
+
+                            {/* Clear Cache + Last Updated */}
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                              <div className="space-y-1">
+                                <div className="text-xs text-[#536471]">
+                                  <span className="font-medium">Cache</span> — queryId & transaction ID di-cache di memori (4 jam). Bersihkan jika X update frontend-nya.
+                                </div>
+                                {cookieStatus?.lastUpdated && (
+                                  <span className="text-[10px] text-[#71767B]">
+                                    Terakhir diperbarui: {new Date(cookieStatus.lastUpdated).toLocaleString('id-ID')}
+                                  </span>
+                                )}
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                  setIsClearingCache(true)
+                                  try {
+                                    const res = await fetch('/api/admin/clear-cache', {
+                                      method: 'POST',
+                                      headers: { authorization: `Bearer ${adminToken}` },
+                                    })
+                                    if (res.ok) {
+                                      toast({ title: 'Cache dibersihkan!', description: 'Query ID & transaction ID cache telah direset.' })
+                                    } else {
+                                      toast({ title: 'Gagal', description: 'Tidak dapat membersihkan cache', variant: 'destructive' })
+                                    }
+                                  } catch {
+                                    toast({ title: 'Error', description: 'Tidak dapat terhubung ke server', variant: 'destructive' })
+                                  } finally {
+                                    setIsClearingCache(false)
+                                  }
+                                }}
+                                disabled={isClearingCache}
+                                className="border-[#EFF3F4] text-[#536471] shrink-0"
+                              >
+                                {isClearingCache ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5 mr-1" />}
+                                Clear Cache
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </CollapsibleContent>
+                      </Card>
+                    </Collapsible>
+
+                    {/* Section 2: API Fallback (twitterapi.io) */}
+                    <Collapsible open={apiFallbackOpen} onOpenChange={setApiFallbackOpen}>
+                      <Card className="shadow-sm border-[#EFF3F4]">
+                        <CollapsibleTrigger asChild>
+                          <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
+                            <CardTitle className="text-base flex items-center gap-2">
+                              <Key className="w-4 h-4 text-purple-500" /> API Fallback (twitterapi.io)
+                              {apiLoginStatus?.hasLoginCookie ? (
+                                <Badge variant="outline" className="text-[10px] px-1.5 bg-green-50 text-green-700 border-green-300">
+                                  <CircleDot className="w-2.5 h-2.5 mr-1 fill-green-500 text-green-500" />
+                                  Logged in
+                                </Badge>
+                              ) : apiLoginStatus?.hasCredentials ? (
+                                <Badge variant="outline" className="text-[10px] px-1.5 bg-amber-50 text-amber-700 border-amber-300">
+                                  <CircleDot className="w-2.5 h-2.5 mr-1 fill-amber-500 text-amber-500" />
+                                  Need login
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-[10px] px-1.5 bg-[#F7F9F9] text-[#536471] border-[#EFF3F4]">
+                                  <CircleDot className="w-2.5 h-2.5 mr-1 fill-[#71767B] text-[#71767B]" />
+                                  Not configured
+                                </Badge>
+                              )}
+                              <ChevronDown className={`w-4 h-4 text-[#71767B] ml-auto transition-transform ${apiFallbackOpen ? 'rotate-180' : ''}`} />
+                            </CardTitle>
+                          </CardHeader>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent>
+                          <CardContent className="space-y-4">
+                            {/* Post Method Toggle */}
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium text-[#536471]">Post Method</label>
+                              <div className="flex gap-2">
+                                {([
+                                  { value: 'direct', label: 'Direct', desc: 'Cookie only' },
+                                  { value: 'auto', label: 'Auto', desc: 'Cookie → Retry → API' },
+                                  { value: 'api', label: 'API Only', desc: 'TwitterAPI.io only' },
+                                ] as const).map((opt) => (
+                                  <Button
+                                    key={opt.value}
+                                    size="sm"
+                                    variant={postMethodSetting === opt.value ? 'default' : 'outline'}
+                                    onClick={() => {
+                                      setPostMethodSetting(opt.value)
+                                      handleSaveSetting('post_method', opt.value)
+                                    }}
+                                    className={`text-xs h-8 ${postMethodSetting === opt.value ? 'bg-purple-500 hover:bg-purple-600' : 'border-[#EFF3F4]'}`}
+                                  >
+                                    {opt.label}
+                                  </Button>
+                                ))}
+                              </div>
+                              <p className="text-[10px] text-[#71767B]">
+                                {postMethodSetting === 'direct' && 'Hanya cookie-based posting, tanpa fallback.'}
+                                {postMethodSetting === 'auto' && 'Coba direct → retry 226/empty → fallback ke API jika gagal.'}
+                                {postMethodSetting === 'api' && 'Selalu gunakan twitterapi.io (untuk testing).'}
+                              </p>
+                            </div>
+
+                            {/* X Login Credentials — Single Save */}
+                            <div className="space-y-3 p-4 bg-amber-50/50 rounded-lg border border-amber-100">
+                              <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                                <User className="w-3 h-3" /> X Login Credentials
+                                <span className="text-[10px] text-amber-600 font-normal">(required for API fallback)</span>
+                              </label>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {/* X Username */}
+                                <Input
+                                  placeholder="X username"
+                                  value={xUsername}
+                                  onChange={(e) => setXUsername(e.target.value)}
+                                  className="border-[#EFF3F4] text-xs"
+                                />
+
+                                {/* X Email */}
+                                <Input
+                                  placeholder="X email"
+                                  type="email"
+                                  value={xEmail}
+                                  onChange={(e) => setXEmail(e.target.value)}
+                                  className="border-[#EFF3F4] text-xs"
+                                />
+
+                                {/* X Password */}
+                                <div className="relative">
+                                  <Input
+                                    placeholder="X password"
+                                    type={showPassword ? 'text' : 'password'}
+                                    value={xPassword}
+                                    onChange={(e) => setXPassword(e.target.value)}
+                                    className="border-[#EFF3F4] text-xs pr-8"
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 p-0"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                  >
+                                    {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                  </Button>
+                                </div>
+
+                                {/* 2FA Secret (TOTP) */}
+                                <div className="relative">
+                                  <Input
+                                    placeholder="2FA secret (TOTP base32 seed)"
+                                    type={showTotpSecret ? 'text' : 'password'}
+                                    value={xTotpSecret}
+                                    onChange={(e) => setXTotpSecret(e.target.value)}
+                                    className="border-[#EFF3F4] text-xs pr-8"
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 p-0"
+                                    onClick={() => setShowTotpSecret(!showTotpSecret)}
+                                  >
+                                    {showTotpSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                  </Button>
+                                </div>
+                              </div>
+
+                              {/* Single Save All Button */}
+                              <Button
+                                onClick={handleSaveAllCredentials}
+                                disabled={isSavingAllCredentials || !!isSavingSetting || (!xUsername.trim() && !xEmail.trim() && !xPassword.trim() && !xTotpSecret.trim())}
+                                className="w-full bg-amber-500 hover:bg-amber-600 text-white"
+                              >
+                                {isSavingAllCredentials ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Key className="w-4 h-4 mr-2" />}
+                                {isSavingAllCredentials ? 'Menyimpan...' : 'Save All Credentials'}
+                              </Button>
+
+                              <p className="text-[10px] text-[#71767B]">
+                                Semua field disimpan terenkripsi. Untuk mendapatkan TOTP secret: X → Settings → Security → 2FA → Authentication App → &quot;Can&apos;t scan the QR code?&quot; → copy the base32 string.
+                              </p>
+                            </div>
+
+                            {/* API Keys */}
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                                <Key className="w-3 h-3" /> API Keys (JSON array)
+                              </label>
+                              <div className="flex gap-2">
+                                <Input
+                                  placeholder='["key1","key2","key3"]'
+                                  value={apiKeys}
+                                  onChange={(e) => setApiKeys(e.target.value)}
+                                  className="border-[#EFF3F4] text-xs"
+                                />
+                                <Button
+                                  onClick={() => handleSaveSetting('twitterapi_keys', apiKeys, () => setApiKeys(''))}
+                                  disabled={!!isSavingSetting || !apiKeys.trim()}
+                                  className="bg-purple-500 hover:bg-purple-600 shrink-0"
+                                >
+                                  {isSavingSetting === 'twitterapi_keys' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
+                                </Button>
+                              </div>
+                              <p className="text-[10px] text-[#71767B]">
+                                Format: JSON array. Setiap key ~33 tweet gratis (10k credits).
+                              </p>
+                            </div>
+
+                            {/* Proxy */}
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                                <Globe className="w-3 h-3" /> Proxy URL (required)
+                              </label>
+                              <div className="flex gap-2">
+                                <Input
+                                  placeholder="http://user:pass@ip:port"
+                                  value={apiProxy}
+                                  onChange={(e) => setApiProxy(e.target.value)}
+                                  className="border-[#EFF3F4] text-xs"
+                                />
+                                <Button
+                                  onClick={() => handleSaveSetting('twitterapi_proxy', apiProxy, () => setApiProxy(''))}
+                                  disabled={!!isSavingSetting || !apiProxy.trim()}
+                                  variant="outline"
+                                  className="border-purple-200 text-purple-700 hover:bg-purple-50 shrink-0"
+                                >
+                                  {isSavingSetting === 'twitterapi_proxy' ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
+                                </Button>
+                              </div>
+                              <p className="text-[10px] text-[#71767B]">
+                                Wajib untuk user_login_v2. Gunakan residential proxy (contoh: Webshare). Proxy digunakan oleh twitterapi.io saat login ke X.
+                              </p>
+                            </div>
+
+                            {/* Login Cookie Status */}
+                            {apiLoginStatus && (
+                              <div className="space-y-2">
+                                <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                                  <Shield className="w-3 h-3" /> API Login Status
+                                </label>
+                                <div className="flex items-center gap-2 bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
+                                  {apiLoginStatus.hasLoginCookie ? (
+                                    <>
+                                      <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-300">
+                                        ✅ Active
+                                      </Badge>
+                                      {apiLoginStatus.lastLoginAt && (
+                                        <span className="text-[10px] text-[#71767B]">
+                                          Last login: {new Date(apiLoginStatus.lastLoginAt).toLocaleString('id-ID')}
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : apiLoginStatus.hasCredentials ? (
+                                    <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-300">
+                                      ⚠️ Not logged in — will auto-login on first post
+                                    </Badge>
+                                  ) : (
+                                    <span className="text-[10px] text-[#71767B]">
+                                      Enter X credentials above to enable API login
+                                    </span>
+                                  )}
+                                </div>
+                                {apiLoginStatus.missingCredentials.length > 0 && (
+                                  <p className="text-[10px] text-amber-600">
+                                    Missing: {apiLoginStatus.missingCredentials.join(', ')}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Credit Status */}
+                            {apiCredits.length > 0 && (
+                              <div className="space-y-2">
+                                <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                                  <BarChart3 className="w-3 h-3" /> Credit Status
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-5 w-5 p-0 ml-1"
+                                    onClick={async () => {
+                                      setIsLoadingCredits(true)
+                                      await fetchStats()
+                                      setIsLoadingCredits(false)
+                                    }}
+                                  >
+                                    <RefreshCw className={`w-3 h-3 ${isLoadingCredits ? 'animate-spin' : ''}`} />
+                                  </Button>
+                                </label>
+                                <div className="space-y-1.5">
+                                  {apiCredits.map((credit, idx) => (
+                                    <div key={idx} className="flex items-center justify-between bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] font-mono text-[#536471]">{credit.apiKey}</span>
+                                        {credit.error && (
+                                          <Badge variant="outline" className="text-[8px] px-1 bg-red-50 text-red-600 border-red-200">
+                                            {credit.error}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-[#71767B]">Bonus: {credit.bonusCredits}</span>
+                                        <span className="text-[10px] font-medium text-[#3D4145]">Total: {credit.totalCredits}</span>
+                                        <span className="text-[8px] text-[#71767B]">(~{Math.floor(credit.totalCredits / 300)} tweets)</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </CardContent>
+                        </CollapsibleContent>
+                      </Card>
+                    </Collapsible>
+                  </motion.div>
+                )}
               </motion.div>
             )}
           </TabsContent>
@@ -1497,10 +1937,10 @@ export default function HomePage() {
       </main>
 
       {/* Footer */}
-      <footer className="mt-auto border-t bg-white/80 backdrop-blur-lg">
+      <footer className="mt-auto border-t border-[#EFF3F4] bg-white/80 backdrop-blur-lg">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <p className="text-xs text-slate-400">Autobase Menfess &mdash; Twitter Base Indonesia</p>
-          <p className="text-xs text-slate-400">Login with X only &middot; Anonim di tweet</p>
+          <p className="text-xs text-[#71767B]">Autobase Menfess &mdash; X Base Indonesia</p>
+          <p className="text-xs text-[#71767B]">Login with X only &middot; Anonim di tweet</p>
         </div>
       </footer>
     </div>
