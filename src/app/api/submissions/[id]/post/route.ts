@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
+import { debug } from '@/lib/debug'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — retry loop can take up to 15s
@@ -32,9 +33,11 @@ export async function POST(
     }
 
     // Post to X using cookie-based auth (with retry + fallback)
+    debug('[post route] Posting submission:', id, 'message length:', submission.message.length)
     const tweetResult = await postTweetViaCookie(submission.message)
 
     if (!tweetResult.success) {
+      debug('[post route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
       console.error('X API error:', tweetResult.error)
       return NextResponse.json(
         { error: `Gagal posting ke X: ${tweetResult.error}`, postMethod: tweetResult.method },
@@ -42,6 +45,7 @@ export async function POST(
       )
     }
 
+    debug('[post route] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method, 'retries:', tweetResult.retriesUsed)
     // Update submission status with postMethod tracking
     const updated = await db.submission.update({
       where: { id },

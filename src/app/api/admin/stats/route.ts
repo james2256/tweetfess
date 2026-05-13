@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
   const auth = verifyAdmin(req.headers.get('authorization'))
   if (!auth.authorized) return auth.response
 
-  const [pending, approved, rejected, posted, total, submitters, cookieAuthStatus, postMethodStats, apiCredits, apiLoginStatus] =
+  const [pending, approved, rejected, posted, total, submitters, cookieAuthStatus, postMethodStats, apiCredits, apiLoginStatus, postMethodSetting] =
     await Promise.all([
       db.submission.count({ where: { status: 'pending' } }),
       db.submission.count({ where: { status: 'approved' } }),
@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
       getPostMethodStats(),
       getAllKeyCredits(),
       getApiLoginStatus(),
+      getPostMethodSetting(),
     ])
 
   return NextResponse.json({
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
     postMethodStats,
     apiCredits,
     apiLoginStatus,
+    postMethodSetting,
   })
 }
 
@@ -74,4 +76,15 @@ async function getPostMethodStats(): Promise<{
     retryRate: total > 0 ? Math.round((retry / total) * 1000) / 10 : 0,
     fallbackRate: total > 0 ? Math.round((fallback / total) * 1000) / 10 : 0,
   }
+}
+
+/**
+ * Get the current post_method setting from DB.
+ * Returns 'direct', 'api', or 'auto' (default).
+ */
+async function getPostMethodSetting(): Promise<string> {
+  const setting = await db.setting.findUnique({ where: { key: 'post_method' } })
+  const value = setting?.value
+  if (value === 'direct' || value === 'api' || value === 'auto') return value
+  return 'auto'
 }

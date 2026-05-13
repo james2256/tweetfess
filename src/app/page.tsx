@@ -451,6 +451,7 @@ export default function HomePage() {
         if (data.postMethodStats) setPostMethodStats(data.postMethodStats)
         if (data.apiCredits) setApiCredits(data.apiCredits)
         if (data.apiLoginStatus) setApiLoginStatus(data.apiLoginStatus)
+        if (data.postMethodSetting) setPostMethodSetting(data.postMethodSetting)
       }
     } catch {
       // silently fail

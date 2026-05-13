@@ -1,6 +1,7 @@
 import { db } from '@/lib/db'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
+import { debug } from '@/lib/debug'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — approve+post can take up to 15s with retries
@@ -37,9 +38,11 @@ export async function PATCH(
 
     // If approving, auto-post to X via cookie auth (with retry + fallback)
     if (status === 'approved') {
+      debug('[approve route] Approving submission:', id, 'message length:', submission.message.length)
       const tweetResult = await postTweetViaCookie(submission.message)
 
       if (tweetResult.success) {
+        debug('[approve route] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
         const updated = await db.submission.update({
           where: { id },
           data: {
@@ -67,6 +70,7 @@ export async function PATCH(
           description,
         })
       } else {
+        debug('[approve route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
         // Cookie + retry + fallback all failed — mark as approved but NOT posted
         const updated = await db.submission.update({
           where: { id },

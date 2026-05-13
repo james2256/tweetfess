@@ -325,3 +325,66 @@ Stage Summary:
 - Full codebase audit complete
 - 7 proposed changes documented, none executed
 - Awaiting user approval before any edits
+
+---
+Task ID: 6
+Agent: Main (previous session — context restored)
+Task: Fix twitterapi.io login bug — user_login_v2 succeeded but no cookie extracted
+
+Work Log:
+- User reported: "Gagal posting ke X: No cached login_cookie and auto-login failed: user_login_v2 failed: login success"
+- Root cause: code checked `data?.login_cookie` (singular) but API returns `login_cookies` (plural)
+- Fixed to check both: `data?.login_cookie || data?.login_cookies`
+- Added debug logging for user_login_v2 request settings (masked sensitive values) and response
+- Added debug logging for create_tweet_v2 request and response
+- Fixed error parsing in 3 places — `message` before `error` (since `error` is integer in API docs)
+- Created `src/lib/debug.ts` — conditional debug helper that only logs when DEBUG env var is set
+- Replaced raw `console.log` calls with `debug()` from @/lib/debug
+- Added comprehensive debug logging to direct post flow in twitter-post-cookie.ts
+- After all fixes, posting to X via twitterapi.io V2 API works! login_cookies is 912 chars (contains auth_token + ct0)
+- Previous session also discussed: proxy setup (US East / Bloomingdale NJ recommended), fresh git clone from GitHub
+
+Stage Summary:
+- twitterapi.io V2 flow fully working: user_login_v2 → login_cookies → create_tweet_v2
+- Key discovery: API docs say `login_cookie` but actual API returns `login_cookies` (plural)
+- Debug system implemented (conditional on DEBUG env var)
+- Both direct post and API fallback paths have comprehensive debug logging
+
+---
+Task ID: 7
+Agent: Main
+Task: Identify and remove unnecessary files and code from the project
+
+Work Log:
+- Systematically searched all imports of `@/components/ui/`, `@/lib/`, `@/hooks/` across the entire codebase
+- Checked every npm package in package.json against actual imports
+- Checked public assets (logo.svg, favicon.svg, robots.txt) for references
+- Checked API routes for frontend usage
+- Read all core lib files for dead code
+
+Findings:
+1. **35 unused UI components** — never imported by page.tsx or any application code
+   - 13 actively used: button, card, badge, tabs, dialog, dropdown-menu, avatar, separator, collapsible, input, textarea, toast, toaster
+   - 14 kept for future use: alert, alert-dialog, checkbox, select, switch, popover, scroll-area, progress, skeleton, tooltip, table, pagination, sheet, sonner
+   - 21 deleted (will never be needed): chart, calendar, carousel, command, drawer, resizable, input-otp, sidebar, navigation-menu, menubar, breadcrumb, hover-card, slider, toggle, toggle-group, aspect-ratio, context-menu, accordion, radio-group, form, label
+
+2. **33 unused npm packages** removed:
+   - 23 main packages: @dnd-kit/core, @dnd-kit/sortable, @dnd-kit/utilities, @mdxeditor/editor, react-markdown, react-syntax-highlighter, recharts, next-intl, @tanstack/react-table, react-hook-form, @hookform/resolvers, next-themes, zustand, @reactuses/core, uuid, z-ai-web-dev-sdk, cmdk, input-otp, react-resizable-panels, embla-carousel-react, vaul, react-day-picker, date-fns
+   - 10 orphaned @radix-ui packages: react-accordion, react-aspect-ratio, react-context-menu, react-hover-card, react-menubar, react-navigation-menu, react-radio-group, react-slider, react-toggle, react-toggle-group
+   - Kept `sharp` per user request (may need it in the future)
+
+3. **Unused hook deleted**: `src/hooks/use-mobile.ts` — only used by deleted sidebar.tsx
+
+4. **public/logo.svg** — never referenced anywhere (noted but not deleted, user didn't ask)
+
+5. **api/test-x/route.ts** — dev/test-only endpoint, never called from frontend (noted but not deleted, useful for debugging)
+
+6. Core lib files — all actively used, no dead code found within them
+
+Stage Summary:
+- 21 unused UI component files deleted
+- 33 unused npm packages removed (significant bundle/installed size reduction)
+- 1 unused hook deleted
+- Lint passes clean, dev server running fine
+- Kept sharp per user request
+- Noted but not deleted: logo.svg, api/test-x route

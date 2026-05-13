@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { encrypt, decrypt, isEncrypted } from '@/lib/encrypt'
+import { debug } from '@/lib/debug'
 
 // ============================================================
 // TwitterAPI.io fallback posting module (V2 API)
@@ -137,7 +138,7 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
   const settings = await getApiSettings()
 
   // Debug: log what we're sending (mask sensitive values)
-  console.log('[twitterapi] loginViaTwitterApi settings:', {
+  debug('[twitterapi] loginViaTwitterApi settings:', {
     x_username: settings.x_username || '(missing)',
     x_email: settings.x_email ? settings.x_email.slice(0, 3) + '***' : '(missing)',
     x_password: settings.x_password ? `(${settings.x_password.length} chars)` : '(missing)',
@@ -196,7 +197,7 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
     })
 
     const data = await response.json()
-    console.log('[twitterapi] user_login_v2 response:', JSON.stringify(data))
+    debug('[twitterapi] user_login_v2 response:', JSON.stringify(data))
 
     if (response.ok && (data?.login_cookie || data?.login_cookies)) {
       // API returns "login_cookies" (plural) despite docs saying "login_cookie"
@@ -291,7 +292,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
         body.proxy = proxy
       }
 
-      console.log('[twitterapi] create_tweet_v2 request:', {
+      debug('[twitterapi] create_tweet_v2 request:', {
         login_cookies: loginCookie ? `(${loginCookie.length} chars)` : '(missing)',
         tweet_text: text ? `(${text.length} chars)` : '(missing)',
         proxy: proxy ? proxy.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@') : '(missing)',
@@ -307,7 +308,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
       })
 
       const data = await response.json()
-      console.log('[twitterapi] create_tweet_v2 response:', JSON.stringify(data))
+      debug('[twitterapi] create_tweet_v2 response:', JSON.stringify(data))
 
       // Success — try multiple possible response formats
       const tweetId = data?.data?.tweet_id || data?.data?.id || data?.tweet_id || data?.id || null
@@ -353,7 +354,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
           })
 
           const retryData = await retryResponse.json()
-          console.log('[twitterapi] create_tweet_v2 retry response:', JSON.stringify(retryData))
+          debug('[twitterapi] create_tweet_v2 retry response:', JSON.stringify(retryData))
 
           const retryTweetId = retryData?.data?.tweet_id || retryData?.data?.id || retryData?.tweet_id || retryData?.id || null
 

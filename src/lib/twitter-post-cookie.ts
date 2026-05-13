@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { generateTransactionId, fetchXcomHtml, clearTransactionIdCache as clearXactCache } from '@/lib/x-transaction-id'
 import { postViaTwitterApi } from '@/lib/twitter-api-fallback'
 import { decrypt, isEncrypted } from '@/lib/encrypt'
+import { debug } from '@/lib/debug'
 
 // ============================================================
 // Cookie-based tweet posting via X's internal GraphQL API
@@ -240,6 +241,7 @@ export async function postTweetViaCookie(
 
   // If API-only mode, skip direct posting entirely
   if (postMethod === 'api') {
+    debug('[direct] Post method is API-only, skipping direct post')
     const fallbackResult = await postViaTwitterApi(text)
     return {
       success: fallbackResult.success,
@@ -251,6 +253,15 @@ export async function postTweetViaCookie(
 
   // 1. Get all settings in one DB query
   const settings = await getSettings()
+
+  debug('[direct] Post method:', postMethod)
+  debug('[direct] Settings loaded:', {
+    has_cookie: !!settings.x_cookie_string,
+    has_bearer: !!settings.x_bearer_token,
+    has_query_id: !!settings.x_query_id,
+    post_method: settings.post_method,
+    has_api_keys: !!settings.twitterapi_keys,
+  })
 
   // 2. Resolve cookie string: DB → env var → null
   const envCookie = process.env.X_COOKIE_STRING?.trim() || null
@@ -266,6 +277,11 @@ export async function postTweetViaCookie(
 
   // 3. Parse cookies
   const cookies = parseXCookies(cookieString)
+  debug('[direct] Cookie parsed:', {
+    has_auth_token: !!cookies.auth_token,
+    has_ct0: !!cookies.ct0,
+    cookie_length: cookies.raw.length,
+  })
   if (!cookies.auth_token || !cookies.ct0) {
     return {
       success: false,
@@ -305,6 +321,8 @@ export async function postTweetViaCookie(
 
     // Resolve queryId: in-memory cache → live fetch → DB fallback
     let queryId = await fetchLiveQueryId()
+
+    debug('[direct] Attempt', attempt, '- queryId:', queryId ? `${queryId.slice(0, 8)}...` : '(null, will try DB)')
 
     if (queryId && queryId !== settings.x_query_id) {
       await db.setting.upsert({
@@ -422,6 +440,8 @@ export async function postTweetViaCookie(
         }),
       })
 
+      debug('[direct] Attempt', attempt, '- X API response status:', response.status)
+
       // Layer 1: HTTP status
       if (!response.ok) {
         const errorText = await response.text()
@@ -442,6 +462,7 @@ export async function postTweetViaCookie(
       }
 
       const body = await response.json()
+      debug('[direct] Attempt', attempt, '- Response body keys:', Object.keys(body).join(','))
 
       // Layer 2: GraphQL errors array
       if (body.errors?.length) {
@@ -481,6 +502,7 @@ export async function postTweetViaCookie(
       }
 
       // Success!
+      debug('[direct] Attempt', attempt, '- Tweet posted! tweetId:', tweetId)
       return {
         success: true,
         tweetId,
@@ -503,6 +525,7 @@ export async function postTweetViaCookie(
 
   // All direct retries exhausted — try twitterapi.io fallback (if auto mode)
   if (postMethod === 'auto') {
+    debug('[direct] All retries exhausted, falling back to twitterapi.io')
     const fallbackResult = await postViaTwitterApi(text)
     if (fallbackResult.success) {
       return {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { postTweetViaCookie, getCookieAuthStatus } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
+import { debug } from '@/lib/debug'
 
 // Vercel serverless function timeout — test posting with retries can take time
 export const maxDuration = 30
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await postTweetViaCookie(testText)
+  debug('[test-x] Test post result:', { success: result.success, tweetId: result.tweetId, method: result.method, retriesUsed: result.retriesUsed, error: result.error?.slice(0, 100) })
 
   return NextResponse.json({
     success: result.success,
