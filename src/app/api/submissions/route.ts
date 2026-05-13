@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
           select: { createdAt: true },
         })
         if (lastSubmission) {
-          const elapsedMs = Date.now() - lastSubmission.getTime()
+          const elapsedMs = Date.now() - lastSubmission.createdAt.getTime()
           const cooldownMs = filterSettings.rateLimits.submissionCooldown * 60 * 1000
           if (elapsedMs < cooldownMs) {
             const waitMinutes = Math.ceil((cooldownMs - elapsedMs) / 60000)
@@ -259,7 +259,7 @@ export async function POST(req: NextRequest) {
         select: { createdAt: true },
       })
       if (lastPosted) {
-        const elapsedMs = Date.now() - lastPosted.getTime()
+        const elapsedMs = Date.now() - lastPosted.createdAt.getTime()
         const cooldownMs = filterSettings.rateLimits.autoPostCooldown * 1000
         if (elapsedMs < cooldownMs) {
           debug('[submit] Auto-post cooldown active, queuing instead')
