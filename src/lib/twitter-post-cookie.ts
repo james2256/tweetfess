@@ -18,12 +18,15 @@ import { debug } from '@/lib/debug'
 // 5. POST to X GraphQL CreateTweet with Chrome-matching headers
 // 6. Parse response with comprehensive error checking
 //
-// Retry strategy (verified — V2: 226 always resolves on retry):
+// Retry strategy (V6: delay right after failure, before next attempt):
 // - Attempt 0: Normal POST
-// - Attempt 1: Stale cache (code 48, HTTP 404) → clear caches, retry
-// - Attempt 2: 226 / empty results → wait 3s, regenerate transaction ID, retry
-// - Attempt 3: 226 / empty results → wait 5s, regenerate transaction ID, retry
-// - After all retries fail → fall back to twitterapi.io (V6, V7, V8)
+//   - Stale cache → clear caches, retry immediately (no delay)
+//   - 226 / empty → wait ~1s (800-1500ms), then retry
+// - Attempt 1: POST
+//   - 226 / empty → wait ~2s (1500-3000ms), then retry
+// - Attempt 2: POST
+//   - 226 / empty → wait ~4s (3000-6000ms), then retry
+// - After all retries fail → fall back to twitterapi.io
 //
 // Error detection checks THREE layers:
 // - HTTP status (!response.ok)
@@ -209,11 +212,14 @@ function sleep(ms: number): Promise<void> {
 /**
  * Post a tweet to X using cookie-based authentication.
  *
- * Retry strategy:
+ * Retry strategy (V6: delay right after failure, before next attempt):
  * - Attempt 0: Normal POST
- * - Attempt 1: Stale cache (code 48, HTTP 404) → clear caches, retry immediately
- * - Attempt 2: 226 / empty results → wait 3s, regenerate transaction ID, retry
- * - Attempt 3: 226 / empty results → wait 5s, regenerate transaction ID, retry
+ *   - Stale cache → clear caches, retry immediately (no delay)
+ *   - 226 / empty → wait ~1s (800-1500ms), then retry
+ * - Attempt 1: POST
+ *   - 226 / empty → wait ~2s (1500-3000ms), then retry
+ * - Attempt 2: POST
+ *   - 226 / empty → wait ~4s (3000-6000ms), then retry
  * - After all retries fail → fall back to twitterapi.io (if post_method = 'auto')
  */
 export async function postTweetViaCookie(
@@ -289,21 +295,31 @@ export async function postTweetViaCookie(
   }
 
   // 5-7. Resolve queryId + make request + parse response
-  // Retry loop: up to 4 attempts with smart delays
+  // Retry loop: up to 4 attempts, delay happens right after each failure
   const MAX_ATTEMPTS = 4
   let lastError = ''
 
+  /**
+   * Wait after a failed attempt before trying again.
+   * Randomized jitter prevents bot fingerprinting — real humans don't retry
+   * at exact intervals. Each retry waits longer than the previous one.
+   *   After attempt 0 fails: ~1s  (800-1500ms)
+   *   After attempt 1 fails: ~2s  (1500-3000ms)
+   *   After attempt 2 fails: ~4s  (3000-6000ms)
+   */
+  async function waitBeforeRetry(failedAttempt: number): Promise<void> {
+    const delays = [1000, 2000, 4000]
+    const base = delays[failedAttempt] ?? 4000
+    const jitter = Math.round(base * (0.8 + Math.random() * 0.5)) // 80%-130%
+    debug('[direct] Attempt', failedAttempt, 'failed — waiting', jitter, 'ms before retry')
+    await sleep(jitter)
+    clearXactCache() // Fresh transaction ID for each retry
+  }
+
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    // On retry for stale cache: clear caches immediately
+    // On retry for stale cache: clear caches immediately (no delay needed)
     if (attempt === 1 && isStaleCacheError(lastError)) {
       clearAllCaches()
-    }
-
-    // On retry for 226/empty: wait + clear transaction ID cache
-    if (attempt >= 2 && (is226Error(lastError) || isEmptyResultsFromError(lastError))) {
-      const delay = attempt === 2 ? 3000 : 5000 // 3s then 5s (V2)
-      await sleep(delay)
-      clearXactCache() // Regenerate transaction ID on next attempt
     }
 
     // Resolve queryId: in-memory cache → live fetch → DB fallback
@@ -434,10 +450,16 @@ export async function postTweetViaCookie(
         const errorText = await response.text()
         lastError = `X API returned HTTP ${response.status}: ${errorText.slice(0, 200)}`
 
-        // Stale cache → retry with cleared caches (existing behavior)
-        if (attempt === 0 && isStaleCacheError(lastError)) continue
-        // 226 → retry with delay (V2)
-        if (attempt < MAX_ATTEMPTS - 1 && is226Error(lastError)) continue
+        // Stale cache → clear caches and retry (no delay needed)
+        if (attempt === 0 && isStaleCacheError(lastError)) {
+          clearAllCaches()
+          continue
+        }
+        // 226 → wait then retry
+        if (attempt < MAX_ATTEMPTS - 1 && is226Error(lastError)) {
+          await waitBeforeRetry(attempt)
+          continue
+        }
 
         // Other HTTP errors — don't retry (auth, rate limit, etc.)
         return {
@@ -458,10 +480,16 @@ export async function postTweetViaCookie(
           .join('; ')
         lastError = `X GraphQL error: ${errorMessages}`
 
-        // Stale cache → retry with cleared caches
-        if (attempt === 0 && isStaleCacheError(lastError)) continue
-        // 226 in GraphQL errors → retry (V2)
-        if (attempt < MAX_ATTEMPTS - 1 && is226Error(lastError)) continue
+        // Stale cache → clear caches and retry (no delay needed)
+        if (attempt === 0 && isStaleCacheError(lastError)) {
+          clearAllCaches()
+          continue
+        }
+        // 226 in GraphQL errors → wait then retry
+        if (attempt < MAX_ATTEMPTS - 1 && is226Error(lastError)) {
+          await waitBeforeRetry(attempt)
+          continue
+        }
 
         return {
           success: false,
@@ -471,13 +499,16 @@ export async function postTweetViaCookie(
         }
       }
 
-      // Layer 3: Missing data / empty tweet_results (V3)
+      // Layer 3: Missing data / empty tweet_results
       const tweetId = body?.data?.create_tweet?.tweet_results?.result?.rest_id
       if (!tweetId) {
         // Check for empty tweet_results — X silently rejected the tweet
         if (isEmptyResults(body)) {
           lastError = 'Empty tweet_results — X silently rejected the tweet'
-          if (attempt < MAX_ATTEMPTS - 1) continue // Retry (V3)
+          if (attempt < MAX_ATTEMPTS - 1) {
+            await waitBeforeRetry(attempt)
+            continue
+          }
         }
 
         return {
@@ -498,8 +529,11 @@ export async function postTweetViaCookie(
       }
     } catch (error) {
       lastError = `Network error: ${error instanceof Error ? error.message : String(error)}`
-      // Network errors are transient — retry
-      if (attempt < MAX_ATTEMPTS - 1) continue
+      // Network errors are transient — wait then retry
+      if (attempt < MAX_ATTEMPTS - 1) {
+        await waitBeforeRetry(attempt)
+        continue
+      }
 
       return {
         success: false,
@@ -538,14 +572,6 @@ export async function postTweetViaCookie(
     method: 'retry',
     retriesUsed: MAX_ATTEMPTS,
   }
-}
-
-/**
- * Helper: check if an error string indicates empty results.
- * Used to determine retry strategy for the error string format.
- */
-function isEmptyResultsFromError(error: string): boolean {
-  return error.includes('Empty tweet_results') || error.includes('silently rejected')
 }
 
 /**
