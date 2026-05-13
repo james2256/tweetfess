@@ -343,6 +343,10 @@ export default function HomePage() {
   // Batch saving state
   const [isSavingAllCredentials, setIsSavingAllCredentials] = useState(false)
 
+  // My Posts state
+  const [myPosts, setMyPosts] = useState<Submission[]>([])
+  const [myPostsLoading, setMyPostsLoading] = useState(false)
+
   const { toast } = useToast()
 
   const isLoggedOut = !submitter
@@ -392,6 +396,32 @@ export default function HomePage() {
     submitterLogout()
     toast({ title: 'Logout berhasil', description: 'Sampai jumpa!' })
   }
+
+  // Fetch my posts
+  const fetchMyPosts = useCallback(async () => {
+    if (!submitter) return
+    setMyPostsLoading(true)
+    try {
+      const res = await fetch('/api/submissions/mine')
+      if (res.ok) {
+        const data = await res.json()
+        setMyPosts(data.submissions)
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setMyPostsLoading(false)
+    }
+  }, [submitter])
+
+  // Fetch my posts when user logs in
+  useEffect(() => {
+    if (submitter && !isAnonUser) {
+      fetchMyPosts()
+    } else {
+      setMyPosts([])
+    }
+  }, [submitter, isAnonUser, fetchMyPosts])
 
   // Twitter OAuth login
   const handleTwitterLogin = () => {
@@ -502,6 +532,7 @@ export default function HomePage() {
         }
         setMessage('')
         setCategory('')
+        fetchMyPosts()
       } else {
         const errorDesc = data.message || data.error || 'Gagal mengirim pesan'
         toast({ title: data.error || 'Gagal', description: errorDesc, variant: 'destructive' })
@@ -1007,11 +1038,15 @@ export default function HomePage() {
                     <CardTitle className="text-base flex items-center gap-2">
                       <MessageSquare className="w-4 h-4 text-[#536471]" /> Tulis Pesan
                     </CardTitle>
-                    <CardDescription className="flex items-center gap-1.5">
+                    <CardDescription className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs sm:text-sm">
                       {submitterImage ? (
-                        <img src={submitterImage} alt="" className="w-4 h-4 rounded-full" />
+                        <img src={submitterImage} alt="" className="w-4 h-4 rounded-full shrink-0" />
                       ) : null}
-                      Login sebagai <span className="font-medium text-[#0F1419]">@{submitterUsername || 'user'}</span> · Pesan akan diperiksa admin sebelum diposting
+                      <span className="inline-flex items-center gap-1">
+                        Login sebagai <span className="font-medium text-[#0F1419]">@{submitterUsername || 'user'}</span>
+                      </span>
+                      <span className="text-[#71767B]">·</span>
+                      <span>Pesan akan diperiksa admin sebelum diposting</span>
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
@@ -1048,6 +1083,64 @@ export default function HomePage() {
                       {isSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
                       {isSubmitting ? 'Mengirim...' : 'Kirim Pesan'}
                     </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* My Posts Section */}
+              {!isLoggedOut && !isAnonUser && (
+                <Card className="max-w-lg mx-auto mt-6 shadow-lg border-[#EFF3F4]">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <User className="w-4 h-4 text-[#536471]" /> Postinganku
+                      </CardTitle>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={fetchMyPosts}
+                        disabled={myPostsLoading}
+                        className="h-6 w-6 p-0 text-[#71767B]"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${myPostsLoading ? 'animate-spin' : ''}`} />
+                      </Button>
+                    </div>
+                    <CardDescription>Pesan yang sudah kamu kirim dan statusnya</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {myPosts.length === 0 ? (
+                      <div className="text-center py-6">
+                        <MessageSquare className="w-8 h-8 text-[#EFF3F4] mx-auto mb-2" />
+                        <p className="text-sm text-[#71767B]">Belum ada pesan yang dikirim</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-[#EFF3F4] border border-[#EFF3F4] rounded-lg max-h-72 overflow-y-auto">
+                        {myPosts.map((post) => {
+                          const config = statusConfig[post.status as keyof typeof statusConfig]
+                          return (
+                            <div key={post.id} className="px-3 py-2 hover:bg-[#F7F9F9]/50 transition-colors">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <Badge variant="outline" className={`text-[9px] px-1.5 py-0 h-4 ${config.color}`}>
+                                  {config.label}
+                                </Badge>
+                                <span className="text-[10px] text-[#71767B]">{formatDate(post.createdAt)}</span>
+                                {post.status === 'posted' && post.tweetId && (
+                                  <a
+                                    href={`https://x.com/i/status/${post.tweetId}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[#71767B] hover:text-[#0F1419] ml-auto"
+                                  >
+                                    <ExternalLink className="w-3 h-3" />
+                                  </a>
+                                )}
+                              </div>
+                              <p className="text-sm text-[#0F1419] whitespace-pre-wrap break-words leading-snug line-clamp-2">{post.message}</p>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               )}
@@ -1370,25 +1463,34 @@ export default function HomePage() {
 
                     {/* Filter Bar + Submission List */}
                     <div className="space-y-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium text-[#536471]">Filter:</span>
-                        {['all', 'pending', 'approved', 'rejected', 'posted'].map((status) => (
-                          <Button
-                            key={status}
-                            variant={filterStatus === status ? 'default' : 'outline'}
-                            size="sm"
-                            onClick={() => setFilterStatus(status)}
-                            className={filterStatus === status ? 'bg-[#0F1419] hover:bg-[#272c30]' : 'border-[#EFF3F4]'}
-                          >
-                            {status === 'all' ? 'Semua' : statusConfig[status as keyof typeof statusConfig]?.label}
-                          </Button>
-                        ))}
-                        <Button variant="ghost" size="sm" onClick={() => { fetchSubmissions(); fetchStats() }} className="ml-auto text-[#71767B]">
-                          <RefreshCw className={`w-4 h-4 ${isLoadingAdmin ? 'animate-spin' : ''}`} />
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+                        {['all', 'pending', 'approved', 'rejected', 'posted'].map((status) => {
+                          const statusCount = status === 'all' ? stats?.total : stats?.[status as keyof Stats] as number | undefined
+                          return (
+                            <button
+                              key={status}
+                              onClick={() => setFilterStatus(status)}
+                              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all shrink-0 ${
+                                filterStatus === status
+                                  ? 'bg-[#0F1419] text-white'
+                                  : 'bg-white border border-[#EFF3F4] text-[#536471] hover:bg-[#F7F9F9]'
+                              }`}
+                            >
+                              {status === 'all' ? 'Semua' : statusConfig[status as keyof typeof statusConfig]?.label}
+                              {statusCount != null && statusCount > 0 && (
+                                <span className={`text-[10px] ${filterStatus === status ? 'text-white/70' : 'text-[#71767B]'}`}>
+                                  {statusCount}
+                                </span>
+                              )}
+                            </button>
+                          )
+                        })}
+                        <Button variant="ghost" size="sm" onClick={() => { fetchSubmissions(); fetchStats() }} className="ml-auto shrink-0 text-[#71767B] h-7 w-7 p-0">
+                          <RefreshCw className={`w-3.5 h-3.5 ${isLoadingAdmin ? 'animate-spin' : ''}`} />
                         </Button>
                       </div>
 
-                      <div className="space-y-3 max-h-[calc(100vh-500px)] overflow-y-auto pr-1">
+                      <div className="divide-y divide-[#EFF3F4] border border-[#EFF3F4] rounded-xl bg-white max-h-[calc(100vh-350px)] overflow-y-auto">
                         {isLoadingAdmin ? (
                           <Card className="py-12">
                             <CardContent className="flex items-center justify-center gap-2 text-[#71767B]">
@@ -1409,162 +1511,182 @@ export default function HomePage() {
                           <AnimatePresence mode="popLayout">
                             {submissions.map((sub) => {
                               const config = statusConfig[sub.status as keyof typeof statusConfig]
+                              // Parse filter reasons once
+                              const filterReasons = (() => {
+                                if (!sub.filterReasons) return null
+                                try {
+                                  const reasons: string[] = JSON.parse(sub.filterReasons)
+                                  return reasons.length > 0 ? reasons : null
+                                } catch { return null }
+                              })()
                               return (
-                                <motion.div key={sub.id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}>
-                                  <Card className="shadow-sm border-[#EFF3F4] hover:shadow-md transition-shadow">
-                                    <CardContent className="p-4">
-                                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                                        <div className="flex-1 min-w-0">
-                                          <div className="flex items-center gap-2 mb-2">
-                                            {sub.submitter.profileImage ? (
-                                              <img src={sub.submitter.profileImage} alt="" className="w-6 h-6 rounded-full border border-[#EFF3F4]" />
-                                            ) : (
-                                              <div className="w-6 h-6 rounded-full bg-[#272c30] flex items-center justify-center text-white text-[10px] font-bold shrink-0">
-                                                {sub.submitter.username.charAt(0).toUpperCase()}
-                                              </div>
-                                            )}
-                                            <span className="text-xs font-medium text-[#536471]">
-                                              @{sub.submitter.username}
-                                            </span>
-                                            {sub.submitter.twitterId && (
-                                              <a
-                                                href={`https://x.com/i/user/${sub.submitter.twitterId}`}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-xs text-[#536471] hover:underline flex items-center gap-0.5"
-                                              >
-                                                <XLogo className="w-3 h-3" />
-                                                <ExternalLink className="w-2.5 h-2.5" />
-                                              </a>
-                                            )}
-                                            <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${config.color}`}>
-                                              {config.label}
-                                            </Badge>
-                                            {sub.status === 'posted' && sub.postMethod && sub.postMethod !== 'direct' && (
-                                              <Badge variant="outline" className={`text-[8px] px-1 py-0 ${
-                                                sub.postMethod === 'retry'
-                                                  ? 'bg-amber-50 text-amber-600 border-amber-200'
-                                                  : sub.postMethod === 'fallback'
-                                                  ? 'bg-purple-50 text-purple-600 border-purple-200'
-                                                  : 'bg-[#F7F9F9] text-[#536471] border-[#EFF3F4]'
-                                              }`}>
-                                                {sub.postMethod === 'retry' ? 'retry' : sub.postMethod === 'fallback' ? 'API' : sub.postMethod}
-                                              </Badge>
-                                            )}
-                                          </div>
-                                          <p className="text-sm text-[#0F1419] whitespace-pre-wrap break-words">{sub.message}</p>
-                                          {sub.category && (
-                                            <span className="inline-block text-xs text-[#71767B] mt-1">#{sub.category}</span>
-                                          )}
-                                          {/* Filter reasons badge */}
-                                          {sub.filterReasons && (() => {
-                                            try {
-                                              const reasons: string[] = JSON.parse(sub.filterReasons)
-                                              if (reasons.length === 0) return null
-                                              return (
-                                                <div className="flex flex-wrap gap-1 mt-1">
-                                                  <Badge variant="outline" className="text-[8px] px-1 py-0 bg-amber-50 text-amber-700 border-amber-200 gap-0.5">
-                                                    <ShieldAlert className="w-2.5 h-2.5" />
-                                                    {reasons.length} filter flag{reasons.length > 1 ? 's' : ''}
-                                                  </Badge>
-                                                  {reasons.slice(0, 3).map((reason, i) => {
-                                                    const label = reason.startsWith('blocked_word:')
-                                                      ? `"${reason.replace('blocked_word:', '').replace(/(.).+(.)/, (_, a, b) => a + '***' + b)}"`
-                                                      : reason.startsWith('ai:')
-                                                      ? `AI: ${reason.replace('ai:', '')}`
-                                                      : reason.startsWith('jualan:')
-                                                      ? `Jualan (${reason.replace('jualan:', '')})`
-                                                      : reason === 'contains_url'
-                                                      ? 'Link'
-                                                      : reason.startsWith('contains_mention')
-                                                      ? '@Mention'
-                                                      : reason === 'contains_phone_number'
-                                                      ? 'No. HP'
-                                                      : reason === 'caps_spam'
-                                                      ? 'ALL CAPS'
-                                                      : reason === 'repeated_characters'
-                                                      ? 'Spam chars'
-                                                      : reason === 'too_short'
-                                                      ? 'Terlalu pendek'
-                                                      : reason === 'duplicate_24h'
-                                                      ? 'Duplikat (24j)'
-                                                      : reason
-                                                    return (
-                                                      <span key={i} className="text-[8px] px-1 py-0.5 rounded bg-red-50 text-red-600 border border-red-200">
-                                                        {label}
-                                                      </span>
-                                                    )
-                                                  })}
-                                                  {reasons.length > 3 && (
-                                                    <span className="text-[8px] text-[#71767B]">+{reasons.length - 3} more</span>
-                                                  )}
-                                                </div>
-                                              )
-                                            } catch {
-                                              return null
-                                            }
-                                          })()}
-                                          <p className="text-[10px] text-[#71767B] mt-1">{formatDate(sub.createdAt)}</p>
-                                          {sub.tweetId && (
-                                            <a
-                                              href={`https://x.com/i/status/${sub.tweetId}`}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="text-[10px] text-[#536471] hover:underline mt-0.5 inline-flex items-center gap-0.5"
-                                            >
-                                              Lihat tweet <ExternalLink className="w-2.5 h-2.5" />
-                                            </a>
-                                          )}
-                                        </div>
-
-                                        {/* Action buttons */}
-                                        <div className="flex items-center gap-1 shrink-0 self-end sm:self-start">
-                                          {sub.status === 'pending' && (
-                                            <>
-                                              <Button
-                                                size="sm"
-                                                onClick={() => handleApprove(sub.id)}
-                                                disabled={actionLoading === sub.id}
-                                                className="h-7 px-2 text-xs bg-green-500 hover:bg-green-600 text-white"
-                                              >
-                                                {actionLoading === sub.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-1" />}
-                                                Setujui
-                                              </Button>
-                                              <Button
-                                                size="sm"
-                                                variant="destructive"
-                                                onClick={() => handleReject(sub.id)}
-                                                disabled={actionLoading === sub.id}
-                                                className="h-7 px-2 text-xs"
-                                              >
-                                                Tolak
-                                              </Button>
-                                            </>
-                                          )}
-                                          {sub.status === 'approved' && (
-                                            <Button
-                                              size="sm"
-                                              onClick={() => handlePostToX(sub.id)}
-                                              disabled={actionLoading === `post-${sub.id}`}
-                                              className="h-7 px-2 text-xs bg-[#0F1419] hover:bg-[#272c30] text-white"
-                                            >
-                                              {actionLoading === `post-${sub.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <XLogo className="w-3 h-3 mr-1" />}
-                                              Post
-                                            </Button>
-                                          )}
-                                          <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={() => handleDelete(sub.id)}
-                                            disabled={actionLoading === `del-${sub.id}`}
-                                            className="h-7 w-7 p-0 text-[#71767B] hover:text-red-500"
-                                          >
-                                            {actionLoading === `del-${sub.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <span className="text-xs">&times;</span>}
-                                          </Button>
-                                        </div>
+                                <motion.div key={sub.id} layout initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.15 }} className="px-3 py-1.5 hover:bg-[#F7F9F9]/70 transition-colors">
+                                  {/* Row 1: User info + status + actions */}
+                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                    {sub.submitter.profileImage ? (
+                                      <img src={sub.submitter.profileImage} alt="" className="w-5 h-5 rounded-full" />
+                                    ) : (
+                                      <div className="w-5 h-5 rounded-full bg-[#272c30] flex items-center justify-center text-white text-[8px] font-bold shrink-0">
+                                        {sub.submitter.username.charAt(0).toUpperCase()}
                                       </div>
-                                    </CardContent>
-                                  </Card>
+                                    )}
+                                    <span className="text-[11px] font-medium text-[#536471] truncate">@{sub.submitter.username}</span>
+                                    {sub.submitter.twitterId && (
+                                      <a
+                                        href={`https://x.com/i/user/${sub.submitter.twitterId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[#71767B] hover:text-[#0F1419] shrink-0"
+                                      >
+                                        <XLogo className="w-3 h-3" />
+                                      </a>
+                                    )}
+                                    <Badge variant="outline" className={`text-[9px] px-1.5 py-0 h-4 ${config.color}`}>
+                                      {config.label}
+                                    </Badge>
+                                    {sub.status === 'posted' && sub.postMethod && sub.postMethod !== 'direct' && (
+                                      <Badge variant="outline" className={`text-[8px] px-1 py-0 h-4 ${
+                                        sub.postMethod === 'retry'
+                                          ? 'bg-amber-50 text-amber-600 border-amber-200'
+                                          : sub.postMethod === 'fallback'
+                                          ? 'bg-purple-50 text-purple-600 border-purple-200'
+                                          : 'bg-[#F7F9F9] text-[#536471] border-[#EFF3F4]'
+                                      }`}>
+                                        {sub.postMethod === 'retry' ? 'retry' : sub.postMethod === 'fallback' ? 'API' : sub.postMethod}
+                                      </Badge>
+                                    )}
+                                    <span className="ml-auto text-[10px] text-[#71767B] shrink-0">{formatDate(sub.createdAt)}</span>
+                                    {sub.tweetId && (
+                                      <a
+                                        href={`https://x.com/i/status/${sub.tweetId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-[#71767B] hover:text-[#0F1419] shrink-0"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    )}
+                                  </div>
+
+                                  {/* Row 2: Message text */}
+                                  <p className="text-sm text-[#0F1419] whitespace-pre-wrap break-words leading-snug">{sub.message}</p>
+
+                                  {/* Row 3: Meta line — category + filter flags */}
+                                  {(sub.category || filterReasons) && (
+                                    <div className="flex flex-wrap items-center gap-1 mt-0.5">
+                                      {sub.category && (
+                                        <span className="text-[10px] text-[#71767B]">#{sub.category}</span>
+                                      )}
+                                      {filterReasons && (
+                                        <>
+                                          {sub.category && <span className="text-[10px] text-[#EFF3F4]">·</span>}
+                                          <span className="inline-flex items-center gap-0.5 text-[9px] px-1 py-0 rounded bg-amber-50 text-amber-700 border border-amber-200">
+                                            <ShieldAlert className="w-2.5 h-2.5" />
+                                            {filterReasons.length}
+                                          </span>
+                                          {filterReasons.slice(0, 4).map((reason, i) => {
+                                            const label = reason.startsWith('blocked_word:')
+                                              ? `"${reason.replace('blocked_word:', '').replace(/(.).+(.)/, (_, a, b) => a + '***' + b)}"`
+                                              : reason.startsWith('ai:')
+                                              ? `AI: ${reason.replace('ai:', '')}`
+                                              : reason.startsWith('jualan:')
+                                              ? 'Jualan'
+                                              : reason === 'contains_url'
+                                              ? 'Link'
+                                              : reason.startsWith('contains_mention')
+                                              ? '@Mention'
+                                              : reason === 'contains_phone_number'
+                                              ? 'No. HP'
+                                              : reason === 'caps_spam'
+                                              ? 'ALL CAPS'
+                                              : reason === 'repeated_characters'
+                                              ? 'Spam'
+                                              : reason === 'too_short'
+                                              ? 'Pendek'
+                                              : reason === 'duplicate_24h'
+                                              ? 'Duplikat'
+                                              : reason
+                                            return (
+                                              <span key={i} className="text-[9px] px-1 rounded bg-red-50 text-red-600">
+                                                {label}
+                                              </span>
+                                            )
+                                          })}
+                                          {filterReasons.length > 4 && (
+                                            <span className="text-[9px] text-[#71767B]">+{filterReasons.length - 4}</span>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Row 4: Action buttons (compact, inline) */}
+                                  {sub.status === 'pending' && (
+                                    <div className="flex items-center gap-1 mt-1">
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handleApprove(sub.id)}
+                                        disabled={actionLoading === sub.id}
+                                        className="h-6 px-2 text-[11px] bg-green-500 hover:bg-green-600 text-white rounded-full"
+                                      >
+                                        {actionLoading === sub.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle className="w-3 h-3 mr-0.5" />}
+                                        Setujui
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="destructive"
+                                        onClick={() => handleReject(sub.id)}
+                                        disabled={actionLoading === sub.id}
+                                        className="h-6 px-2 text-[11px] rounded-full"
+                                      >
+                                        Tolak
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleDelete(sub.id)}
+                                        disabled={actionLoading === `del-${sub.id}`}
+                                        className="h-6 w-6 p-0 text-[#71767B] hover:text-red-500 rounded-full"
+                                      >
+                                        {actionLoading === `del-${sub.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <span className="text-xs">&times;</span>}
+                                      </Button>
+                                    </div>
+                                  )}
+                                  {sub.status === 'approved' && (
+                                    <div className="flex items-center gap-1 mt-1">
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handlePostToX(sub.id)}
+                                        disabled={actionLoading === `post-${sub.id}`}
+                                        className="h-6 px-2 text-[11px] bg-[#0F1419] hover:bg-[#272c30] text-white rounded-full"
+                                      >
+                                        {actionLoading === `post-${sub.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <XLogo className="w-3 h-3 mr-0.5" />}
+                                        Post
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleDelete(sub.id)}
+                                        disabled={actionLoading === `del-${sub.id}`}
+                                        className="h-6 w-6 p-0 text-[#71767B] hover:text-red-500 rounded-full"
+                                      >
+                                        {actionLoading === `del-${sub.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <span className="text-xs">&times;</span>}
+                                      </Button>
+                                    </div>
+                                  )}
+                                  {sub.status !== 'pending' && sub.status !== 'approved' && (
+                                    <div className="flex items-center gap-1 mt-1">
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleDelete(sub.id)}
+                                        disabled={actionLoading === `del-${sub.id}`}
+                                        className="h-5 w-5 p-0 text-[#71767B] hover:text-red-500 rounded-full"
+                                      >
+                                        {actionLoading === `del-${sub.id}` ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <span className="text-[10px]">&times;</span>}
+                                      </Button>
+                                    </div>
+                                  )}
                                 </motion.div>
                               )
                             })}

@@ -754,3 +754,36 @@ Stage Summary:
 - All fixes use Tailwind responsive prefixes (sm:, md:)
 - Lint: 0 errors
 - Dev server: HTTP 200, compiles successfully
+---
+Task ID: 16
+Agent: Main
+Task: Compact admin submission cards + Add "My Posts" feature for logged-in users
+
+Work Log:
+- Created `/api/submissions/mine/route.ts` — GET endpoint that returns current user's submissions (authenticated via session cookie), with per-user stats (total, pending, posted, rejected)
+- Added `myPosts` and `myPostsLoading` state to page.tsx
+- Added `fetchMyPosts` useCallback that calls `/api/submissions/mine`
+- Added useEffect to auto-fetch my posts when user logs in
+- Added `fetchMyPosts()` call after successful submission to refresh the list
+- Added "Postinganku" (My Posts) card in submit tab showing:
+  - Status badge (Menunggu/Disetujui/Ditolak/Diposting)
+  - Submission date
+  - External link for posted tweets
+  - Message preview (2-line clamp)
+  - Scrollable list with max-h-72
+  - Empty state with icon
+  - Refresh button
+- Compacted admin submission cards:
+  - Card padding: py-2.5 → py-1.5
+  - User info row: gap-2 mb-1 → gap-1.5 mb-0.5
+  - Action buttons: mt-1.5 → mt-1
+  - Scroll area: max-h-[calc(100vh-420px)] → max-h-[calc(100vh-350px)]
+  - Meta line: mt-1 → mt-0.5
+- Lint: 0 errors
+- Dev server: compiles successfully, HTTP 200
+
+Stage Summary:
+- Users can now see their submitted posts and statuses in "Postinganku" section
+- Admin submission cards are more compact (less scrolling)
+- Backend API `/api/submissions/mine` returns user's own submissions with stats
+- Zero lint errors
