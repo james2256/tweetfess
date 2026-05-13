@@ -3,9 +3,9 @@ import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
-import { runContentFilter, checkDuplicate24h, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES } from '@/lib/content-filter'
+import { runContentFilter, checkDuplicate24h, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
-import { getFilterSettings, getGeminiApiKey } from '@/app/api/admin/filter-settings/route'
+import { getFilterSettings, getGeminiApiKey, DEFAULT_RATE_LIMITS, type RateLimitSettings } from '@/app/api/admin/filter-settings/route'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — auto-post + Gemini can take up to 15s with retries
@@ -65,15 +65,16 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // --- AUTO-APPROVE FILTER ---
-    // Load filter settings from DB
+    // --- LOAD FILTER & RATE LIMIT SETTINGS ---
     let filterSettings: {
       autoApprove: boolean
       blockedWords: string[]
       nsfwWords: string[]
-      filterRules: { blockedWords: boolean; jualan: boolean; urls: boolean; mentions: boolean; phoneNumbers: boolean; nsfw: boolean; capsSpam: boolean; repeatedChars: boolean; tooShort: boolean; duplicate24h: boolean }
+      filterRules: FilterRules
       geminiEnabled: boolean
       geminiApiKeySet: boolean
+      rateLimits: RateLimitSettings
+      whitelistUsernames: string[]
     }
 
     try {
@@ -88,7 +89,60 @@ export async function POST(req: NextRequest) {
         filterRules: DEFAULT_FILTER_RULES,
         geminiEnabled: false,
         geminiApiKeySet: false,
+        rateLimits: { ...DEFAULT_RATE_LIMITS },
+        whitelistUsernames: [],
       }
+    }
+
+    // --- RATE LIMITING ---
+    // Check if this user is whitelisted (bypasses rate limits)
+    const isWhitelisted = submitter.username
+      ? filterSettings.whitelistUsernames.includes(submitter.username.toLowerCase())
+      : false
+
+    if (!isWhitelisted) {
+      // Check per-user cooldown
+      if (filterSettings.rateLimits.submissionCooldown > 0) {
+        const lastSubmission = await db.submission.findFirst({
+          where: { submitterId: submitter.id },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        })
+        if (lastSubmission) {
+          const elapsedMs = Date.now() - lastSubmission.getTime()
+          const cooldownMs = filterSettings.rateLimits.submissionCooldown * 60 * 1000
+          if (elapsedMs < cooldownMs) {
+            const waitMinutes = Math.ceil((cooldownMs - elapsedMs) / 60000)
+            const waitSeconds = Math.ceil((cooldownMs - elapsedMs) / 1000)
+            const waitMsg = waitMinutes > 1 ? `${waitMinutes} menit` : `${waitSeconds} detik`
+            debug('[submit] Cooldown: user must wait', waitMsg)
+            return NextResponse.json({
+              error: 'Tunggu sebentar',
+              message: `Tunggu ${waitMsg} sebelum mengirim pesan lagi.`,
+            }, { status: 400 })
+          }
+        }
+      }
+
+      // Check daily cap
+      if (filterSettings.rateLimits.submissionDailyCap > 0) {
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+        const todayCount = await db.submission.count({
+          where: {
+            submitterId: submitter.id,
+            createdAt: { gte: twentyFourHoursAgo },
+          },
+        })
+        if (todayCount >= filterSettings.rateLimits.submissionDailyCap) {
+          debug('[submit] Daily cap reached:', todayCount)
+          return NextResponse.json({
+            error: 'Batas harian tercapai',
+            message: `Kamu sudah mengirim ${todayCount} pesan hari ini (maksimal ${filterSettings.rateLimits.submissionDailyCap}). Coba lagi besok.`,
+          }, { status: 400 })
+        }
+      }
+    } else {
+      debug('[submit] User whitelisted, skipping rate limits:', submitter.username)
     }
 
     // --- Step 1: Rule-based content filter ---
@@ -107,6 +161,18 @@ export async function POST(req: NextRequest) {
         filterResult.reasons.push(dupCheck.reason)
         if (filterResult.severity === 'none') filterResult.severity = 'medium'
       }
+    }
+
+    // --- REJECT always-on rule failures outright (no DB record, no pending) ---
+    // These are spam/low-quality submissions with zero chance of admin approval
+    if (hasAlwaysOnReason(filterResult.reasons)) {
+      const rejectionMsg = getRejectionMessage(filterResult.reasons)
+      debug('[submit] Rejected (always-on rule):', filterResult.reasons)
+      return NextResponse.json({
+        error: 'Pesan ditolak',
+        message: rejectionMsg,
+        reasons: filterResult.reasons,
+      }, { status: 400 })
     }
 
     // Collect all filter reasons (from both rule-based and Gemini)
@@ -184,6 +250,37 @@ export async function POST(req: NextRequest) {
 
     // --- AUTO-APPROVE ON + ALL FILTERS PASSED: Auto-post to X ---
     debug('[submit] All filters passed, auto-posting submission', geminiChecked ? '(Gemini verified)' : '')
+
+    // Check auto-post cooldown: has this account posted a tweet recently?
+    if (filterSettings.rateLimits.autoPostCooldown > 0) {
+      const lastPosted = await db.submission.findFirst({
+        where: { status: 'posted' },
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      })
+      if (lastPosted) {
+        const elapsedMs = Date.now() - lastPosted.getTime()
+        const cooldownMs = filterSettings.rateLimits.autoPostCooldown * 1000
+        if (elapsedMs < cooldownMs) {
+          debug('[submit] Auto-post cooldown active, queuing instead')
+          const submission = await db.submission.create({
+            data: {
+              message: trimmedMessage,
+              category: category?.trim() || null,
+              submitterId: submitter.id,
+              filterReasons: null,
+            },
+          })
+          return NextResponse.json({
+            submission,
+            autoPosted: false,
+            queued: true,
+            error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+          }, { status: 201 })
+        }
+      }
+    }
+
     const submission = await db.submission.create({
       data: {
         message: trimmedMessage,
@@ -216,22 +313,29 @@ export async function POST(req: NextRequest) {
           postMethod: tweetResult.method,
         }, { status: 201 })
       } else {
-        // Post failed — leave as approved so admin can manually retry
-        debug('[submit] Auto-post failed:', tweetResult.error)
+        // Post failed — change status to pending so admin can review and retry
+        debug('[submit] Auto-post failed, moving to pending:', tweetResult.error)
+        await db.submission.update({
+          where: { id: submission.id },
+          data: { status: 'pending' },
+        })
         return NextResponse.json({
-          submission,
           autoPosted: false,
-          error: `Disetujui otomatis, tapi gagal posting ke X: ${tweetResult.error}. Admin bisa retry manual.`,
-          postMethod: tweetResult.method,
+          queued: true,
+          error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
         }, { status: 201 })
       }
     } catch (postError) {
-      // Post threw exception — leave as approved so admin can manually retry
-      debug('[submit] Auto-post exception:', postError)
+      // Post threw exception — change status to pending so admin can review and retry
+      debug('[submit] Auto-post exception, moving to pending:', postError)
+      await db.submission.update({
+        where: { id: submission.id },
+        data: { status: 'pending' },
+      })
       return NextResponse.json({
-        submission,
         autoPosted: false,
-        error: 'Disetujui otomatis, tapi gagal posting ke X. Admin bisa retry manual.',
+        queued: true,
+        error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
       }, { status: 201 })
     }
   } catch {

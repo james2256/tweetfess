@@ -263,8 +263,52 @@ After all retries fail → fall back to twitterapi.io (if post_method = 'auto')
 ### Database Schema Notes
 
 - `Submission.postMethod` is nullable — legacy posts (before field was added) have null, treated as "direct" in stats
-- `Setting` model stores all dynamic config (x_cookie_string, x_bearer_token, x_query_id, twitterapi_keys, twitterapi_proxy, post_method, twitterapi_key_index)
+- `Submission.filterReasons` is nullable String — JSON array of filter reasons (e.g. `["blocked_word:anjing","caps_spam","ai:hate_speech"]`)
+- `Setting` model stores all dynamic config:
+  - X settings: x_cookie_string, x_bearer_token, x_query_id
+  - API settings: twitterapi_keys, twitterapi_proxy, post_method, twitterapi_key_index
+  - Filter settings: auto_approve, blocked_words, nsfw_words, filter_rules
+  - Gemini settings: gemini_enabled, gemini_api_key
+  - Rate limit settings: submission_cooldown, submission_daily_cap, auto_post_cooldown
+  - Whitelist: whitelist_usernames
 - Prisma uses PostgreSQL (Neon) with both pooled and direct URLs for Vercel
+
+### Content Filter Architecture
+
+**Two-layer filter system:**
+1. Rule-based filter (`src/lib/content-filter.ts`) — always runs
+2. Gemini AI filter (`src/lib/gemini-filter.ts`) — optional, only if enabled + API key set
+
+**Rule-based filter checks (10 total):**
+- 6 toggleable: blockedWords, jualan, urls, mentions, phoneNumbers, nsfw (OFF by default)
+- 4 always-on: capsSpam, repeatedChars, tooShort, duplicate24h
+
+**Always-on rejections:** Outright rejected (HTTP 400, no DB record) with Indonesian error messages
+**Toggleable failures:** Go to pending for admin review
+**Gemini failures/errors:** Go to pending for admin review (fail-closed design)
+
+### Rate Limiting Architecture
+
+**Three configurable limits:**
+- **Per-user cooldown** (default 2 min) — gap between submissions per user
+- **Daily cap** (default 20) — max submissions per user per 24h
+- **Auto-post cooldown** (default 10 sec) — gap between auto-posts to X (prevents 226 errors from concurrent tweets)
+
+**Whitelist:** X usernames that bypass all rate limits (for testing). Stored as JSON array of lowercase usernames.
+
+**Design decisions:**
+- No global rate limit (too restrictive for viral moments)
+- No IP-based limiting (users authenticated via X OAuth, IP unreliable)
+- Auto-post cooldown checks last "posted" submission across ALL users (not per-user)
+- Whitelist only bypasses rate limits, NOT content filter rules
+
+### Auto-Post Failure Handling
+
+When auto-approve is ON and auto-post to X fails:
+- Submission status changed from "approved" → "pending"
+- User sees "Masuk antrean" toast (not "Berhasil dikirim")
+- Admin can manually retry from dashboard
+- Prevents "approved but not posted" limbo state
 
 ---
 Task ID: 5
@@ -500,3 +544,213 @@ Stage Summary:
 - Admin UI: toggle Gemini, set API key, see status
 - AI-flagged submissions show "AI: reason" badges
 - Zero lint/TS errors
+
+---
+Task ID: 10
+Agent: Main
+Task: Gemini filter behavior change — fail-open → fail-closed (errors send to pending)
+
+Work Log:
+- Changed Gemini filter behavior from fail-open to fail-closed per user request
+- Modified `src/lib/gemini-filter.ts`:
+  - All error cases now return `passed: false` instead of `passed: true`
+  - API errors, empty responses, parse errors, timeouts, exceptions all send to pending
+  - Each error case includes a `reason` field for the filterReasons array
+  - Updated module header comment: "fail-open" → "goes to pending for manual review"
+- Modified `src/app/api/submissions/route.ts`:
+  - Removed redundant separate `geminiResult.error` check (gemini-filter.ts now returns `passed: false` on errors)
+  - Consolidated into single `!geminiResult.passed` block that handles both flagged and error cases
+  - Simplified: no more double-push of `ai:gemini_error`
+- Updated Gemini system prompt:
+  - Changed "When in doubt, mark as SAFE" → "When in doubt, flag for manual review"
+  - Added context: "Flagged submissions go to a pending queue where an admin can review and approve if appropriate"
+  - Rationale: since errors now go to pending anyway, the prompt should be consistent — when uncertain, let admin decide
+- Updated page.tsx Gemini "How it works" info box:
+  - Changed "If Gemini is down or errors → submission passes (fail-open)" → "If Gemini is down or errors → submission goes to pending (admin reviews)"
+
+Updated submission flow:
+```
+Rule-based filter FAILS → Pending ❌
+Rule-based filter PASSES → Gemini AI (if enabled + key set)
+  ├─ Gemini PASSES → Auto-approve & post ✅
+  ├─ Gemini FAILS (flagged) → Pending with "ai:reason" 🛡️
+  └─ Gemini error/timeout → Pending with "ai:reason" 🛡️
+No API key → Gemini skipped entirely, rule-based result is final
+```
+
+Stage Summary:
+- Gemini errors/timeouts now send submissions to pending instead of auto-approving
+- Gemini prompt updated: flag when uncertain, admin reviews pending items
+- More conservative and safer — never auto-approves when AI can't verify
+- Zero lint errors
+
+---
+Task ID: 11
+Agent: Main
+Task: Always-on rule outright rejection (no DB record, no pending)
+
+Work Log:
+- Added always-on rejection helpers to `src/lib/content-filter.ts`:
+  - `ALWAYS_ON_REASONS`: array of reason strings from always-on rules (caps_spam, repeated_characters, too_short, duplicate_24h)
+  - `hasAlwaysOnReason(reasons)`: checks if any reason comes from always-on rules
+  - `getRejectionMessage(reasons)`: returns Indonesian error messages for each reason
+    - caps_spam → "Pesan menggunakan huruf kapital semua (ALL CAPS). Gunakan huruf biasa."
+    - repeated_characters → "Pesan mengandung karakter berulang berlebihan."
+    - too_short → "Pesan terlalu pendek. Minimal 5 karakter."
+    - duplicate_24h → "Pesan ini sudah dikirim dalam 24 jam terakhir."
+- Modified `src/app/api/submissions/route.ts`:
+  - Added early rejection check AFTER duplicate check but BEFORE Gemini/pending logic
+  - If `hasAlwaysOnReason(filterResult.reasons)` → return HTTP 400 with error + message + reasons
+  - No DB record created — these are spam/low-quality with zero chance of admin approval
+- Modified `src/app/page.tsx`:
+  - Updated error handler in handleSubmit: shows `data.message` (Indonesian rejection message) when available
+
+Stage Summary:
+- Always-on rule failures (ALL CAPS, repeated chars, too short, duplicate 24h) are now outright REJECTED
+- No DB record created for rejected submissions — saves storage and keeps admin queue clean
+- User-facing error messages are in Indonesian with actionable guidance
+- Toggleable rule failures still go to pending for admin review
+
+---
+Task ID: 12
+Agent: Main
+Task: Fix auto-post failure handling — move to pending instead of leaving as approved
+
+Work Log:
+- User reported: submission passes filter, auto-post fails with 226 error, but submission stays as "approved" with confusing user message
+- Modified `src/app/api/submissions/route.ts`:
+  - When auto-post fails (tweetResult.success = false): change submission status from "approved" → "pending"
+  - When auto-post throws exception: change submission status from "approved" → "pending"
+  - Return `queued: true` instead of `autoPosted: false` with generic error
+  - User-facing message: "Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya."
+- Modified `src/app/page.tsx`:
+  - Added `data.queued` handling in handleSubmit toast:
+    - Auto-posted: "Terkirim & diposting! Pesanmu langsung diposting ke X."
+    - Queued (post failed): "Masuk antrean — Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya."
+    - Filtered: "Menunggu review — Pesanmu sedang menunggu review admin."
+    - Normal: "Berhasil dikirim! Pesanmu sedang menunggu moderasi admin."
+  - Updated error handler to show `data.message` (for always-on rejection messages)
+
+Stage Summary:
+- Auto-post failures now move submission to "pending" (admin can retry)
+- User sees clear "Masuk antrean" message instead of confusing "Berhasil dikirim"
+- No more "approved but not posted" limbo state
+
+---
+Task ID: 13
+Agent: Main
+Task: Implement rate limiting, auto-post cooldown, and whitelist
+
+Work Log:
+- Added rate limit settings to `src/app/api/admin/filter-settings/route.ts`:
+  - `DEFAULT_RATE_LIMITS` constant: cooldown=2min, dailyCap=20, autoPostCooldown=10sec
+  - `RateLimitSettings` interface: submissionCooldown, submissionDailyCap, autoPostCooldown
+  - `getFilterSettings()` now returns `rateLimits` and `whitelistUsernames`
+  - GET handler returns `rateLimits`, `whitelistUsernames`, and `defaults.rateLimits`
+  - POST handler saves `rateLimits` (3 integer settings, not encrypted) and `whitelistUsernames` (JSON array, not encrypted)
+  - Removed dead `getFilterSetting()` function (only `getFilterSettings()` was used externally)
+  - Fixed `getFilterSetting` unencrypted key handling — removed since function deleted
+  - Added 4 new FILTER_SETTING_KEYS: submission_cooldown, submission_daily_cap, auto_post_cooldown, whitelist_usernames
+  - Rate limit parsing: Math.max(0/1) with fallback to defaults
+  - Whitelist parsing: JSON array of lowercase trimmed usernames
+- Modified `src/app/api/submissions/route.ts`:
+  - Imported `DEFAULT_RATE_LIMITS` and `RateLimitSettings` from filter-settings
+  - Imported `FilterRules` type from content-filter (replaced inline type)
+  - Added rate limit type to filterSettings declaration (cleaner than inline)
+  - Added fallback rateLimits + whitelistUsernames to catch block
+  - RATE LIMITING section (before content filter):
+    - Whitelist check: `submitter.username` matched against `whitelistUsernames` (case-insensitive)
+    - Cooldown: queries DB for submitter's last submission, calculates wait time, rejects with Indonesian message
+    - Daily cap: counts submitter's submissions in last 24h, rejects if >= cap
+    - Whitelisted users skip all rate limit checks (debug logged)
+  - AUTO-POST COOLDOWN section (before creating submission for auto-post):
+    - Queries DB for last "posted" submission across ALL submitters
+    - If posted within autoPostCooldown seconds → creates as "pending" instead, returns `queued: true`
+    - Prevents rapid-fire tweets to X that trigger 226 errors
+- Modified `src/app/page.tsx`:
+  - Added `RateLimitSettings` interface
+  - Added `rateLimits` and `whitelistUsernames` to `FilterSettings` interface
+  - Added state: `rateLimits` (RateLimitSettings), `whitelistText` (string for textarea)
+  - Load rateLimits + whitelistUsernames from stats response
+  - Clear on admin logout
+  - Added Clock, UserCheck icon imports (fixed duplicate Clock import that caused build error)
+  - Added Rate Limiting section in Settings UI:
+    - 3 number inputs: Cooldown (0-60 min), Daily cap (1-100), Auto-post cooldown (0-120 sec)
+    - Info box explaining each setting in Indonesian
+  - Added Whitelist section in Settings UI:
+    - Textarea for comma/newline-separated X usernames
+    - User count badge
+    - Helper text explaining bypass and testing use case
+  - Save Filter Settings now includes `rateLimits` and `whitelistUsernames` in POST body
+  - Updated success toast to include cooldown + daily cap info
+
+Full submission flow:
+```
+POST /api/submissions
+  ├─ Whitelisted? → Skip rate limits
+  ├─ Cooldown not passed? → ❌ REJECT "Tunggu sebentar"
+  ├─ Daily cap reached? → ❌ REJECT "Batas harian tercapai"
+  ├─ Always-on rule fails? → ❌ REJECT with Indonesian message
+  ├─ Toggleable rule fails? → 🛡️ Pending
+  ├─ Gemini fails? → 🛡️ Pending
+  ├─ Auto-post cooldown active? → 📋 Queued (admin posts later)
+  └─ All clear → ✅ Auto-post to X
+```
+
+Stage Summary:
+- Rate limiting fully implemented: per-user cooldown + daily cap + auto-post cooldown
+- Whitelist feature allows specific X usernames to bypass rate limits (for testing)
+- All 3 rate limit settings configurable via admin dashboard
+- Auto-post cooldown prevents concurrent tweets to X (avoids 226 errors)
+- Zero lint errors, dev server HTTP 200
+
+---
+Task ID: 14
+Agent: Main
+Task: Code cleanup audit for this session's changes
+
+Work Log:
+- Removed dead `getFilterSetting()` function from filter-settings/route.ts (only `getFilterSettings()` was used externally)
+- Changed `ALWAYS_ON_RULES` from exported to private (only `ALWAYS_ON_REASONS` needed externally)
+- Replaced massive inline type in submissions/route.ts with imported `FilterRules` and `RateLimitSettings` types
+- Split long single-line rate limit parsing into multi-line for readability
+- Split long single-line return statement in getFilterSettings into multi-line
+- Split long whitelist parsing into multi-line
+- Updated outdated Gemini UI text: "fail-open" → "submission goes to pending (admin reviews)"
+- Fixed duplicate `Clock` import in page.tsx (was imported on line 10 and line 38, caused build error)
+
+Stage Summary:
+- All dead code removed
+- Types use proper imports instead of inline duplication
+- Long lines split for readability
+- Outdated UI text updated to match current behavior
+- Zero lint errors, dev server HTTP 200
+
+---
+Task ID: 15
+Agent: Main
+Task: Fix general mobile responsive UI
+
+Work Log:
+- Audited all 2473 lines of page.tsx for mobile responsive issues
+- Identified 10 specific areas with mobile layout problems
+- Applied fixes using Tailwind responsive prefixes (sm:, md:) only
+
+Changes:
+1. **Header** — Hidden @username Badge on mobile (hidden sm:inline-flex), hidden vertical separator (hidden sm:block), hidden "Admin" text on mobile (hidden sm:inline, shows only Shield icon)
+2. **Admin Sub-Tabs** — Added flex-1 and justify-center to Dashboard/Settings buttons for even mobile spacing
+3. **Stats Grid** — Changed grid-cols-3 sm:grid-cols-6 → grid-cols-2 sm:grid-cols-3 md:grid-cols-6 (2 cols on mobile, 3 on tablet, 6 on desktop)
+4. **Connection Status Banner** — Changed flex-wrap to flex-col sm:flex-row sm:flex-wrap for vertical stack on mobile
+5. **API Credits Card** — Changed to flex-col sm:flex-row for vertical stack on mobile, flex-wrap on credit stats
+6. **Submission Card Actions** — Changed parent to flex-col sm:flex-row so action buttons stack below content on mobile, added self-end sm:self-start
+7. **Settings Input+Button Rows** (6 locations: Cookie, Bearer, Query ID, API Keys, Proxy, Gemini Key) — Changed flex gap-2 → flex flex-col sm:flex-row gap-2 for vertical stack on mobile
+8. **Rate Limiting Grid** — Changed grid-cols-3 → grid-cols-1 sm:grid-cols-3 (single column on mobile)
+9. **Footer** — Changed to flex-col sm:flex-row with gap-1 text-center for proper mobile stacking
+10. **Post Method Toggle** — Changed flex gap-2 → flex flex-wrap gap-2 for natural button wrapping
+
+Stage Summary:
+- 10 mobile responsive fixes applied across page.tsx
+- No functionality, colors, or logic changes — only responsive layout classes
+- All fixes use Tailwind responsive prefixes (sm:, md:)
+- Lint: 0 errors
+- Dev server: HTTP 200, compiles successfully

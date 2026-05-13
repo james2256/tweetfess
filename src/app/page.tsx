@@ -35,6 +35,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Sparkles,
+  UserCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -125,6 +126,12 @@ interface FilterRules {
   duplicate24h: boolean
 }
 
+interface RateLimitSettings {
+  submissionCooldown: number   // minutes
+  submissionDailyCap: number   // count
+  autoPostCooldown: number     // seconds
+}
+
 interface FilterSettings {
   autoApprove: boolean
   blockedWords: string[]
@@ -132,6 +139,8 @@ interface FilterSettings {
   filterRules: FilterRules
   geminiEnabled: boolean
   geminiApiKeySet: boolean
+  rateLimits: RateLimitSettings
+  whitelistUsernames: string[]
 }
 
 interface Stats {
@@ -323,6 +332,14 @@ export default function HomePage() {
   const [geminiApiKeySet, setGeminiApiKeySet] = useState(false) // whether a key is saved in DB
   const [showGeminiKey, setShowGeminiKey] = useState(false)
 
+  // Rate limit state
+  const [rateLimits, setRateLimits] = useState<RateLimitSettings>({
+    submissionCooldown: 2,
+    submissionDailyCap: 20,
+    autoPostCooldown: 10,
+  })
+  const [whitelistText, setWhitelistText] = useState('') // textarea value
+
   // Batch saving state
   const [isSavingAllCredentials, setIsSavingAllCredentials] = useState(false)
 
@@ -444,6 +461,8 @@ export default function HomePage() {
     setGeminiEnabled(false)
     setGeminiApiKeyInput('')
     setGeminiApiKeySet(false)
+    setRateLimits({ submissionCooldown: 2, submissionDailyCap: 20, autoPostCooldown: 10 })
+    setWhitelistText('')
     toast({ title: 'Logout berhasil' })
   }
 
@@ -473,7 +492,9 @@ export default function HomePage() {
 
       if (res.ok) {
         if (data.autoPosted) {
-          toast({ title: 'Terkirim & diposting!', description: 'Pesanmu langsung diposting ke X (auto-approve).' })
+          toast({ title: 'Terkirim & diposting!', description: 'Pesanmu langsung diposting ke X.' })
+        } else if (data.queued) {
+          toast({ title: 'Masuk antrean', description: data.error || 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.' })
         } else if (data.filtered) {
           toast({ title: 'Menunggu review', description: 'Pesanmu sedang menunggu review admin.' })
         } else {
@@ -482,7 +503,8 @@ export default function HomePage() {
         setMessage('')
         setCategory('')
       } else {
-        toast({ title: 'Gagal', description: data.error, variant: 'destructive' })
+        const errorDesc = data.message || data.error || 'Gagal mengirim pesan'
+        toast({ title: data.error || 'Gagal', description: errorDesc, variant: 'destructive' })
       }
     } catch {
       toast({ title: 'Error', description: 'Tidak dapat terhubung ke server', variant: 'destructive' })
@@ -536,6 +558,8 @@ export default function HomePage() {
           setFilterRules(data.filterSettings.filterRules)
           setGeminiEnabled(data.filterSettings.geminiEnabled)
           setGeminiApiKeySet(data.filterSettings.geminiApiKeySet)
+          if (data.filterSettings.rateLimits) setRateLimits(data.filterSettings.rateLimits)
+          if (data.filterSettings.whitelistUsernames) setWhitelistText(data.filterSettings.whitelistUsernames.join(', '))
         }
       }
     } catch {
@@ -799,7 +823,7 @@ export default function HomePage() {
                         {(submitterUsername || 'U').charAt(0).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
-                    <Badge variant="outline" className="text-xs gap-1 border-[#EFF3F4] text-[#3D4145] bg-[#F7F9F9]">
+                    <Badge variant="outline" className="text-xs gap-1 border-[#EFF3F4] text-[#3D4145] bg-[#F7F9F9] hidden sm:inline-flex">
                       @{submitterUsername || 'user'}
                     </Badge>
                     <ChevronDown className="w-3 h-3 text-[#71767B]" />
@@ -840,13 +864,13 @@ export default function HomePage() {
               </Button>
             )}
 
-            <Separator orientation="vertical" className="h-5" />
+            <Separator orientation="vertical" className="h-5 hidden sm:block" />
 
             {/* Admin */}
             {isAdmin ? (
               <div className="flex items-center gap-1">
                 <Badge variant="outline" className="text-xs gap-1 border-green-300 text-green-700 bg-green-50">
-                  <Shield className="w-3 h-3" /> Admin
+                  <Shield className="w-3 h-3" /> <span className="hidden sm:inline">Admin</span>
                 </Badge>
                 <Button variant="ghost" size="sm" onClick={handleAdminLogout} className="text-[#71767B] h-7 w-7 p-0">
                   <LogOut className="w-3.5 h-3.5" />
@@ -1095,7 +1119,7 @@ export default function HomePage() {
                 <div className="flex items-center gap-1 bg-[#F7F9F9] p-1 rounded-xl">
                   <button
                     onClick={() => setAdminSubTab('dashboard')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                       adminSubTab === 'dashboard'
                         ? 'bg-white shadow-sm text-[#0F1419]'
                         : 'text-[#536471] hover:text-[#3D4145]'
@@ -1111,7 +1135,7 @@ export default function HomePage() {
                   </button>
                   <button
                     onClick={() => setAdminSubTab('settings')}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                       adminSubTab === 'settings'
                         ? 'bg-white shadow-sm text-[#0F1419]'
                         : 'text-[#536471] hover:text-[#3D4145]'
@@ -1133,7 +1157,7 @@ export default function HomePage() {
                   >
                     {/* Stats Grid */}
                     {stats && (
-                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
                         {[
                           { label: 'Total', value: stats.total, icon: BarChart3, color: 'bg-[#F7F9F9] text-[#3D4145]' },
                           { label: 'Menunggu', value: stats.pending, icon: Clock, color: stats.pending > 0 ? 'bg-yellow-50 text-yellow-700 ring-2 ring-yellow-300' : 'bg-yellow-50 text-yellow-700' },
@@ -1161,7 +1185,7 @@ export default function HomePage() {
                     {/* Connection Status Banner */}
                     <Card className="shadow-sm border-[#EFF3F4]">
                       <CardContent className="p-3">
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                        <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-x-4 sm:gap-y-2 text-xs">
                           <span className="font-medium text-[#536471] flex items-center gap-1.5">
                             <Wifi className="w-3.5 h-3.5" /> Connection
                           </span>
@@ -1323,7 +1347,7 @@ export default function HomePage() {
                         <CardContent>
                           <div className="space-y-1.5">
                             {apiCredits.map((credit, idx) => (
-                              <div key={idx} className="flex items-center justify-between bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
+                              <div key={idx} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
                                 <div className="flex items-center gap-2">
                                   <span className="text-[10px] font-mono text-[#536471]">{credit.apiKey}</span>
                                   {credit.error && (
@@ -1332,7 +1356,7 @@ export default function HomePage() {
                                     </Badge>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-1 sm:gap-2">
                                   <span className="text-[10px] text-[#71767B]">Bonus: {credit.bonusCredits}</span>
                                   <span className="text-[10px] font-medium text-[#3D4145]">Total: {credit.totalCredits}</span>
                                   <span className="text-[8px] text-[#71767B]">(~{Math.floor(credit.totalCredits / 300)} tweets)</span>
@@ -1389,7 +1413,7 @@ export default function HomePage() {
                                 <motion.div key={sub.id} layout initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}>
                                   <Card className="shadow-sm border-[#EFF3F4] hover:shadow-md transition-shadow">
                                     <CardContent className="p-4">
-                                      <div className="flex items-start justify-between gap-3">
+                                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                                         <div className="flex-1 min-w-0">
                                           <div className="flex items-center gap-2 mb-2">
                                             {sub.submitter.profileImage ? (
@@ -1494,7 +1518,7 @@ export default function HomePage() {
                                         </div>
 
                                         {/* Action buttons */}
-                                        <div className="flex items-center gap-1 shrink-0">
+                                        <div className="flex items-center gap-1 shrink-0 self-end sm:self-start">
                                           {sub.status === 'pending' && (
                                             <>
                                               <Button
@@ -1587,7 +1611,7 @@ export default function HomePage() {
                             {/* Cookie String */}
                             <div className="space-y-2">
                               <label className="text-xs font-medium text-[#536471]">Cookie String</label>
-                              <div className="flex gap-2">
+                              <div className="flex flex-col sm:flex-row gap-2">
                                 <div className="flex-1 relative">
                                   <Input
                                     type={showCookieValue ? 'text' : 'password'}
@@ -1649,7 +1673,7 @@ export default function HomePage() {
                             {/* Bearer Token */}
                             <div className="space-y-2">
                               <label className="text-xs font-medium text-[#536471]">Bearer Token</label>
-                              <div className="flex gap-2">
+                              <div className="flex flex-col sm:flex-row gap-2">
                                 <div className="flex-1 relative">
                                   <Input
                                     type={showBearerValue ? 'text' : 'password'}
@@ -1707,7 +1731,7 @@ export default function HomePage() {
                                   Auto-fetch
                                 </Badge>
                               </div>
-                              <div className="flex gap-2">
+                              <div className="flex flex-col sm:flex-row gap-2">
                                 <Input
                                   type="text"
                                   placeholder="Manual fallback (optional)"
@@ -1826,7 +1850,7 @@ export default function HomePage() {
                             {/* Post Method Toggle */}
                             <div className="space-y-2">
                               <label className="text-xs font-medium text-[#536471]">Post Method</label>
-                              <div className="flex gap-2">
+                              <div className="flex flex-wrap gap-2">
                                 {([
                                   { value: 'direct', label: 'Direct', desc: 'Cookie only' },
                                   { value: 'auto', label: 'Auto', desc: 'Cookie → Retry → API' },
@@ -1937,7 +1961,7 @@ export default function HomePage() {
                               <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                                 <Key className="w-3 h-3" /> API Keys (JSON array)
                               </label>
-                              <div className="flex gap-2">
+                              <div className="flex flex-col sm:flex-row gap-2">
                                 <Input
                                   placeholder='["key1","key2","key3"]'
                                   value={apiKeys}
@@ -1962,7 +1986,7 @@ export default function HomePage() {
                               <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                                 <Globe className="w-3 h-3" /> Proxy URL (required)
                               </label>
-                              <div className="flex gap-2">
+                              <div className="flex flex-col sm:flex-row gap-2">
                                 <Input
                                   placeholder="http://user:pass@ip:port"
                                   value={apiProxy}
@@ -2226,7 +2250,7 @@ export default function HomePage() {
                                   <span>Set your Gemini API key below to enable AI filtering. Without a key, only rule-based filter will be used.</span>
                                 </div>
                               )}
-                              <div className="flex gap-2">
+                              <div className="flex flex-col sm:flex-row gap-2">
                                 <div className="flex-1 relative">
                                   <Input
                                     type={showGeminiKey ? 'text' : 'password'}
@@ -2285,10 +2309,91 @@ export default function HomePage() {
                                 <p className="text-[10px] font-medium text-[#536471]">How it works:</p>
                                 <ul className="text-[10px] text-[#71767B] space-y-0.5 list-disc list-inside">
                                   <li>Runs <strong>after</strong> rule-based filter passes (saves API calls)</li>
-                                  <li>If Gemini is down or errors → submission passes (fail-open)</li>
+                                  <li>If Gemini is down or errors → submission goes to pending (admin reviews)</li>
                                   <li>Only blocks genuinely harmful content (hate speech, threats, doxxing)</li>
                                   <li>Does NOT block typical alter content (venting, profanity, drama)</li>
                                 </ul>
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Rate Limiting */}
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-2">
+                                <Clock className="w-4 h-4 text-[#536471]" />
+                                <span className="text-sm font-semibold text-[#0F1419]">Rate Limiting</span>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <div>
+                                  <label className="text-[10px] font-medium text-[#536471] block mb-1">Cooldown (menit)</label>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={60}
+                                    value={rateLimits.submissionCooldown}
+                                    onChange={(e) => setRateLimits({ ...rateLimits, submissionCooldown: parseInt(e.target.value) || 0 })}
+                                    className="text-xs h-8"
+                                  />
+                                  <p className="text-[9px] text-[#71767B] mt-0.5">Antar pesan per user</p>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-[#536471] block mb-1">Batas harian</label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    value={rateLimits.submissionDailyCap}
+                                    onChange={(e) => setRateLimits({ ...rateLimits, submissionDailyCap: parseInt(e.target.value) || 1 })}
+                                    className="text-xs h-8"
+                                  />
+                                  <p className="text-[9px] text-[#71767B] mt-0.5">Pesan/user/hari</p>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-[#536471] block mb-1">Auto-post jeda (detik)</label>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={120}
+                                    value={rateLimits.autoPostCooldown}
+                                    onChange={(e) => setRateLimits({ ...rateLimits, autoPostCooldown: parseInt(e.target.value) || 0 })}
+                                    className="text-xs h-8"
+                                  />
+                                  <p className="text-[9px] text-[#71767B] mt-0.5">Antar tweet ke X</p>
+                                </div>
+                              </div>
+                              <div className="bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4] space-y-1">
+                                <p className="text-[10px] font-medium text-[#536471]">Cara kerja:</p>
+                                <ul className="text-[10px] text-[#71767B] space-y-0.5 list-disc list-inside">
+                                  <li><strong>Cooldown</strong> — user harus menunggu sebelum kirim pesan lagi</li>
+                                  <li><strong>Batas harian</strong> — maksimal pesan per user per 24 jam</li>
+                                  <li><strong>Auto-post jeda</strong> — jika ada pesan baru dalam {rateLimits.autoPostCooldown} detik setelah auto-post terakhir, masuk antrean admin (mencegah 226 dari X)</li>
+                                </ul>
+                              </div>
+                            </div>
+
+                            <Separator />
+
+                            {/* Whitelist */}
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-2">
+                                <UserCheck className="w-4 h-4 text-[#536471]" />
+                                <span className="text-sm font-semibold text-[#0F1419]">Whitelist</span>
+                                {whitelistText.split(/[,\n]+/).filter(u => u.trim()).length > 0 && (
+                                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0">
+                                    {whitelistText.split(/[,\n]+/).filter(u => u.trim()).length} user
+                                  </Badge>
+                                )}
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-medium text-[#536471] block mb-1">Username X (bypass rate limit)</label>
+                                <Textarea
+                                  value={whitelistText}
+                                  onChange={(e) => setWhitelistText(e.target.value)}
+                                  placeholder="username1, username2, username3"
+                                  className="text-xs min-h-[60px] font-mono"
+                                />
+                                <p className="text-[9px] text-[#71767B] mt-1">Pisahkan dengan koma atau baris baru. User ini bebas dari cooldown & batas harian. Berguna untuk testing.</p>
                               </div>
                             </div>
 
@@ -2304,6 +2409,11 @@ export default function HomePage() {
                                     .map(w => w.trim().toLowerCase())
                                     .filter(w => w.length > 0)
 
+                                  const whitelist = whitelistText
+                                    .split(/[,\n]+/)
+                                    .map(u => u.trim().toLowerCase())
+                                    .filter(u => u.length > 0)
+
                                   const res = await fetch('/api/admin/filter-settings', {
                                     method: 'POST',
                                     headers: {
@@ -2315,11 +2425,13 @@ export default function HomePage() {
                                       blockedWords: words,
                                       filterRules,
                                       geminiEnabled,
+                                      rateLimits,
+                                      whitelistUsernames: whitelist,
                                     }),
                                   })
                                   const data = await res.json()
                                   if (res.ok) {
-                                    toast({ title: 'Filter settings saved!', description: `Auto-approve: ${autoApprove ? 'ON' : 'OFF'}, ${words.length} blocked words, Gemini: ${geminiEnabled ? 'ON' : 'OFF'}` })
+                                    toast({ title: 'Filter settings saved!', description: `Auto-approve: ${autoApprove ? 'ON' : 'OFF'}, ${words.length} blocked words, Gemini: ${geminiEnabled ? 'ON' : 'OFF'}, Cooldown: ${rateLimits.submissionCooldown}m, Daily cap: ${rateLimits.submissionDailyCap}` })
                                     fetchStats()
                                   } else {
                                     toast({ title: 'Failed', description: data.error, variant: 'destructive' })
@@ -2350,7 +2462,7 @@ export default function HomePage() {
 
       {/* Footer */}
       <footer className="mt-auto border-t border-[#EFF3F4] bg-white/80 backdrop-blur-lg">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-1 text-center">
           <p className="text-xs text-[#71767B]">Autobase Menfess &mdash; X Base Indonesia</p>
           <p className="text-xs text-[#71767B]">Login with X only &middot; Anonim di tweet</p>
         </div>

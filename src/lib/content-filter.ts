@@ -68,12 +68,50 @@ export const DEFAULT_FILTER_RULES: FilterRules = {
 }
 
 // Non-toggleable rules (always enforced regardless of settings)
+// These cause outright rejection (not pending) — spam/low-quality with zero chance of approval
 const ALWAYS_ON_RULES: (keyof FilterRules)[] = [
   'capsSpam',
   'repeatedChars',
   'tooShort',
   'duplicate24h',
 ]
+
+// Reason strings produced by always-on rules
+export const ALWAYS_ON_REASONS: string[] = [
+  'caps_spam',
+  'repeated_characters',
+  'too_short',
+  'duplicate_24h',
+]
+
+// Check if any of the given reasons come from always-on rules
+export function hasAlwaysOnReason(reasons: string[]): boolean {
+  return reasons.some(r => ALWAYS_ON_REASONS.includes(r))
+}
+
+// Get user-friendly error message for always-on rejections
+export function getRejectionMessage(reasons: string[]): string {
+  const messages: string[] = []
+
+  for (const reason of reasons) {
+    switch (reason) {
+      case 'caps_spam':
+        messages.push('Pesan menggunakan huruf kapital semua (ALL CAPS). Gunakan huruf biasa.')
+        break
+      case 'repeated_characters':
+        messages.push('Pesan mengandung karakter berulang berlebihan.')
+        break
+      case 'too_short':
+        messages.push('Pesan terlalu pendek. Minimal 5 karakter.')
+        break
+      case 'duplicate_24h':
+        messages.push('Pesan ini sudah dikirim dalam 24 jam terakhir.')
+        break
+    }
+  }
+
+  return messages.join(' ')
+}
 
 // --- Filter Result ---
 

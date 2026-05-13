@@ -10,7 +10,11 @@ import {
 import { NextRequest, NextResponse } from 'next/server'
 
 // Settings keys for the filter feature
-const FILTER_SETTING_KEYS = ['auto_approve', 'blocked_words', 'filter_rules', 'nsfw_words', 'gemini_enabled', 'gemini_api_key']
+const FILTER_SETTING_KEYS = [
+  'auto_approve', 'blocked_words', 'filter_rules', 'nsfw_words',
+  'gemini_enabled', 'gemini_api_key',
+  'submission_cooldown', 'submission_daily_cap', 'auto_post_cooldown', 'whitelist_usernames',
+]
 
 /**
  * Decrypt a value for display/masking purposes.
@@ -24,20 +28,21 @@ function decryptValue(value: string): string {
 }
 
 /**
- * Get a filter setting value from DB, decrypted.
- * Returns null if not found.
- */
-export async function getFilterSetting(key: string): Promise<string | null> {
-  const setting = await db.setting.findUnique({ where: { key } })
-  if (!setting) return null
-  // These keys are not encrypted (like post_method)
-  if (key === 'auto_approve' || key === 'gemini_enabled') return setting.value
-  return decryptValue(setting.value)
-}
-
-/**
  * Get all filter settings as structured objects.
  */
+// Default rate limit settings
+export const DEFAULT_RATE_LIMITS = {
+  submissionCooldown: 2,     // minutes between submissions
+  submissionDailyCap: 20,    // max submissions per user per day
+  autoPostCooldown: 10,      // seconds between auto-posts to X
+}
+
+export interface RateLimitSettings {
+  submissionCooldown: number   // minutes
+  submissionDailyCap: number   // count
+  autoPostCooldown: number     // seconds
+}
+
 export async function getFilterSettings(): Promise<{
   autoApprove: boolean
   blockedWords: string[]
@@ -45,6 +50,8 @@ export async function getFilterSettings(): Promise<{
   filterRules: FilterRules
   geminiEnabled: boolean
   geminiApiKeySet: boolean  // Only whether a key exists (never expose the key)
+  rateLimits: RateLimitSettings
+  whitelistUsernames: string[]  // Twitter usernames bypassing rate limits
 }> {
   const settings = await db.setting.findMany({
     where: { key: { in: FILTER_SETTING_KEYS } },
@@ -105,7 +112,46 @@ export async function getFilterSettings(): Promise<{
   const geminiApiKey = getRaw('gemini_api_key')
   const geminiApiKeySet = !!geminiApiKey && geminiApiKey.trim().length > 0
 
-  return { autoApprove, blockedWords, nsfwWords, filterRules, geminiEnabled, geminiApiKeySet }
+  // Rate limit settings
+  const submissionCooldown = Math.max(
+    0,
+    parseInt(getRaw('submission_cooldown') || '', 10) || DEFAULT_RATE_LIMITS.submissionCooldown,
+  )
+  const submissionDailyCap = Math.max(
+    1,
+    parseInt(getRaw('submission_daily_cap') || '', 10) || DEFAULT_RATE_LIMITS.submissionDailyCap,
+  )
+  const autoPostCooldown = Math.max(
+    0,
+    parseInt(getRaw('auto_post_cooldown') || '', 10) || DEFAULT_RATE_LIMITS.autoPostCooldown,
+  )
+
+  // Whitelist usernames (bypass rate limits)
+  let whitelistUsernames: string[] = []
+  const whitelistRaw = getRaw('whitelist_usernames')
+  if (whitelistRaw) {
+    try {
+      const parsed = JSON.parse(whitelistRaw)
+      if (Array.isArray(parsed)) {
+        whitelistUsernames = parsed
+          .filter((u: unknown) => typeof u === 'string' && u.trim())
+          .map((u: string) => u.toLowerCase().trim())
+      }
+    } catch {
+      // Keep empty on parse error
+    }
+  }
+
+  return {
+    autoApprove,
+    blockedWords,
+    nsfwWords,
+    filterRules,
+    geminiEnabled,
+    geminiApiKeySet,
+    rateLimits: { submissionCooldown, submissionDailyCap, autoPostCooldown },
+    whitelistUsernames,
+  }
 }
 
 /**
@@ -133,10 +179,13 @@ export async function GET(req: NextRequest) {
     filterRules: settings.filterRules,
     geminiEnabled: settings.geminiEnabled,
     geminiApiKeySet: settings.geminiApiKeySet,
+    rateLimits: settings.rateLimits,
+    whitelistUsernames: settings.whitelistUsernames,
     defaults: {
       blockedWords: DEFAULT_BLOCKED_WORDS,
       nsfwWords: DEFAULT_NSFW_WORDS,
       filterRules: DEFAULT_FILTER_RULES,
+      rateLimits: DEFAULT_RATE_LIMITS,
     },
   })
 }
@@ -148,13 +197,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { autoApprove, blockedWords, nsfwWords, filterRules, geminiEnabled, geminiApiKey } = body as {
+    const { autoApprove, blockedWords, nsfwWords, filterRules, geminiEnabled, geminiApiKey, rateLimits, whitelistUsernames } = body as {
       autoApprove?: boolean
       blockedWords?: string[]
       nsfwWords?: string[]
       filterRules?: Partial<FilterRules>
       geminiEnabled?: boolean
       geminiApiKey?: string
+      rateLimits?: { submissionCooldown?: number; submissionDailyCap?: number; autoPostCooldown?: number }
+      whitelistUsernames?: string[]
     }
 
     const results: { key: string; updated: boolean }[] = []
@@ -244,6 +295,51 @@ export async function POST(req: NextRequest) {
         await db.setting.deleteMany({ where: { key: 'gemini_api_key' } })
       }
       results.push({ key: 'gemini_api_key', updated: true })
+    }
+
+    // Save rate limit settings (not encrypted, simple integers)
+    if (rateLimits) {
+      if (typeof rateLimits.submissionCooldown === 'number') {
+        const val = Math.max(0, rateLimits.submissionCooldown).toString()
+        await db.setting.upsert({
+          where: { key: 'submission_cooldown' },
+          update: { value: val },
+          create: { key: 'submission_cooldown', value: val },
+        })
+        results.push({ key: 'submission_cooldown', updated: true })
+      }
+      if (typeof rateLimits.submissionDailyCap === 'number') {
+        const val = Math.max(1, rateLimits.submissionDailyCap).toString()
+        await db.setting.upsert({
+          where: { key: 'submission_daily_cap' },
+          update: { value: val },
+          create: { key: 'submission_daily_cap', value: val },
+        })
+        results.push({ key: 'submission_daily_cap', updated: true })
+      }
+      if (typeof rateLimits.autoPostCooldown === 'number') {
+        const val = Math.max(0, rateLimits.autoPostCooldown).toString()
+        await db.setting.upsert({
+          where: { key: 'auto_post_cooldown' },
+          update: { value: val },
+          create: { key: 'auto_post_cooldown', value: val },
+        })
+        results.push({ key: 'auto_post_cooldown', updated: true })
+      }
+    }
+
+    // Save whitelist usernames (not encrypted, JSON array)
+    if (Array.isArray(whitelistUsernames)) {
+      const valid = whitelistUsernames
+        .filter((u: unknown) => typeof u === 'string' && u.trim())
+        .map((u: string) => u.toLowerCase().trim())
+      const unique = [...new Set(valid)]
+      await db.setting.upsert({
+        where: { key: 'whitelist_usernames' },
+        update: { value: JSON.stringify(unique) },
+        create: { key: 'whitelist_usernames', value: JSON.stringify(unique) },
+      })
+      results.push({ key: 'whitelist_usernames', updated: true })
     }
 
     return NextResponse.json({ success: true, results })
