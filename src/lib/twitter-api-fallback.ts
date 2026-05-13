@@ -198,10 +198,11 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
     const data = await response.json()
     console.log('[twitterapi] user_login_v2 response:', JSON.stringify(data))
 
-    if (response.ok && data?.login_cookie) {
-      // Cache the login_cookie (encrypted)
-      await cacheLoginCookie(data.login_cookie)
-      return { success: true, loginCookie: data.login_cookie }
+    if (response.ok && (data?.login_cookie || data?.login_cookies)) {
+      // API returns "login_cookies" (plural) despite docs saying "login_cookie"
+      const loginCookie = data?.login_cookie || data?.login_cookies
+      await cacheLoginCookie(loginCookie)
+      return { success: true, loginCookie }
     }
 
     // Login succeeded but no login_cookie returned
