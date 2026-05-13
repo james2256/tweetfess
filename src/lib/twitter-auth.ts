@@ -153,7 +153,24 @@ export async function upsertSubmitterFromTwitter(twitterUser: {
   const { id: twitterId, name: displayName, username, profile_image_url } = twitterUser
 
   // Try to find existing submitter by twitterId
-  const existing = await db.submitter.findUnique({ where: { twitterId } })
+  let existing = await db.submitter.findUnique({ where: { twitterId } })
+
+  // For anon users (profile fetch failed), also try to find by access token.
+  // This prevents orphaned duplicate records when the same user re-logs in
+  // and /2/users/me fails again — they get a deterministic anon ID, but
+  // if their access token changed, we still want to find their existing record.
+  if (!existing && twitterId.startsWith('anon_') && tokens?.accessToken) {
+    existing = await db.submitter.findFirst({
+      where: { oauth2AccessToken: tokens.accessToken },
+    })
+    if (existing) {
+      // Update the twitterId to the new deterministic anon ID so future lookups work
+      existing = await db.submitter.update({
+        where: { id: existing.id },
+        data: { twitterId },
+      })
+    }
+  }
 
   if (existing) {
     // Update existing

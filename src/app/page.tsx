@@ -416,10 +416,11 @@ export default function HomePage() {
   }
 
   // Fetch submissions (admin)
-  const fetchSubmissions = useCallback(async (token?: string) => {
+  // silent=true for auto-refresh — no loading spinner flicker, no error toast spam
+  const fetchSubmissions = useCallback(async (token?: string, silent = false) => {
     const t = token || adminToken
     if (!t) return
-    setIsLoadingAdmin(true)
+    if (!silent) setIsLoadingAdmin(true)
     try {
       const statusParam = filterStatus !== 'all' ? `?status=${filterStatus}` : ''
       const res = await fetch(`/api/submissions${statusParam}`, {
@@ -430,9 +431,9 @@ export default function HomePage() {
         setSubmissions(data.submissions)
       }
     } catch {
-      toast({ title: 'Error', description: 'Gagal memuat data', variant: 'destructive' })
+      if (!silent) toast({ title: 'Error', description: 'Gagal memuat data', variant: 'destructive' })
     } finally {
-      setIsLoadingAdmin(false)
+      if (!silent) setIsLoadingAdmin(false)
     }
   }, [adminToken, filterStatus, toast])
 
@@ -664,9 +665,9 @@ export default function HomePage() {
   // Auto-refresh for admin
   useEffect(() => {
     if (isAdmin) {
-      fetchSubmissions()
+      fetchSubmissions() // initial load — shows spinner
       fetchStats()
-      const interval = setInterval(() => { fetchSubmissions(); fetchStats() }, 15000)
+      const interval = setInterval(() => { fetchSubmissions(undefined, true); fetchStats() }, 15000)
       return () => clearInterval(interval)
     }
   }, [isAdmin, filterStatus, fetchSubmissions, fetchStats])

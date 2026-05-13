@@ -207,17 +207,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Get the configured post method from DB settings.
- * Returns 'direct', 'api', or 'auto' (default).
- */
-async function getPostMethod(): Promise<'direct' | 'api' | 'auto'> {
-  const settings = await getSettings()
-  const method = settings.post_method
-  if (method === 'direct' || method === 'api') return method
-  return 'auto' // default
-}
-
-/**
  * Post a tweet to X using cookie-based authentication.
  *
  * Retry strategy:
@@ -236,8 +225,9 @@ export async function postTweetViaCookie(
   method: 'direct' | 'retry' | 'fallback'
   retriesUsed?: number
 }> {
-  // Check post method setting
-  const postMethod = await getPostMethod()
+  // 1. Get all settings in one DB query (includes post_method)
+  const settings = await getSettings()
+  const postMethod = (settings.post_method === 'direct' || settings.post_method === 'api') ? settings.post_method : 'auto'
 
   // If API-only mode, skip direct posting entirely
   if (postMethod === 'api') {
@@ -250,9 +240,6 @@ export async function postTweetViaCookie(
       method: 'fallback',
     }
   }
-
-  // 1. Get all settings in one DB query
-  const settings = await getSettings()
 
   debug('[direct] Post method:', postMethod)
   debug('[direct] Settings loaded:', {

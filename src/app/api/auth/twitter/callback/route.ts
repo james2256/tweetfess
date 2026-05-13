@@ -77,16 +77,22 @@ export async function GET(req: NextRequest) {
   // Fallback: if /2/users/me fails (e.g. old token without tweet.read scope),
   // create an anonymous profile so the user can still use the app
   // They'll see a warning in the UI suggesting to re-login
+  //
+  // IMPORTANT: Use a DETERMINISTIC anon ID derived from the access token hash.
+  // This prevents orphaned duplicate records when the same user re-logs in
+  // and /2/users/me fails again — they get the same anon ID, so
+  // upsertSubmitterFromTwitter finds and updates the existing record.
   if (!twitterUser) {
     console.warn(
       'Failed to fetch Twitter user profile — creating anon fallback. ' +
       'This usually means the OAuth token is missing the tweet.read scope. ' +
       'The user should log out and re-login to get a token with the correct scope.'
     )
+    const tokenHash = crypto.createHash('sha256').update(tokenData.access_token).digest('hex').slice(0, 16)
     twitterUser = {
-      id: 'anon_' + crypto.randomBytes(8).toString('hex'),
+      id: 'anon_' + tokenHash,
       name: 'Anonymous User',
-      username: 'anon_' + crypto.randomBytes(4).toString('hex'),
+      username: 'anon_' + tokenHash.slice(0, 8),
     }
   }
 
