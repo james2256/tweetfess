@@ -215,7 +215,8 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
       }
     }
 
-    const errorMsg = data?.msg || data?.detail || data?.error || data?.message || JSON.stringify(data)
+    // Note: API error response has {error: integer, message: string} — prioritize message over error number
+    const errorMsg = data?.message || data?.msg || data?.detail || (typeof data?.error === 'string' ? data.error : null) || JSON.stringify(data)
     return {
       success: false,
       error: `user_login_v2 failed: ${errorMsg}`,
@@ -321,7 +322,8 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
         }
       }
 
-      const errorMsg = data?.detail || data?.error || data?.message || data?.msg || JSON.stringify(data)
+      // Note: API error response has {error: integer, message: string} — prioritize message over error number
+      const errorMsg = data?.message || data?.msg || data?.detail || (typeof data?.error === 'string' ? data.error : null) || JSON.stringify(data)
 
       // login_cookies expired/invalid → auto re-login and retry ONCE
       if (
@@ -366,7 +368,8 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
           }
 
           // Retry also failed — stop, don't try other keys (same login_cookie issue)
-          const retryError = retryData?.detail || retryData?.error || retryData?.message || JSON.stringify(retryData)
+          // Note: API error response has {error: integer, message: string} — prioritize message over error number
+          const retryError = retryData?.message || retryData?.detail || (typeof retryData?.error === 'string' ? retryData.error : null) || JSON.stringify(retryData)
           return {
             success: false,
             error: `API fallback failed after re-login: ${retryError}`,
