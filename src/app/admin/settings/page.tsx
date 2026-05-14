@@ -26,7 +26,7 @@ export default function AdminSettingsPage() {
   const posting = usePostingSettings({ adminToken })
   const filterSettings = useFilterSettings({ adminToken })
   const circuitBreaker = useCircuitBreaker({ adminToken })
-  const stats = useStats({ adminToken })
+  const stats = useStats({ adminToken, lightweight: true })
 
   // Track whether initial settings load has happened
   // to prevent overwriting local state (toggles, text inputs) on every render

@@ -117,6 +117,12 @@ export async function recordPostSuccess(): Promise<void> {
     SET value = '0', "updatedAt" = NOW()
   `
   debug('[circuit-breaker] Post succeeded, resetting fail count to 0')
+
+  // Invalidate API credits cache so next dashboard refresh shows accurate credits
+  try {
+    const { invalidateCreditsCache } = await import('@/lib/twitter-api-fallback')
+    invalidateCreditsCache()
+  } catch { /* best effort */ }
 }
 
 /**

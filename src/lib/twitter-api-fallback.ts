@@ -478,6 +478,39 @@ export async function getAllKeyCredits(): Promise<KeyCredits[]> {
   return Promise.all(keys.map((key) => getKeyCredits(key)))
 }
 
+// ── In-memory cache for API credits ──
+// Credits change slowly (only when tweets are posted), so caching for 5 minutes
+// avoids N external HTTP calls to twitterapi.io on every dashboard load.
+// On Vercel, this cache resets on cold starts — acceptable tradeoff.
+let creditsCache: KeyCredits[] | null = null
+let creditsCacheTime: number = 0
+const CREDITS_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+/**
+ * Cached version of getAllKeyCredits().
+ * Returns cached results if fresh (<5 min), otherwise fetches new data.
+ * This is the function admin stats should use to avoid hammering the external API.
+ */
+export async function getCachedApiCredits(): Promise<KeyCredits[]> {
+  const now = Date.now()
+  if (creditsCache && now - creditsCacheTime < CREDITS_CACHE_TTL) {
+    return creditsCache
+  }
+  const fresh = await getAllKeyCredits()
+  creditsCache = fresh
+  creditsCacheTime = now
+  return fresh
+}
+
+/**
+ * Invalidate the credits cache.
+ * Call this after posting a tweet (credits decrease) or after saving new API keys.
+ */
+export function invalidateCreditsCache(): void {
+  creditsCache = null
+  creditsCacheTime = 0
+}
+
 /**
  * Get API login status for the admin dashboard.
  * Returns whether a login_cookie is cached and whether all credentials are present.

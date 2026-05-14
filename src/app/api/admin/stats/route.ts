@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { getCookieAuthStatus } from '@/lib/twitter-post-cookie'
-import { getAllKeyCredits, getApiLoginStatus } from '@/lib/twitter-api-fallback'
+import { getCachedApiCredits, getApiLoginStatus } from '@/lib/twitter-api-fallback'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
 import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
@@ -15,17 +15,29 @@ export async function GET(req: NextRequest) {
   if (!auth.authorized) return auth.response
 
   try {
-  const [pending, postFailed, rejected, posted, total, submitters, cookieAuthStatus, postMethodStats, apiCredits, apiLoginStatus, postMethodSetting, filterSettingsData] =
+  // 1. Single GROUP BY for all submission counts (was 6 separate count() queries)
+  const statusCounts = await db.$queryRaw<
+    { status: string; count: bigint }[]
+  >`
+    SELECT status, COUNT(*) as count
+    FROM "Submission"
+    GROUP BY status
+  `
+  const counts: Record<string, number> = {}
+  let total = 0
+  for (const row of statusCounts) {
+    const c = Number(row.count)
+    counts[row.status] = c
+    total += c
+  }
+
+  // 2. Submitter count + post method stats (also a GROUP BY) in parallel with the rest
+  const [submitters, postMethodStats, cookieAuthStatus, apiCredits, apiLoginStatus, postMethodSetting, filterSettingsData] =
     await Promise.all([
-      db.submission.count({ where: { status: 'pending' } }),
-      db.submission.count({ where: { status: 'post_failed' } }),
-      db.submission.count({ where: { status: 'rejected' } }),
-      db.submission.count({ where: { status: 'posted' } }),
-      db.submission.count(),
       db.submitter.count(),
-      getCookieAuthStatus(),
       getPostMethodStats(),
-      getAllKeyCredits(),
+      getCookieAuthStatus(),
+      getCachedApiCredits(),   // Cached — no external API calls on every request
       getApiLoginStatus(),
       getPostMethodSetting(),
       getFilterSettings(),
@@ -35,10 +47,10 @@ export async function GET(req: NextRequest) {
   const circuitBreaker = await getCircuitBreakerStatus(filterSettingsData.rateLimits)
 
   return NextResponse.json({
-    pending,
-    postFailed,
-    rejected,
-    posted,
+    pending: counts['pending'] || 0,
+    postFailed: counts['post_failed'] || 0,
+    rejected: counts['rejected'] || 0,
+    posted: counts['posted'] || 0,
     total,
     submitters,
     cookieAuthStatus,
