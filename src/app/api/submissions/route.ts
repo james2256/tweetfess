@@ -228,7 +228,7 @@ export async function POST(req: NextRequest) {
 
     // Check for duplicates (24h) if rule is enabled
     if (filterSettings.filterRules.duplicate24h) {
-      const dupCheck = await checkDuplicate24h(trimmedMessage, submitter.id, db)
+      const dupCheck = await checkDuplicate24h(trimmedMessage, db)
       if (dupCheck.isDuplicate && dupCheck.reason) {
         filterResult.passed = false
         filterResult.reasons.push(dupCheck.reason)

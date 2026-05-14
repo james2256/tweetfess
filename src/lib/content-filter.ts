@@ -284,14 +284,12 @@ export interface DuplicateCheckResult {
 
 export async function checkDuplicate24h(
   message: string,
-  submitterId: string,
-  db: { submission: { findFirst: (args: { where: { message: string; submitterId: string; createdAt: { gte: Date } } }) => Promise<{ id: string } | null> } },
+  db: { submission: { findFirst: (args: { where: { message: string; createdAt: { gte: Date } } }) => Promise<{ id: string } | null> } },
 ): Promise<DuplicateCheckResult> {
   const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
   const existing = await db.submission.findFirst({
     where: {
       message,
-      submitterId,
       createdAt: { gte: twentyFourHoursAgo },
     },
   })
