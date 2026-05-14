@@ -3,6 +3,8 @@ import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
+import { recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
+import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — retry loop can take up to 15s
@@ -56,6 +58,13 @@ export async function POST(
       if (!tweetResult.success) {
         debug('[post route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
         console.error('X API error:', tweetResult.error)
+
+        // Record failure for circuit breaker
+        try {
+          const settings = await getFilterSettings()
+          await recordPostFailure(settings.rateLimits)
+        } catch { /* best effort */ }
+
         return NextResponse.json(
           { error: `Gagal posting ke X: ${tweetResult.error}`, postMethod: tweetResult.method },
           { status: 502 }
@@ -73,6 +82,9 @@ export async function POST(
           postError: null, // Clear error since post succeeded
         },
       })
+
+      // Reset circuit breaker on success
+      await recordPostSuccess()
 
       return NextResponse.json({
         submission: updated,

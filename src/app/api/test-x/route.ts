@@ -3,6 +3,8 @@ import { postTweetViaCookie, getCookieAuthStatus } from '@/lib/twitter-post-cook
 import { verifyAdmin } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
+import { recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
+import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
 
 // Vercel serverless function timeout — test posting with retries can take time
 export const maxDuration = 30
@@ -58,6 +60,16 @@ export async function POST(req: NextRequest) {
   try {
     const result = await postTweetViaCookie(testText)
     debug('[test-x] Test post result:', { success: result.success, tweetId: result.tweetId, method: result.method, retriesUsed: result.retriesUsed, error: result.error?.slice(0, 100) })
+
+    // Update circuit breaker state
+    if (result.success) {
+      await recordPostSuccess()
+    } else {
+      try {
+        const settings = await getFilterSettings()
+        await recordPostFailure(settings.rateLimits)
+      } catch { /* best effort */ }
+    }
 
     return NextResponse.json({
       success: result.success,

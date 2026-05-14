@@ -8,12 +8,18 @@ import {
   type FilterRules,
 } from '@/lib/content-filter'
 import { NextRequest, NextResponse } from 'next/server'
+import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
 
 // Settings keys for the filter feature
 const FILTER_SETTING_KEYS = [
   'auto_approve', 'blocked_words', 'filter_rules', 'nsfw_words',
   'gemini_enabled', 'gemini_api_key',
-  'submission_cooldown', 'submission_daily_cap', 'auto_post_cooldown', 'whitelist_usernames',
+  'submission_cooldown', 'submission_daily_cap', 'auto_post_cooldown',
+  'auto_post_window_cap', 'auto_post_window_minutes',
+  'user_post_daily_cap', 'user_pending_cap',
+  'global_submission_daily_cap',
+  'circuit_breaker_threshold', 'circuit_breaker_cooldown_minutes',
+  'whitelist_usernames', 'blocked_usernames',
 ]
 
 /**
@@ -32,15 +38,29 @@ function decryptValue(value: string): string {
  */
 // Default rate limit settings
 export const DEFAULT_RATE_LIMITS = {
-  submissionCooldown: 2,     // minutes between submissions
-  submissionDailyCap: 20,    // max submissions per user per day
-  autoPostCooldown: 10,      // seconds between auto-posts to X
+  submissionCooldown: 2,                // minutes between submissions
+  submissionDailyCap: 20,               // max submissions per user per day
+  autoPostCooldown: 10,                 // seconds between auto-posts to X
+  autoPostWindowCap: 25,                // max auto-posts per time window
+  autoPostWindowMinutes: 30,            // the time window in minutes
+  userPostDailyCap: 5,                  // max posts per user per day on X
+  userPendingCap: 5,                    // max pending submissions per user
+  globalSubmissionDailyCap: 200,        // max submissions from ALL users per day
+  circuitBreakerThreshold: 3,           // consecutive failures before circuit breaker pauses
+  circuitBreakerCooldownMinutes: 30,    // how long circuit breaker pauses auto-post
 }
 
 export interface RateLimitSettings {
-  submissionCooldown: number   // minutes
-  submissionDailyCap: number   // count
-  autoPostCooldown: number     // seconds
+  submissionCooldown: number             // minutes
+  submissionDailyCap: number             // count
+  autoPostCooldown: number               // seconds
+  autoPostWindowCap: number              // max posts per window
+  autoPostWindowMinutes: number          // window size in minutes
+  userPostDailyCap: number               // max posts per user per day on X
+  userPendingCap: number                 // max pending submissions per user
+  globalSubmissionDailyCap: number       // max submissions from ALL users per day
+  circuitBreakerThreshold: number        // consecutive failures before pause
+  circuitBreakerCooldownMinutes: number  // how long to pause
 }
 
 export async function getFilterSettings(): Promise<{
@@ -52,6 +72,7 @@ export async function getFilterSettings(): Promise<{
   geminiApiKeySet: boolean  // Only whether a key exists (never expose the key)
   rateLimits: RateLimitSettings
   whitelistUsernames: string[]  // Twitter usernames bypassing rate limits
+  blockedUsernames: string[]    // Twitter usernames blocked from submitting
 }> {
   const settings = await db.setting.findMany({
     where: { key: { in: FILTER_SETTING_KEYS } },
@@ -125,6 +146,34 @@ export async function getFilterSettings(): Promise<{
     0,
     parseInt(getRaw('auto_post_cooldown') || '', 10) || DEFAULT_RATE_LIMITS.autoPostCooldown,
   )
+  const autoPostWindowCap = Math.max(
+    0,
+    parseInt(getRaw('auto_post_window_cap') || '', 10) || DEFAULT_RATE_LIMITS.autoPostWindowCap,
+  )
+  const autoPostWindowMinutes = Math.max(
+    1,
+    parseInt(getRaw('auto_post_window_minutes') || '', 10) || DEFAULT_RATE_LIMITS.autoPostWindowMinutes,
+  )
+  const userPostDailyCap = Math.max(
+    0,
+    parseInt(getRaw('user_post_daily_cap') || '', 10) || DEFAULT_RATE_LIMITS.userPostDailyCap,
+  )
+  const userPendingCap = Math.max(
+    1,
+    parseInt(getRaw('user_pending_cap') || '', 10) || DEFAULT_RATE_LIMITS.userPendingCap,
+  )
+  const globalSubmissionDailyCap = Math.max(
+    0,
+    parseInt(getRaw('global_submission_daily_cap') || '', 10) || DEFAULT_RATE_LIMITS.globalSubmissionDailyCap,
+  )
+  const circuitBreakerThreshold = Math.max(
+    1,
+    parseInt(getRaw('circuit_breaker_threshold') || '', 10) || DEFAULT_RATE_LIMITS.circuitBreakerThreshold,
+  )
+  const circuitBreakerCooldownMinutes = Math.max(
+    1,
+    parseInt(getRaw('circuit_breaker_cooldown_minutes') || '', 10) || DEFAULT_RATE_LIMITS.circuitBreakerCooldownMinutes,
+  )
 
   // Whitelist usernames (bypass rate limits)
   let whitelistUsernames: string[] = []
@@ -142,6 +191,22 @@ export async function getFilterSettings(): Promise<{
     }
   }
 
+  // Blocked usernames (cannot submit at all)
+  let blockedUsernames: string[] = []
+  const blockedRaw = getRaw('blocked_usernames')
+  if (blockedRaw) {
+    try {
+      const parsed = JSON.parse(blockedRaw)
+      if (Array.isArray(parsed)) {
+        blockedUsernames = parsed
+          .filter((u: unknown) => typeof u === 'string' && u.trim())
+          .map((u: string) => u.toLowerCase().trim())
+      }
+    } catch {
+      // Keep empty on parse error
+    }
+  }
+
   return {
     autoApprove,
     blockedWords,
@@ -149,8 +214,9 @@ export async function getFilterSettings(): Promise<{
     filterRules,
     geminiEnabled,
     geminiApiKeySet,
-    rateLimits: { submissionCooldown, submissionDailyCap, autoPostCooldown },
+    rateLimits: { submissionCooldown, submissionDailyCap, autoPostCooldown, autoPostWindowCap, autoPostWindowMinutes, userPostDailyCap, userPendingCap, globalSubmissionDailyCap, circuitBreakerThreshold, circuitBreakerCooldownMinutes },
     whitelistUsernames,
+    blockedUsernames,
   }
 }
 
@@ -171,6 +237,7 @@ export async function GET(req: NextRequest) {
   if (!auth.authorized) return auth.response
 
   const settings = await getFilterSettings()
+  const circuitBreaker = await getCircuitBreakerStatus(settings.rateLimits)
 
   return NextResponse.json({
     autoApprove: settings.autoApprove,
@@ -181,6 +248,8 @@ export async function GET(req: NextRequest) {
     geminiApiKeySet: settings.geminiApiKeySet,
     rateLimits: settings.rateLimits,
     whitelistUsernames: settings.whitelistUsernames,
+    blockedUsernames: settings.blockedUsernames,
+    circuitBreaker,
     defaults: {
       blockedWords: DEFAULT_BLOCKED_WORDS,
       nsfwWords: DEFAULT_NSFW_WORDS,
@@ -197,15 +266,16 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { autoApprove, blockedWords, nsfwWords, filterRules, geminiEnabled, geminiApiKey, rateLimits, whitelistUsernames } = body as {
+    const { autoApprove, blockedWords, nsfwWords, filterRules, geminiEnabled, geminiApiKey, rateLimits, whitelistUsernames, blockedUsernames } = body as {
       autoApprove?: boolean
       blockedWords?: string[]
       nsfwWords?: string[]
       filterRules?: Partial<FilterRules>
       geminiEnabled?: boolean
       geminiApiKey?: string
-      rateLimits?: { submissionCooldown?: number; submissionDailyCap?: number; autoPostCooldown?: number }
+      rateLimits?: { submissionCooldown?: number; submissionDailyCap?: number; autoPostCooldown?: number; autoPostWindowCap?: number; autoPostWindowMinutes?: number; userPostDailyCap?: number; userPendingCap?: number; globalSubmissionDailyCap?: number; circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number }
       whitelistUsernames?: string[]
+      blockedUsernames?: string[]
     }
 
     const results: { key: string; updated: boolean }[] = []
@@ -326,6 +396,69 @@ export async function POST(req: NextRequest) {
         })
         results.push({ key: 'auto_post_cooldown', updated: true })
       }
+      if (typeof rateLimits.autoPostWindowCap === 'number') {
+        const val = Math.max(0, rateLimits.autoPostWindowCap).toString()
+        await db.setting.upsert({
+          where: { key: 'auto_post_window_cap' },
+          update: { value: val },
+          create: { key: 'auto_post_window_cap', value: val },
+        })
+        results.push({ key: 'auto_post_window_cap', updated: true })
+      }
+      if (typeof rateLimits.autoPostWindowMinutes === 'number') {
+        const val = Math.max(1, rateLimits.autoPostWindowMinutes).toString()
+        await db.setting.upsert({
+          where: { key: 'auto_post_window_minutes' },
+          update: { value: val },
+          create: { key: 'auto_post_window_minutes', value: val },
+        })
+        results.push({ key: 'auto_post_window_minutes', updated: true })
+      }
+      if (typeof rateLimits.userPostDailyCap === 'number') {
+        const val = Math.max(0, rateLimits.userPostDailyCap).toString()
+        await db.setting.upsert({
+          where: { key: 'user_post_daily_cap' },
+          update: { value: val },
+          create: { key: 'user_post_daily_cap', value: val },
+        })
+        results.push({ key: 'user_post_daily_cap', updated: true })
+      }
+      if (typeof rateLimits.userPendingCap === 'number') {
+        const val = Math.max(1, rateLimits.userPendingCap).toString()
+        await db.setting.upsert({
+          where: { key: 'user_pending_cap' },
+          update: { value: val },
+          create: { key: 'user_pending_cap', value: val },
+        })
+        results.push({ key: 'user_pending_cap', updated: true })
+      }
+      if (typeof rateLimits.globalSubmissionDailyCap === 'number') {
+        const val = Math.max(0, rateLimits.globalSubmissionDailyCap).toString()
+        await db.setting.upsert({
+          where: { key: 'global_submission_daily_cap' },
+          update: { value: val },
+          create: { key: 'global_submission_daily_cap', value: val },
+        })
+        results.push({ key: 'global_submission_daily_cap', updated: true })
+      }
+      if (typeof rateLimits.circuitBreakerThreshold === 'number') {
+        const val = Math.max(1, rateLimits.circuitBreakerThreshold).toString()
+        await db.setting.upsert({
+          where: { key: 'circuit_breaker_threshold' },
+          update: { value: val },
+          create: { key: 'circuit_breaker_threshold', value: val },
+        })
+        results.push({ key: 'circuit_breaker_threshold', updated: true })
+      }
+      if (typeof rateLimits.circuitBreakerCooldownMinutes === 'number') {
+        const val = Math.max(1, rateLimits.circuitBreakerCooldownMinutes).toString()
+        await db.setting.upsert({
+          where: { key: 'circuit_breaker_cooldown_minutes' },
+          update: { value: val },
+          create: { key: 'circuit_breaker_cooldown_minutes', value: val },
+        })
+        results.push({ key: 'circuit_breaker_cooldown_minutes', updated: true })
+      }
     }
 
     // Save whitelist usernames (not encrypted, JSON array)
@@ -340,6 +473,20 @@ export async function POST(req: NextRequest) {
         create: { key: 'whitelist_usernames', value: JSON.stringify(unique) },
       })
       results.push({ key: 'whitelist_usernames', updated: true })
+    }
+
+    // Save blocked usernames (not encrypted, JSON array)
+    if (Array.isArray(blockedUsernames)) {
+      const valid = blockedUsernames
+        .filter((u: unknown) => typeof u === 'string' && u.trim())
+        .map((u: string) => u.toLowerCase().trim())
+      const unique = [...new Set(valid)]
+      await db.setting.upsert({
+        where: { key: 'blocked_usernames' },
+        update: { value: JSON.stringify(unique) },
+        create: { key: 'blocked_usernames', value: JSON.stringify(unique) },
+      })
+      results.push({ key: 'blocked_usernames', updated: true })
     }
 
     return NextResponse.json({ success: true, results })

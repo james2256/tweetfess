@@ -6,6 +6,7 @@ import { debug } from '@/lib/debug'
 import { runContentFilter, checkDuplicate24h, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
+import { isCircuitBreakerPaused, recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
 import { getFilterSettings, getGeminiApiKey, DEFAULT_RATE_LIMITS, type RateLimitSettings } from '@/app/api/admin/filter-settings/route'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -92,15 +93,46 @@ export async function POST(req: NextRequest) {
         geminiApiKeySet: false,
         rateLimits: { ...DEFAULT_RATE_LIMITS },
         whitelistUsernames: [],
+        blockedUsernames: [],
       }
     }
 
     // --- RATE LIMITING ---
+    // Check if user is blocked (cannot submit at all)
+    const isBlocked = submitter.username
+      ? filterSettings.blockedUsernames.includes(submitter.username.toLowerCase())
+      : false
+
+    if (isBlocked) {
+      debug('[submit] User is blocked:', submitter.username)
+      return NextResponse.json({
+        error: 'Akun diblokir',
+        message: 'Akun kamu tidak diperbolehkan mengirim pesan.',
+      }, { status: 403 })
+    }
+
     // Check if this user is whitelisted (bypasses rate limits)
     const isWhitelisted = submitter.username
       ? filterSettings.whitelistUsernames.includes(submitter.username.toLowerCase())
       : false
 
+    // --- GLOBAL RATE LIMITS (apply to everyone including whitelisted) ---
+    // Check global submission daily cap
+    if (filterSettings.rateLimits.globalSubmissionDailyCap > 0) {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      const globalCount = await db.submission.count({
+        where: { createdAt: { gte: twentyFourHoursAgo } },
+      })
+      if (globalCount >= filterSettings.rateLimits.globalSubmissionDailyCap) {
+        debug('[submit] Global daily cap reached:', globalCount)
+        return NextResponse.json({
+          error: 'Sistem sedang sibuk',
+          message: 'Batas harian sistem tercapai. Coba lagi besok.',
+        }, { status: 400 })
+      }
+    }
+
+    // --- PER-USER RATE LIMITS (bypassed by whitelist) ---
     if (!isWhitelisted) {
       // Check per-user cooldown
       if (filterSettings.rateLimits.submissionCooldown > 0) {
@@ -139,6 +171,23 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({
             error: 'Batas harian tercapai',
             message: `Kamu sudah mengirim ${todayCount} pesan hari ini (maksimal ${filterSettings.rateLimits.submissionDailyCap}). Coba lagi besok.`,
+          }, { status: 400 })
+        }
+      }
+
+      // Check per-user pending cap
+      if (filterSettings.rateLimits.userPendingCap > 0) {
+        const pendingCount = await db.submission.count({
+          where: {
+            submitterId: submitter.id,
+            status: 'pending',
+          },
+        })
+        if (pendingCount >= filterSettings.rateLimits.userPendingCap) {
+          debug('[submit] User pending cap reached:', pendingCount, 'for user', submitter.username)
+          return NextResponse.json({
+            error: 'Terlalu banyak pesan menunggu',
+            message: `Kamu sudah memiliki ${pendingCount} pesan dalam antrean. Tunggu sampai diproses admin sebelum mengirim lagi.`,
           }, { status: 400 })
         }
       }
@@ -252,15 +301,35 @@ export async function POST(req: NextRequest) {
     // --- AUTO-APPROVE ON + ALL FILTERS PASSED: Auto-post to X ---
     debug('[submit] All filters passed, auto-posting submission', geminiChecked ? '(Gemini verified)' : '')
 
+    // Check circuit breaker: if X is returning errors, pause auto-post
+    const circuitBreakerPaused = await isCircuitBreakerPaused(filterSettings.rateLimits)
+    if (circuitBreakerPaused) {
+      debug('[submit] Circuit breaker active, queuing instead of auto-posting')
+      const submission = await db.submission.create({
+        data: {
+          message: trimmedMessage,
+          category: category?.trim() || null,
+          submitterId: submitter.id,
+          filterReasons: null,
+        },
+      })
+      return NextResponse.json({
+        submission,
+        autoPosted: false,
+        queued: true,
+        error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+      }, { status: 201 })
+    }
+
     // Check auto-post cooldown: has this account posted a tweet recently?
     if (filterSettings.rateLimits.autoPostCooldown > 0) {
       const lastPosted = await db.submission.findFirst({
         where: { status: 'posted' },
-        orderBy: { createdAt: 'desc' },
-        select: { createdAt: true },
+        orderBy: { updatedAt: 'desc' },
+        select: { updatedAt: true },
       })
       if (lastPosted) {
-        const elapsedMs = Date.now() - lastPosted.createdAt.getTime()
+        const elapsedMs = Date.now() - lastPosted.updatedAt.getTime()
         const cooldownMs = filterSettings.rateLimits.autoPostCooldown * 1000
         if (elapsedMs < cooldownMs) {
           debug('[submit] Auto-post cooldown active, queuing instead')
@@ -279,6 +348,63 @@ export async function POST(req: NextRequest) {
             error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
           }, { status: 201 })
         }
+      }
+    }
+
+    // Check auto-post window cap: too many posts in the time window?
+    if (filterSettings.rateLimits.autoPostWindowCap > 0 && filterSettings.rateLimits.autoPostWindowMinutes > 0) {
+      const windowStart = new Date(Date.now() - filterSettings.rateLimits.autoPostWindowMinutes * 60 * 1000)
+      const windowPostCount = await db.submission.count({
+        where: {
+          status: 'posted',
+          updatedAt: { gte: windowStart },
+        },
+      })
+      if (windowPostCount >= filterSettings.rateLimits.autoPostWindowCap) {
+        debug('[submit] Auto-post window cap reached:', windowPostCount, 'in last', filterSettings.rateLimits.autoPostWindowMinutes, 'min, queuing instead')
+        const submission = await db.submission.create({
+          data: {
+            message: trimmedMessage,
+            category: category?.trim() || null,
+            submitterId: submitter.id,
+            filterReasons: null,
+          },
+        })
+        return NextResponse.json({
+          submission,
+          autoPosted: false,
+          queued: true,
+          error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+        }, { status: 201 })
+      }
+    }
+
+    // Check per-user post daily cap: has this user already had too many posts today?
+    if (filterSettings.rateLimits.userPostDailyCap > 0) {
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      const userPostCount = await db.submission.count({
+        where: {
+          submitterId: submitter.id,
+          status: 'posted',
+          updatedAt: { gte: twentyFourHoursAgo },
+        },
+      })
+      if (userPostCount >= filterSettings.rateLimits.userPostDailyCap) {
+        debug('[submit] User post daily cap reached:', userPostCount, 'for user', submitter.username, 'queuing instead')
+        const submission = await db.submission.create({
+          data: {
+            message: trimmedMessage,
+            category: category?.trim() || null,
+            submitterId: submitter.id,
+            filterReasons: null,
+          },
+        })
+        return NextResponse.json({
+          submission,
+          autoPosted: false,
+          queued: true,
+          error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+        }, { status: 201 })
       }
     }
 
@@ -319,6 +445,9 @@ export async function POST(req: NextRequest) {
           },
         })
 
+        // Reset circuit breaker on success
+        await recordPostSuccess()
+
         return NextResponse.json({
           submission: updated,
           autoPosted: true,
@@ -333,6 +462,10 @@ export async function POST(req: NextRequest) {
           where: { id: submission.id },
           data: { status: 'post_failed', postError: errorMsg },
         })
+
+        // Record failure for circuit breaker
+        await recordPostFailure(filterSettings.rateLimits)
+
         return NextResponse.json({
           autoPosted: false,
           queued: true,
@@ -347,6 +480,10 @@ export async function POST(req: NextRequest) {
         where: { id: submission.id },
         data: { status: 'post_failed', postError: errorMsg },
       })
+
+      // Record failure for circuit breaker
+      await recordPostFailure(filterSettings.rateLimits)
+
       return NextResponse.json({
         autoPosted: false,
         queued: true,

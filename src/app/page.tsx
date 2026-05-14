@@ -129,9 +129,16 @@ interface FilterRules {
 }
 
 interface RateLimitSettings {
-  submissionCooldown: number   // minutes
-  submissionDailyCap: number   // count
-  autoPostCooldown: number     // seconds
+  submissionCooldown: number             // minutes
+  submissionDailyCap: number             // count
+  autoPostCooldown: number               // seconds
+  autoPostWindowCap: number              // max posts per window
+  autoPostWindowMinutes: number          // window size in minutes
+  userPostDailyCap: number               // max posts per user per day on X
+  userPendingCap: number                 // max pending submissions per user
+  globalSubmissionDailyCap: number       // max submissions from ALL users per day
+  circuitBreakerThreshold: number        // consecutive failures before pause
+  circuitBreakerCooldownMinutes: number  // how long to pause
 }
 
 interface FilterSettings {
@@ -185,6 +192,7 @@ function useSubmitterAuth() {
   const [submitter, setSubmitter] = useState<SubmitterInfo | null>(null)
   const [isChecking, setIsChecking] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [isBlocked, setIsBlocked] = useState(false)
 
   const checkAuth = useCallback(async () => {
     try {
@@ -194,13 +202,16 @@ function useSubmitterAuth() {
         const data = await res.json()
         if (data.authenticated && data.submitter) {
           setSubmitter(data.submitter)
+          setIsBlocked(!!data.blocked)
           return true
         }
       }
       setSubmitter(null)
+      setIsBlocked(false)
     } catch {
       setAuthError('Tidak dapat terhubung ke server')
       setSubmitter(null)
+      setIsBlocked(false)
     }
     return false
   }, [])
@@ -228,6 +239,7 @@ function useSubmitterAuth() {
   const logout = async () => {
     setSubmitter(null)
     setAuthError(null)
+    setIsBlocked(false)
     try {
       await fetch('/api/auth/logout', { method: 'POST' })
     } catch {
@@ -235,12 +247,12 @@ function useSubmitterAuth() {
     }
   }
 
-  return { submitter, isChecking, authError, logout, checkAuth }
+  return { submitter, isChecking, authError, isBlocked, logout, checkAuth }
 }
 
 export default function HomePage() {
   const [activeTab, setActiveTab] = useState('submit')
-  const { submitter, isChecking, authError, logout: submitterLogout, checkAuth } = useSubmitterAuth()
+  const { submitter, isChecking, authError, isBlocked, logout: submitterLogout, checkAuth } = useSubmitterAuth()
 
   // Admin auth state
   const [isAdmin, setIsAdmin] = useState(false)
@@ -339,8 +351,23 @@ export default function HomePage() {
     submissionCooldown: 2,
     submissionDailyCap: 20,
     autoPostCooldown: 10,
+    autoPostWindowCap: 25,
+    autoPostWindowMinutes: 30,
+    userPostDailyCap: 5,
+    userPendingCap: 5,
+    globalSubmissionDailyCap: 200,
+    circuitBreakerThreshold: 3,
+    circuitBreakerCooldownMinutes: 30,
   })
   const [whitelistText, setWhitelistText] = useState('') // textarea value
+
+  // Circuit breaker state (read-only, from server)
+  const [circuitBreakerStatus, setCircuitBreakerStatus] = useState<{ paused: boolean; failCount: number; remainingMinutes: number; threshold: number } | null>(null)
+
+  // Submitters & blocklist state
+  const [submitters, setSubmitters] = useState<{ id: string; username: string; displayName: string | null; profileImage: string | null; totalSubmissions: number; posted: number; pending: number; rejected: number; postFailed: number }[]>([])
+  const [blockedUsernames, setBlockedUsernames] = useState<string[]>([])
+  const [isLoadingSubmitters, setIsLoadingSubmitters] = useState(false)
 
   // Batch saving state
   const [isSavingAllCredentials, setIsSavingAllCredentials] = useState(false)
@@ -493,7 +520,7 @@ export default function HomePage() {
     setGeminiEnabled(false)
     setGeminiApiKeyInput('')
     setGeminiApiKeySet(false)
-    setRateLimits({ submissionCooldown: 2, submissionDailyCap: 20, autoPostCooldown: 10 })
+    setRateLimits({ submissionCooldown: 2, submissionDailyCap: 20, autoPostCooldown: 10, autoPostWindowCap: 25, autoPostWindowMinutes: 30, userPostDailyCap: 5, userPendingCap: 5, globalSubmissionDailyCap: 200, circuitBreakerThreshold: 3, circuitBreakerCooldownMinutes: 30 })
     setWhitelistText('')
     toast({ title: 'Logout berhasil' })
   }
@@ -593,10 +620,29 @@ export default function HomePage() {
           setGeminiApiKeySet(data.filterSettings.geminiApiKeySet)
           if (data.filterSettings.rateLimits) setRateLimits(data.filterSettings.rateLimits)
           if (data.filterSettings.whitelistUsernames) setWhitelistText(data.filterSettings.whitelistUsernames.join(', '))
+          if (data.filterSettings.circuitBreaker) setCircuitBreakerStatus(data.filterSettings.circuitBreaker)
+          if (data.filterSettings.blockedUsernames) setBlockedUsernames(data.filterSettings.blockedUsernames)
         }
       }
     } catch {
       // silently fail
+    }
+  }, [adminToken])
+
+  // Fetch submitters (admin)
+  const fetchSubmitters = useCallback(async () => {
+    if (!adminToken) return
+    setIsLoadingSubmitters(true)
+    try {
+      const res = await fetch('/api/admin/submitters', {
+        headers: { authorization: `Bearer ${adminToken}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setSubmitters(data.submitters)
+      }
+    } catch { /* ignore */ } finally {
+      setIsLoadingSubmitters(false)
     }
   }, [adminToken])
 
@@ -1032,6 +1078,27 @@ export default function HomePage() {
                         <RotateCcw className="w-4 h-4 mr-2" /> Re-Login X
                       </Button>
                     </div>
+                  </CardContent>
+                </Card>
+              ) : isBlocked ? (
+                /* User is blocked — cannot submit */
+                <Card className="max-w-lg mx-auto shadow-lg border-red-200">
+                  <CardContent className="py-10 text-center space-y-5">
+                    <div className="w-14 h-14 rounded-2xl bg-red-50 flex items-center justify-center mx-auto">
+                      <Ban className="w-7 h-7 text-red-500" />
+                    </div>
+                    <h3 className="text-lg font-semibold text-[#0F1419]">Akun Diblokir</h3>
+                    <p className="text-sm text-[#536471]">
+                      Akun kamu tidak diperbolehkan mengirim pesan. <br />
+                      <span className="text-[#71767B] text-xs">Hubungi admin jika kamu rasa ini salah.</span>
+                    </p>
+                    <Button
+                      onClick={handleLogout}
+                      variant="outline"
+                      className="border-[#EFF3F4]"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" /> Logout
+                    </Button>
                   </CardContent>
                 </Card>
               ) : (
@@ -2509,6 +2576,30 @@ export default function HomePage() {
                                   <p className="text-[9px] text-[#71767B] mt-0.5">Pesan/user/hari</p>
                                 </div>
                                 <div>
+                                  <label className="text-[10px] font-medium text-[#536471] block mb-1">Batas antrean/user</label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    max={50}
+                                    value={rateLimits.userPendingCap}
+                                    onChange={(e) => setRateLimits({ ...rateLimits, userPendingCap: parseInt(e.target.value) || 1 })}
+                                    className="text-xs h-8"
+                                  />
+                                  <p className="text-[9px] text-[#71767B] mt-0.5">Maks pesan pending per user</p>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-[#536471] block mb-1">Batas harian global</label>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={10000}
+                                    value={rateLimits.globalSubmissionDailyCap}
+                                    onChange={(e) => setRateLimits({ ...rateLimits, globalSubmissionDailyCap: parseInt(e.target.value) || 0 })}
+                                    className="text-xs h-8"
+                                  />
+                                  <p className="text-[9px] text-[#71767B] mt-0.5">Maks pesan dari semua user/hari</p>
+                                </div>
+                                <div>
                                   <label className="text-[10px] font-medium text-[#536471] block mb-1">Auto-post jeda (detik)</label>
                                   <Input
                                     type="number"
@@ -2520,13 +2611,115 @@ export default function HomePage() {
                                   />
                                   <p className="text-[9px] text-[#71767B] mt-0.5">Antar tweet ke X</p>
                                 </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-[#536471] block mb-1">Batas auto-post</label>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={500}
+                                    value={rateLimits.autoPostWindowCap}
+                                    onChange={(e) => setRateLimits({ ...rateLimits, autoPostWindowCap: parseInt(e.target.value) || 0 })}
+                                    className="text-xs h-8"
+                                  />
+                                  <p className="text-[9px] text-[#71767B] mt-0.5">Maks tweet per window</p>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-[#536471] block mb-1">Window (menit)</label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    max={1440}
+                                    value={rateLimits.autoPostWindowMinutes}
+                                    onChange={(e) => setRateLimits({ ...rateLimits, autoPostWindowMinutes: parseInt(e.target.value) || 1 })}
+                                    className="text-xs h-8"
+                                  />
+                                  <p className="text-[9px] text-[#71767B] mt-0.5">Ukuran window waktu</p>
+                                </div>
+                                <div>
+                                  <label className="text-[10px] font-medium text-[#536471] block mb-1">Batas post/user/hari</label>
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={rateLimits.userPostDailyCap}
+                                    onChange={(e) => setRateLimits({ ...rateLimits, userPostDailyCap: parseInt(e.target.value) || 0 })}
+                                    className="text-xs h-8"
+                                  />
+                                  <p className="text-[9px] text-[#71767B] mt-0.5">Maks tweet per user per hari di X</p>
+                                </div>
+                              </div>
+                              {/* Circuit Breaker */}
+                              <div className="bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4] space-y-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] font-medium text-[#536471]">Circuit Breaker</span>
+                                  {circuitBreakerStatus?.paused && (
+                                    <Badge variant="destructive" className="text-[9px] px-1.5 py-0">
+                                      PAUSED — {circuitBreakerStatus.remainingMinutes}m tersisa
+                                    </Badge>
+                                  )}
+                                  {!circuitBreakerStatus?.paused && circuitBreakerStatus && circuitBreakerStatus.failCount > 0 && (
+                                    <Badge variant="secondary" className="text-[9px] px-1.5 py-0">
+                                      {circuitBreakerStatus.failCount}/{circuitBreakerStatus.threshold} gagal
+                                    </Badge>
+                                  )}
+                                  {circuitBreakerStatus?.paused && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-[9px] h-5 px-2 ml-auto"
+                                      onClick={async () => {
+                                        try {
+                                          await fetch('/api/admin/circuit-breaker/reset', {
+                                            method: 'POST',
+                                            headers: { authorization: `Bearer ${adminToken}` },
+                                          })
+                                          setCircuitBreakerStatus({ ...circuitBreakerStatus, paused: false, failCount: 0, remainingMinutes: 0 })
+                                          toast({ title: 'Circuit breaker direset' })
+                                        } catch { /* ignore */ }
+                                      }}
+                                    >
+                                      Reset
+                                    </Button>
+                                  )}
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-[10px] font-medium text-[#536471] block mb-1">Kegagalan berturut-turut</label>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      max={20}
+                                      value={rateLimits.circuitBreakerThreshold}
+                                      onChange={(e) => setRateLimits({ ...rateLimits, circuitBreakerThreshold: parseInt(e.target.value) || 1 })}
+                                      className="text-xs h-8"
+                                    />
+                                    <p className="text-[9px] text-[#71767B] mt-0.5">Gagal N kali → pause auto-post</p>
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] font-medium text-[#536471] block mb-1">Jeda circuit breaker (menit)</label>
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      max={1440}
+                                      value={rateLimits.circuitBreakerCooldownMinutes}
+                                      onChange={(e) => setRateLimits({ ...rateLimits, circuitBreakerCooldownMinutes: parseInt(e.target.value) || 1 })}
+                                      className="text-xs h-8"
+                                    />
+                                    <p className="text-[9px] text-[#71767B] mt-0.5">Durasi pause auto-post</p>
+                                  </div>
+                                </div>
                               </div>
                               <div className="bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4] space-y-1">
                                 <p className="text-[10px] font-medium text-[#536471]">Cara kerja:</p>
                                 <ul className="text-[10px] text-[#71767B] space-y-0.5 list-disc list-inside">
                                   <li><strong>Cooldown</strong> — user harus menunggu sebelum kirim pesan lagi</li>
                                   <li><strong>Batas harian</strong> — maksimal pesan per user per 24 jam</li>
-                                  <li><strong>Auto-post jeda</strong> — jika ada pesan baru dalam {rateLimits.autoPostCooldown} detik setelah auto-post terakhir, masuk antrean admin (mencegah 226 dari X)</li>
+                                  <li><strong>Batas antrean/user</strong> — maks {rateLimits.userPendingCap} pesan pending per user, sisanya ditolak</li>
+                                  <li><strong>Batas harian global</strong> — maks {rateLimits.globalSubmissionDailyCap} pesan dari semua user per hari</li>
+                                  <li><strong>Auto-post jeda</strong> — jika ada pesan baru dalam {rateLimits.autoPostCooldown} detik setelah auto-post terakhir, masuk antrean admin</li>
+                                  <li><strong>Batas auto-post</strong> — maks {rateLimits.autoPostWindowCap} tweet per {rateLimits.autoPostWindowMinutes} menit, mencegah 226 dari X</li>
+                                  <li><strong>Batas post/user</strong> — maks {rateLimits.userPostDailyCap} tweet per user per hari di X, sisanya masuk antrean</li>
+                                  <li><strong>Circuit breaker</strong> — jika {rateLimits.circuitBreakerThreshold}x gagal posting berturut-turut, pause auto-post selama {rateLimits.circuitBreakerCooldownMinutes} menit</li>
                                 </ul>
                               </div>
                             </div>
@@ -2558,6 +2751,126 @@ export default function HomePage() {
 
                             <Separator />
 
+                            {/* Pengguna */}
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-2">
+                                <Users className="w-4 h-4 text-[#536471]" />
+                                <span className="text-sm font-semibold text-[#0F1419]">Pengguna</span>
+                                {submitters.length > 0 && (
+                                  <Badge variant="secondary" className="text-[9px] px-1.5 py-0">
+                                    {submitters.length} user
+                                  </Badge>
+                                )}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-[9px] h-5 px-2 ml-auto"
+                                  onClick={fetchSubmitters}
+                                  disabled={isLoadingSubmitters}
+                                >
+                                  {isLoadingSubmitters ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Muat'}
+                                </Button>
+                              </div>
+                              {submitters.length === 0 ? (
+                                <p className="text-[10px] text-[#71767B]">Klik "Muat" untuk menampilkan daftar pengguna</p>
+                              ) : (
+                                <div className="max-h-64 overflow-y-auto space-y-1 pr-1" style={{ scrollbarWidth: 'thin' }}>
+                                  {submitters.map((s) => {
+                                    const isBlocked = blockedUsernames.includes(s.username.toLowerCase())
+                                    return (
+                                      <div key={s.id} className={`flex items-center gap-2 p-1.5 rounded-lg text-[10px] ${isBlocked ? 'bg-red-50 border border-red-200' : 'bg-[#F7F9F9] border border-[#EFF3F4]'}`}>
+                                        {s.profileImage ? (
+                                          <img src={s.profileImage} alt="" className="w-6 h-6 rounded-full flex-shrink-0" />
+                                        ) : (
+                                          <div className="w-6 h-6 rounded-full bg-[#EFF3F4] flex-shrink-0" />
+                                        )}
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-1">
+                                            <span className="font-medium text-[#0F1419] truncate">@{s.username}</span>
+                                            {isBlocked && <Badge variant="destructive" className="text-[8px] px-1 py-0">BLOCKED</Badge>}
+                                          </div>
+                                          <span className="text-[#71767B]">{s.totalSubmissions} pesan · {s.posted} posted · {s.pending} pending</span>
+                                        </div>
+                                        {!isBlocked && (
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="text-[9px] h-5 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 flex-shrink-0"
+                                            onClick={async () => {
+                                              try {
+                                                const res = await fetch('/api/admin/submitters/block', {
+                                                  method: 'POST',
+                                                  headers: { 'Content-Type': 'application/json', authorization: `Bearer ${adminToken}` },
+                                                  body: JSON.stringify({ username: s.username }),
+                                                })
+                                                if (res.ok) {
+                                                  setBlockedUsernames([...blockedUsernames, s.username.toLowerCase()])
+                                                  toast({ title: `@${s.username} diblokir` })
+                                                } else {
+                                                  const data = await res.json()
+                                                  toast({ title: 'Gagal', description: data.error, variant: 'destructive' })
+                                                }
+                                              } catch { /* ignore */ }
+                                            }}
+                                          >
+                                            Block
+                                          </Button>
+                                        )}
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                            </div>
+
+                            <Separator />
+
+                            {/* Blocklist */}
+                            {blockedUsernames.length > 0 && (
+                              <>
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <Ban className="w-4 h-4 text-red-500" />
+                                    <span className="text-sm font-semibold text-[#0F1419]">Blocklist</span>
+                                    <Badge variant="destructive" className="text-[9px] px-1.5 py-0">
+                                      {blockedUsernames.length} diblokir
+                                    </Badge>
+                                  </div>
+                                  <div className="space-y-1">
+                                    {blockedUsernames.map((username) => (
+                                      <div key={username} className="flex items-center gap-2 p-1.5 bg-red-50 border border-red-200 rounded-lg text-[10px]">
+                                        <span className="font-medium text-[#0F1419]">@{username}</span>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="text-[9px] h-5 px-2 ml-auto text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
+                                          onClick={async () => {
+                                            try {
+                                              const res = await fetch('/api/admin/submitters/unblock', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json', authorization: `Bearer ${adminToken}` },
+                                                body: JSON.stringify({ username }),
+                                              })
+                                              if (res.ok) {
+                                                setBlockedUsernames(blockedUsernames.filter((u) => u !== username))
+                                                toast({ title: `@${username} dibebaskan` })
+                                              } else {
+                                                const data = await res.json()
+                                                toast({ title: 'Gagal', description: data.error, variant: 'destructive' })
+                                              }
+                                            } catch { /* ignore */ }
+                                          }}
+                                        >
+                                          Unblock
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                                <Separator />
+                              </>
+                            )}
+
                             {/* Save Filter Settings */}
                             <Button
                               onClick={async () => {
@@ -2586,6 +2899,7 @@ export default function HomePage() {
                                       geminiEnabled,
                                       rateLimits,
                                       whitelistUsernames: whitelist,
+                                      blockedUsernames,
                                     }),
                                   })
                                   const data = await res.json()

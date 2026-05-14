@@ -3,6 +3,8 @@ import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
+import { recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
+import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — approve+post can take up to 15s with retries
@@ -64,6 +66,9 @@ export async function PATCH(
             },
           })
 
+          // Reset circuit breaker on success
+          await recordPostSuccess()
+
           // Build descriptive message based on method used
           let description = ''
           if (tweetResult.method === 'direct') {
@@ -89,6 +94,12 @@ export async function PATCH(
             where: { id },
             data: { status: 'post_failed', postError: errorMsg },
           })
+
+          // Record failure for circuit breaker
+          try {
+            const settings = await getFilterSettings()
+            await recordPostFailure(settings.rateLimits)
+          } catch { /* best effort */ }
 
           // Context-aware hint based on error type
           let hint = ''
