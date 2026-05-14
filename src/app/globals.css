@@ -76,6 +76,24 @@
   --sidebar-accent-foreground: #0F1419;
   --sidebar-border: #EFF3F4;
   --sidebar-ring: #1D9BF0;
+
+  /* X Web Light Colorway */
+  --x-bg: #FFFFFF;
+  --x-bg-secondary: #F7F9F9;
+  --x-bg-tertiary: #EFF3F4;
+  --x-primary: #1D9BF0;
+  --x-primary-hover: #1A8CD8;
+  --x-primary-bg: #E8F5FD;
+  --x-text: #0F1419;
+  --x-text-secondary: #536471;
+  --x-text-tertiary: #8B98A5;
+  --x-border: #EFF3F4;
+  --x-success: #00BA7C;
+  --x-danger: #F4212E;
+  --x-warning: #FFD400;
+  --x-success-bg: #E6F9F0;
+  --x-danger-bg: #FFEAED;
+  --x-warning-bg: #FFF8E1;
 }
 
 .dark {

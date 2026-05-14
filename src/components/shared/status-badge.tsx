@@ -1,0 +1,24 @@
+'use client'
+
+import type { SubmissionStatus } from '@/types'
+import { STATUS_CONFIG } from '@/types'
+import { Badge } from '@/components/ui/badge'
+
+interface StatusBadgeProps {
+  status: SubmissionStatus
+  className?: string
+}
+
+export function StatusBadge({ status, className }: StatusBadgeProps) {
+  const config = STATUS_CONFIG[status]
+  if (!config) return null
+
+  return (
+    <Badge
+      variant="outline"
+      className={`text-[10px] px-1.5 py-0 ${config.color} ${className ?? ''}`}
+    >
+      {config.label}
+    </Badge>
+  )
+}

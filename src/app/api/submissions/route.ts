@@ -398,7 +398,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Check per-user post daily cap: has this user already had too many posts today?
-    if (filterSettings.rateLimits.userPostDailyCap > 0) {
+    // Whitelisted users bypass this limit
+    if (!isWhitelisted && filterSettings.rateLimits.userPostDailyCap > 0) {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
       const userPostCount = await db.submission.count({
         where: {

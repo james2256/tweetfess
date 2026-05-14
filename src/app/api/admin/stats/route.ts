@@ -3,6 +3,7 @@ import { getCookieAuthStatus } from '@/lib/twitter-post-cookie'
 import { getAllKeyCredits, getApiLoginStatus } from '@/lib/twitter-api-fallback'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
+import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — multiple DB queries + external API calls
@@ -29,6 +30,9 @@ export async function GET(req: NextRequest) {
       getFilterSettings(),
     ])
 
+  // Get circuit breaker status separately (needs filterSettings.rateLimits)
+  const circuitBreaker = await getCircuitBreakerStatus(filterSettingsData.rateLimits)
+
   return NextResponse.json({
     pending,
     postFailed,
@@ -42,6 +46,7 @@ export async function GET(req: NextRequest) {
     apiLoginStatus,
     postMethodSetting,
     filterSettings: filterSettingsData,
+    circuitBreaker,
   })
 }
 

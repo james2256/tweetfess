@@ -1,0 +1,198 @@
+'use client'
+
+import { useState, useCallback } from 'react'
+import type { PostMethod } from '@/types'
+import { apiClient } from '@/lib/api-client'
+import { useToast } from '@/hooks/use-toast'
+
+interface UsePostingSettingsParams {
+  adminToken: string
+  onStatsRefresh?: () => void
+}
+
+const SETTING_LABELS: Record<string, string> = {
+  x_cookie_string: 'Cookie String',
+  x_query_id: 'Query ID',
+  x_bearer_token: 'Bearer Token',
+  twitterapi_keys: 'API Keys',
+  twitterapi_proxy: 'Proxy URL',
+  post_method: 'Post Method',
+  x_username: 'X Username',
+  x_email: 'X Email',
+  x_password: 'X Password',
+  x_totp_secret: '2FA Secret',
+}
+
+export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSettingsParams) {
+  // Direct posting (Cookie method)
+  const [cookieString, setCookieString] = useState('')
+  const [queryId, setQueryId] = useState('')
+  const [bearerToken, setBearerToken] = useState('')
+
+  // API settings
+  const [apiKeys, setApiKeys] = useState('')
+  const [apiProxy, setApiProxy] = useState('')
+  const [postMethodSetting, setPostMethodSetting] = useState<PostMethod>('auto')
+
+  // X Login Credentials (for twitterapi.io user_login_v2)
+  const [xUsername, setXUsername] = useState('')
+  const [xEmail, setXEmail] = useState('')
+  const [xPassword, setXPassword] = useState('')
+  const [xTotpSecret, setXTotpSecret] = useState('')
+
+  // Visibility toggles
+  const [showCookieValue, setShowCookieValue] = useState(false)
+  const [showBearerValue, setShowBearerValue] = useState(false)
+  const [showCookieGuide, setShowCookieGuide] = useState(false)
+  const [showQueryIdGuide, setShowQueryIdGuide] = useState(false)
+  const [showBearerGuide, setShowBearerGuide] = useState(false)
+
+  // Loading states
+  const [isSavingSetting, setIsSavingSetting] = useState<string | null>(null) // key being saved
+  const [isClearingCache, setIsClearingCache] = useState(false)
+  const [isSavingAllCredentials, setIsSavingAllCredentials] = useState(false)
+
+  const { toast } = useToast()
+
+  const saveSetting = useCallback(async (key: string, value: string, onSuccess?: () => void) => {
+    setIsSavingSetting(key)
+    try {
+      const data = await apiClient.saveSetting(key, value)
+      // Cookie string gets parsed confirmation toast
+      if (key === 'x_cookie_string' && data.parsed) {
+        const parsedInfo = `auth_token: ${data.parsed.auth_token}, ct0: ${data.parsed.ct0}`
+        toast({ title: 'Cookie disimpan!', description: parsedInfo })
+      } else {
+        const desc = data.autoLogin?.attempted
+          ? data.autoLogin.success
+            ? 'Auto-login berhasil — cookie tersimpan.'
+            : `Disimpan, tapi auto-login gagal: ${data.autoLogin.error || 'Unknown error'}`
+          : undefined
+        toast({ title: `${SETTING_LABELS[key] || key} disimpan!`, description: desc })
+      }
+      onSuccess?.()
+      onStatsRefresh?.()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Gagal menyimpan'
+      toast({ title: 'Gagal', description: message, variant: 'destructive' })
+    } finally {
+      setIsSavingSetting(null)
+    }
+  }, [onStatsRefresh, toast])
+
+  const saveAllCredentials = useCallback(async () => {
+    setIsSavingAllCredentials(true)
+    const fields: { key: string; value: string; label: string }[] = [
+      { key: 'x_username', value: xUsername, label: 'Username' },
+      { key: 'x_email', value: xEmail, label: 'Email' },
+      { key: 'x_password', value: xPassword, label: 'Password' },
+      { key: 'x_totp_secret', value: xTotpSecret, label: '2FA Secret' },
+    ]
+
+    let savedCount = 0
+    const failedFields: string[] = []
+
+    for (const field of fields) {
+      if (field.value.trim()) {
+        try {
+          await apiClient.saveSetting(field.key, field.value)
+          savedCount++
+        } catch {
+          failedFields.push(field.label)
+        }
+      }
+    }
+
+    if (failedFields.length > 0) {
+      toast({
+        title: 'Sebagian gagal disimpan',
+        description: `Gagal: ${failedFields.join(', ')}. Berhasil: ${savedCount} field.`,
+        variant: 'destructive',
+      })
+    } else {
+      toast({
+        title: 'Semua kredensial disimpan!',
+        description: `${savedCount} field berhasil disimpan.`,
+      })
+    }
+
+    onStatsRefresh?.()
+    setIsSavingAllCredentials(false)
+  }, [xUsername, xEmail, xPassword, xTotpSecret, onStatsRefresh, toast])
+
+  const clearCache = useCallback(async () => {
+    setIsClearingCache(true)
+    try {
+      const data = await apiClient.clearCache()
+      if (!data.error) {
+        toast({ title: 'Cache dibersihkan!', description: 'Query ID & transaction ID cache telah direset.' })
+      } else {
+        toast({ title: 'Gagal', description: 'Tidak dapat membersihkan cache', variant: 'destructive' })
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Tidak dapat terhubung ke server', variant: 'destructive' })
+    } finally {
+      setIsClearingCache(false)
+    }
+  }, [toast])
+
+  // Reset state (used when admin logs out)
+  const resetState = useCallback(() => {
+    setCookieString('')
+    setQueryId('')
+    setBearerToken('')
+    setApiKeys('')
+    setApiProxy('')
+    setPostMethodSetting('auto')
+    setXUsername('')
+    setXEmail('')
+    setXPassword('')
+    setXTotpSecret('')
+  }, [])
+
+  return {
+    // Direct posting
+    cookieString,
+    setCookieString,
+    queryId,
+    setQueryId,
+    bearerToken,
+    setBearerToken,
+    // API settings
+    apiKeys,
+    setApiKeys,
+    apiProxy,
+    setApiProxy,
+    postMethodSetting,
+    setPostMethodSetting,
+    // X Login Credentials
+    xUsername,
+    setXUsername,
+    xEmail,
+    setXEmail,
+    xPassword,
+    setXPassword,
+    xTotpSecret,
+    setXTotpSecret,
+    // Visibility toggles
+    showCookieValue,
+    setShowCookieValue,
+    showBearerValue,
+    setShowBearerValue,
+    showCookieGuide,
+    setShowCookieGuide,
+    showQueryIdGuide,
+    setShowQueryIdGuide,
+    showBearerGuide,
+    setShowBearerGuide,
+    // Loading states
+    isSavingSetting,
+    isClearingCache,
+    isSavingAllCredentials,
+    // Actions
+    saveSetting,
+    saveAllCredentials,
+    clearCache,
+    resetState,
+  }
+}
