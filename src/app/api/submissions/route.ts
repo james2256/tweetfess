@@ -5,6 +5,7 @@ import { verifyAdmin } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
 import { runContentFilter, checkDuplicate24h, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
+import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { getFilterSettings, getGeminiApiKey, DEFAULT_RATE_LIMITS, type RateLimitSettings } from '@/app/api/admin/filter-settings/route'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -291,6 +292,18 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // Acquire distributed lock — only one post to X at a time
+    const locked = await acquirePostingLock()
+    if (!locked) {
+      debug('[submit] Posting lock busy, queuing submission')
+      return NextResponse.json({
+        submission,
+        autoPosted: false,
+        queued: true,
+        error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+      }, { status: 201 })
+    }
+
     // Attempt to post to X
     try {
       const tweetResult = await postTweetViaCookie(trimmedMessage)
@@ -339,6 +352,8 @@ export async function POST(req: NextRequest) {
         queued: true,
         error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
       }, { status: 201 })
+    } finally {
+      await releasePostingLock()
     }
   } catch {
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })

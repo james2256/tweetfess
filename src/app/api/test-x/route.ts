@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { postTweetViaCookie, getCookieAuthStatus } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
+import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 
 // Vercel serverless function timeout — test posting with retries can take time
 export const maxDuration = 30
@@ -45,14 +46,27 @@ export async function POST(req: NextRequest) {
     // use default text
   }
 
-  const result = await postTweetViaCookie(testText)
-  debug('[test-x] Test post result:', { success: result.success, tweetId: result.tweetId, method: result.method, retriesUsed: result.retriesUsed, error: result.error?.slice(0, 100) })
+  const locked = await acquirePostingLock()
+  if (!locked) {
+    debug('[test-x] Posting lock busy')
+    return NextResponse.json(
+      { success: false, error: 'Sedang ada posting lain yang berjalan. Coba lagi dalam beberapa detik.' },
+      { status: 409 }
+    )
+  }
 
-  return NextResponse.json({
-    success: result.success,
-    tweetId: result.tweetId,
-    text: testText,
-    error: result.error,
-    tweetUrl: result.tweetId ? `https://x.com/i/status/${result.tweetId}` : null,
-  })
+  try {
+    const result = await postTweetViaCookie(testText)
+    debug('[test-x] Test post result:', { success: result.success, tweetId: result.tweetId, method: result.method, retriesUsed: result.retriesUsed, error: result.error?.slice(0, 100) })
+
+    return NextResponse.json({
+      success: result.success,
+      tweetId: result.tweetId,
+      text: testText,
+      error: result.error,
+      tweetUrl: result.tweetId ? `https://x.com/i/status/${result.tweetId}` : null,
+    })
+  } finally {
+    await releasePostingLock()
+  }
 }

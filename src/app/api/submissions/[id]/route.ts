@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
+import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — approve+post can take up to 15s with retries
@@ -38,70 +39,84 @@ export async function PATCH(
 
     // If approving, auto-post to X via cookie auth (with retry + fallback)
     if (status === 'approved') {
-      debug('[approve route] Approving submission:', id, 'message length:', submission.message.length)
-      const tweetResult = await postTweetViaCookie(submission.message)
+      // Acquire distributed lock — only one post to X at a time
+      const locked = await acquirePostingLock()
+      if (!locked) {
+        debug('[approve route] Posting lock busy')
+        return NextResponse.json(
+          { error: 'Sedang ada posting lain yang berjalan. Coba lagi dalam beberapa detik.' },
+          { status: 409 }
+        )
+      }
 
-      if (tweetResult.success) {
-        debug('[approve route] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
-        const updated = await db.submission.update({
-          where: { id },
-          data: {
-            status: 'posted',
-            tweetId: tweetResult.tweetId || null,
+      try {
+        debug('[approve route] Approving submission:', id, 'message length:', submission.message.length)
+        const tweetResult = await postTweetViaCookie(submission.message)
+
+        if (tweetResult.success) {
+          debug('[approve route] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
+          const updated = await db.submission.update({
+            where: { id },
+            data: {
+              status: 'posted',
+              tweetId: tweetResult.tweetId || null,
+              postMethod: tweetResult.method,
+            },
+          })
+
+          // Build descriptive message based on method used
+          let description = ''
+          if (tweetResult.method === 'direct') {
+            description = 'Pesan otomatis diposting ke X.'
+          } else if (tweetResult.method === 'retry') {
+            description = `Pesan diposting setelah retry (${tweetResult.retriesUsed}x).`
+          } else if (tweetResult.method === 'fallback') {
+            description = 'Pesan diposting via fallback API.'
+          }
+
+          return NextResponse.json({
+            submission: updated,
+            autoPosted: true,
+            tweetId: tweetResult.tweetId,
             postMethod: tweetResult.method,
-          },
-        })
-
-        // Build descriptive message based on method used
-        let description = ''
-        if (tweetResult.method === 'direct') {
-          description = 'Pesan otomatis diposting ke X.'
-        } else if (tweetResult.method === 'retry') {
-          description = `Pesan diposting setelah retry (${tweetResult.retriesUsed}x).`
-        } else if (tweetResult.method === 'fallback') {
-          description = 'Pesan diposting via fallback API.'
-        }
-
-        return NextResponse.json({
-          submission: updated,
-          autoPosted: true,
-          tweetId: tweetResult.tweetId,
-          postMethod: tweetResult.method,
-          description,
-        })
-      } else {
-        debug('[approve route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
-        // Cookie + retry + fallback all failed — mark as post_failed with error details
-        const errorMsg = tweetResult.error || ''
-        const updated = await db.submission.update({
-          where: { id },
-          data: { status: 'post_failed', postError: errorMsg },
-        })
-
-        // Context-aware hint based on error type
-        let hint = ''
-        if (errorMsg.includes('code: 344') || errorMsg.includes('daily limit')) {
-          hint = 'Batas harian tweet tercapai. Coba lagi besok.'
-        } else if (errorMsg.includes('code: 32') || errorMsg.includes('Could not authenticate')) {
-          hint = 'Cookie expired. Perbarui cookie di X Settings lalu klik "Post to X".'
-        } else if (errorMsg.includes('code: 88') || errorMsg.includes('Rate limit')) {
-          hint = 'Rate limit tercapai. Tunggu beberapa menit lalu coba lagi.'
-        } else if (errorMsg.includes('226') || errorMsg.includes('automated')) {
-          hint = 'X mendeteksi otomatisasi (226). Semua retry gagal. Coba lagi dalam 1-2 menit.'
-        } else if (errorMsg.includes('Empty tweet_results') || errorMsg.includes('silently rejected')) {
-          hint = 'Tweet ditolak X (empty results). Semua retry gagal. Coba lagi dalam 1-2 menit.'
-        } else if (errorMsg.includes('Fallback API') || errorMsg.includes('fallback')) {
-          hint = 'Direct post gagal, fallback API juga gagal. Periksa API keys dan cookie.'
+            description,
+          })
         } else {
-          hint = 'Cek X Settings lalu klik "Post to X" untuk retry.'
-        }
+          debug('[approve route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
+          // Cookie + retry + fallback all failed — mark as post_failed with error details
+          const errorMsg = tweetResult.error || ''
+          const updated = await db.submission.update({
+            where: { id },
+            data: { status: 'post_failed', postError: errorMsg },
+          })
 
-        return NextResponse.json({
-          submission: updated,
-          autoPosted: false,
-          error: `Disetujui, tapi gagal posting ke X: ${errorMsg}. ${hint}`,
-          postMethod: tweetResult.method,
-        })
+          // Context-aware hint based on error type
+          let hint = ''
+          if (errorMsg.includes('code: 344') || errorMsg.includes('daily limit')) {
+            hint = 'Batas harian tweet tercapai. Coba lagi besok.'
+          } else if (errorMsg.includes('code: 32') || errorMsg.includes('Could not authenticate')) {
+            hint = 'Cookie expired. Perbarui cookie di X Settings lalu klik "Post to X".'
+          } else if (errorMsg.includes('code: 88') || errorMsg.includes('Rate limit')) {
+            hint = 'Rate limit tercapai. Tunggu beberapa menit lalu coba lagi.'
+          } else if (errorMsg.includes('226') || errorMsg.includes('automated')) {
+            hint = 'X mendeteksi otomatisasi (226). Semua retry gagal. Coba lagi dalam 1-2 menit.'
+          } else if (errorMsg.includes('Empty tweet_results') || errorMsg.includes('silently rejected')) {
+            hint = 'Tweet ditolak X (empty results). Semua retry gagal. Coba lagi dalam 1-2 menit.'
+          } else if (errorMsg.includes('Fallback API') || errorMsg.includes('fallback')) {
+            hint = 'Direct post gagal, fallback API juga gagal. Periksa API keys dan cookie.'
+          } else {
+            hint = 'Cek X Settings lalu klik "Post to X" untuk retry.'
+          }
+
+          return NextResponse.json({
+            submission: updated,
+            autoPosted: false,
+            error: `Disetujui, tapi gagal posting ke X: ${errorMsg}. ${hint}`,
+            postMethod: tweetResult.method,
+          })
+        }
+      } finally {
+        await releasePostingLock()
       }
     }
 

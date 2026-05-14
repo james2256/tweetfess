@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
+import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — retry loop can take up to 15s
@@ -37,37 +38,51 @@ export async function POST(
       return NextResponse.json({ error: `Status tidak valid untuk retry: ${submission.status}` }, { status: 400 })
     }
 
-    // Post to X using cookie-based auth (with retry + fallback)
-    debug('[post route] Posting submission:', id, 'message length:', submission.message.length)
-    const tweetResult = await postTweetViaCookie(submission.message)
-
-    if (!tweetResult.success) {
-      debug('[post route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
-      console.error('X API error:', tweetResult.error)
+    // Acquire distributed lock — only one post to X at a time
+    const locked = await acquirePostingLock()
+    if (!locked) {
+      debug('[post route] Posting lock busy')
       return NextResponse.json(
-        { error: `Gagal posting ke X: ${tweetResult.error}`, postMethod: tweetResult.method },
-        { status: 502 }
+        { error: 'Sedang ada posting lain yang berjalan. Coba lagi dalam beberapa detik.' },
+        { status: 409 }
       )
     }
 
-    debug('[post route] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method, 'retries:', tweetResult.retriesUsed)
-    // Update submission status with postMethod tracking, clear postError on success
-    const updated = await db.submission.update({
-      where: { id },
-      data: {
-        status: 'posted',
-        tweetId: tweetResult.tweetId || null,
-        postMethod: tweetResult.method,
-        postError: null, // Clear error since post succeeded
-      },
-    })
+    // Post to X using cookie-based auth (with retry + fallback)
+    try {
+      debug('[post route] Posting submission:', id, 'message length:', submission.message.length)
+      const tweetResult = await postTweetViaCookie(submission.message)
 
-    return NextResponse.json({
-      submission: updated,
-      tweetId: tweetResult.tweetId,
-      postMethod: tweetResult.method,
-      retriesUsed: tweetResult.retriesUsed,
-    })
+      if (!tweetResult.success) {
+        debug('[post route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
+        console.error('X API error:', tweetResult.error)
+        return NextResponse.json(
+          { error: `Gagal posting ke X: ${tweetResult.error}`, postMethod: tweetResult.method },
+          { status: 502 }
+        )
+      }
+
+      debug('[post route] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method, 'retries:', tweetResult.retriesUsed)
+      // Update submission status with postMethod tracking, clear postError on success
+      const updated = await db.submission.update({
+        where: { id },
+        data: {
+          status: 'posted',
+          tweetId: tweetResult.tweetId || null,
+          postMethod: tweetResult.method,
+          postError: null, // Clear error since post succeeded
+        },
+      })
+
+      return NextResponse.json({
+        submission: updated,
+        tweetId: tweetResult.tweetId,
+        postMethod: tweetResult.method,
+        retriesUsed: tweetResult.retriesUsed,
+      })
+    } finally {
+      await releasePostingLock()
+    }
   } catch (error) {
     console.error('Post to X error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
