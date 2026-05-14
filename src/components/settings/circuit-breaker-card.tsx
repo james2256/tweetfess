@@ -5,6 +5,8 @@ import {
   ChevronDown,
   Activity,
   RotateCcw,
+  Loader2,
+  Shield,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -19,6 +21,8 @@ interface CircuitBreakerCardProps {
   rateLimits: RateLimitSettings
   setRateLimits: (v: RateLimitSettings) => void
   reset: () => void
+  isSaving: boolean
+  saveFilterSettings: () => void
 }
 
 export function CircuitBreakerCard({
@@ -27,6 +31,8 @@ export function CircuitBreakerCard({
   rateLimits,
   setRateLimits,
   reset,
+  isSaving,
+  saveFilterSettings,
 }: CircuitBreakerCardProps) {
   const [open, setOpen] = useState(true)
 
@@ -125,6 +131,15 @@ export function CircuitBreakerCard({
                 <li>Reset manual untuk melanjutkan auto-post sebelum waktu habis</li>
               </ul>
             </div>
+
+            <Button
+              onClick={saveFilterSettings}
+              disabled={isSaving}
+              className="w-full bg-[#0F1419] hover:bg-[#272c30]"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
+              Simpan Circuit Breaker
+            </Button>
           </CardContent>
         </CollapsibleContent>
       </Card>

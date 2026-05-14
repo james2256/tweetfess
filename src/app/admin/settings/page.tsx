@@ -231,6 +231,8 @@ export default function AdminSettingsPage() {
             <WhitelistCard
               whitelistText={filterSettings.whitelistText}
               setWhitelistText={filterSettings.setWhitelistText}
+              isSaving={filterSettings.isSaving}
+              saveFilterSettings={filterSaveFilterSettings}
             />
           </motion.div>
         </TabsContent>
@@ -246,6 +248,8 @@ export default function AdminSettingsPage() {
             <RateLimitCard
               rateLimits={filterSettings.rateLimits}
               setRateLimits={filterSettings.setRateLimits}
+              isSaving={filterSettings.isSaving}
+              saveFilterSettings={filterSaveFilterSettings}
             />
 
             <CircuitBreakerCard
@@ -254,6 +258,8 @@ export default function AdminSettingsPage() {
               rateLimits={filterSettings.rateLimits}
               setRateLimits={filterSettings.setRateLimits}
               reset={circuitBreaker.reset}
+              isSaving={filterSettings.isSaving}
+              saveFilterSettings={filterSaveFilterSettings}
             />
           </motion.div>
         </TabsContent>

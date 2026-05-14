@@ -1,16 +1,19 @@
 'use client'
 
 import { useState } from 'react'
-import { Clock, ChevronDown } from 'lucide-react'
+import { Clock, ChevronDown, Loader2, Shield } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { RateLimitSettings } from '@/types'
 
 interface RateLimitCardProps {
   rateLimits: RateLimitSettings
   setRateLimits: (v: RateLimitSettings) => void
+  isSaving: boolean
+  saveFilterSettings: () => void
 }
 
 const RATE_FIELDS: { key: keyof RateLimitSettings; label: string; hint: string; min: number; max: number }[] = [
@@ -27,6 +30,8 @@ const RATE_FIELDS: { key: keyof RateLimitSettings; label: string; hint: string; 
 export function RateLimitCard({
   rateLimits,
   setRateLimits,
+  isSaving,
+  saveFilterSettings,
 }: RateLimitCardProps) {
   const [open, setOpen] = useState(true)
 
@@ -74,6 +79,14 @@ export function RateLimitCard({
                 <li><strong>Batas post/user</strong> — maks {rateLimits.userPostDailyCap} tweet per user per hari di X, sisanya masuk antrean</li>
               </ul>
             </div>
+            <Button
+              onClick={saveFilterSettings}
+              disabled={isSaving}
+              className="w-full bg-[#0F1419] hover:bg-[#272c30]"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
+              Simpan Rate Limits
+            </Button>
           </CardContent>
         </CollapsibleContent>
       </Card>

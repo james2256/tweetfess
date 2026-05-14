@@ -1,20 +1,25 @@
 'use client'
 
 import { useState } from 'react'
-import { UserCheck, ChevronDown } from 'lucide-react'
+import { UserCheck, ChevronDown, Loader2, Shield } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Textarea } from '@/components/ui/textarea'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 
 interface WhitelistCardProps {
   whitelistText: string
   setWhitelistText: (v: string) => void
+  isSaving: boolean
+  saveFilterSettings: () => void
 }
 
 export function WhitelistCard({
   whitelistText,
   setWhitelistText,
+  isSaving,
+  saveFilterSettings,
 }: WhitelistCardProps) {
   const [open, setOpen] = useState(true)
 
@@ -48,6 +53,14 @@ export function WhitelistCard({
               />
               <p className="text-[9px] text-[#71767B] mt-1">Pisahkan dengan koma atau baris baru. User ini bebas dari cooldown & batas harian. Berguna untuk testing.</p>
             </div>
+            <Button
+              onClick={saveFilterSettings}
+              disabled={isSaving}
+              className="w-full bg-[#0F1419] hover:bg-[#272c30]"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
+              Simpan Whitelist
+            </Button>
           </CardContent>
         </CollapsibleContent>
       </Card>
