@@ -83,7 +83,7 @@ export function useStats({ adminToken, lightweight }: UseStatsParams, callbacks?
           apiCredits: data.apiCredits ?? [],
           apiLoginStatus: data.apiLoginStatus ?? prev?.apiLoginStatus ?? { hasLoginCookie: false, lastLoginAt: null, hasCredentials: false, missingCredentials: [] },
           postMethodSetting: (data.postMethodSetting ?? prev?.postMethodSetting ?? 'auto') as PostMethod,
-          filterSettings: data.filterSettings ?? (prev?.filterSettings as Stats['filterSettings'] | undefined),
+          filterSettings: data.filterSettings ?? prev?.filterSettings ?? null,
           circuitBreaker: data.circuitBreaker ?? prev?.circuitBreaker ?? null,
         }))
         processResponse(data)
