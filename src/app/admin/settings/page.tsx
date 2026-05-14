@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Shield, Loader2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Send, Shield, Clock } from 'lucide-react'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { usePostingSettings } from '@/hooks/use-posting-settings'
 import { useFilterSettings } from '@/hooks/use-filter-settings'
 import { useCircuitBreaker } from '@/hooks/use-circuit-breaker'
@@ -101,142 +101,163 @@ export default function AdminSettingsPage() {
 
   return (
     <>
-      {/* Top Save Bar */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-lg font-bold text-[#0F1419]">Settings</h2>
-          <p className="text-xs text-[#536471]">Manage autobase configuration</p>
-        </div>
-        <Button
-          onClick={() => { filterSaveFilterSettings() }}
-          disabled={filterSettings.isSaving}
-          className="bg-[#0F1419] hover:bg-[#272c30]"
-        >
-          {filterSettings.isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
-          Save All Settings
-        </Button>
+      {/* Header */}
+      <div className="mb-6">
+        <h2 className="text-lg font-bold text-[#0F1419]">Settings</h2>
+        <p className="text-xs text-[#536471]">Manage autobase configuration</p>
       </div>
 
-      {/* Settings Grid */}
-      <motion.div
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        className="grid grid-cols-1 lg:grid-cols-2 gap-4"
-      >
-        {/* Left Column */}
-        <div className="space-y-4">
-          <DirectPostingCard
-            cookieString={posting.cookieString}
-            setCookieString={posting.setCookieString}
-            bearerToken={posting.bearerToken}
-            setBearerToken={posting.setBearerToken}
-            queryId={posting.queryId}
-            setQueryId={posting.setQueryId}
-            showCookieValue={posting.showCookieValue}
-            setShowCookieValue={posting.setShowCookieValue}
-            showBearerValue={posting.showBearerValue}
-            setShowBearerValue={posting.setShowBearerValue}
-            showCookieGuide={posting.showCookieGuide}
-            setShowCookieGuide={posting.setShowCookieGuide}
-            showQueryIdGuide={posting.showQueryIdGuide}
-            setShowQueryIdGuide={posting.setShowQueryIdGuide}
-            showBearerGuide={posting.showBearerGuide}
-            setShowBearerGuide={posting.setShowBearerGuide}
-            isSavingSetting={posting.isSavingSetting}
-            isClearingCache={posting.isClearingCache}
-            saveSetting={postingSaveSetting}
-            clearCache={postingClearCache}
-            cookieStatus={stats.cookieStatus}
-          />
+      {/* Tab-based Settings Layout */}
+      <Tabs defaultValue="posting" className="w-full">
+        <TabsList className="bg-[#EFF3F4] p-1 h-auto rounded-xl w-full sm:w-fit">
+          <TabsTrigger
+            value="posting"
+            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-4 py-2 text-sm font-medium gap-2"
+          >
+            <Send className="size-4" />
+            Posting
+          </TabsTrigger>
+          <TabsTrigger
+            value="filter"
+            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-4 py-2 text-sm font-medium gap-2"
+          >
+            <Shield className="size-4" />
+            Filter
+          </TabsTrigger>
+          <TabsTrigger
+            value="limits"
+            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-4 py-2 text-sm font-medium gap-2"
+          >
+            <Clock className="size-4" />
+            Limits
+          </TabsTrigger>
+        </TabsList>
 
-          <FilterCard
-            autoApprove={filterSettings.autoApprove}
-            toggleAutoApprove={filterSettings.toggleAutoApprove}
-            blockedWordsText={filterSettings.blockedWordsText}
-            setBlockedWordsText={filterSettings.setBlockedWordsText}
-            nsfwWordsText={filterSettings.nsfwWordsText}
-            setNsfwWordsText={filterSettings.setNsfwWordsText}
-            filterRules={filterSettings.filterRules}
-            setFilterRules={filterSettings.setFilterRules}
-            geminiEnabled={filterSettings.geminiEnabled}
-            geminiApiKeySet={filterSettings.geminiApiKeySet}
-            isSaving={filterSettings.isSaving}
-            saveFilterSettings={filterSaveFilterSettings}
-            defaultBlockedWords={DEFAULT_BLOCKED_WORDS}
-            defaultNsfwWords={DEFAULT_NSFW_WORDS}
-          />
+        {/* ── Posting Tab ── */}
+        <TabsContent value="posting">
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-4 mt-4"
+          >
+            <DirectPostingCard
+              cookieString={posting.cookieString}
+              setCookieString={posting.setCookieString}
+              bearerToken={posting.bearerToken}
+              setBearerToken={posting.setBearerToken}
+              queryId={posting.queryId}
+              setQueryId={posting.setQueryId}
+              showCookieValue={posting.showCookieValue}
+              setShowCookieValue={posting.setShowCookieValue}
+              showBearerValue={posting.showBearerValue}
+              setShowBearerValue={posting.setShowBearerValue}
+              showCookieGuide={posting.showCookieGuide}
+              setShowCookieGuide={posting.setShowCookieGuide}
+              showQueryIdGuide={posting.showQueryIdGuide}
+              setShowQueryIdGuide={posting.setShowQueryIdGuide}
+              showBearerGuide={posting.showBearerGuide}
+              setShowBearerGuide={posting.setShowBearerGuide}
+              isSavingSetting={posting.isSavingSetting}
+              isClearingCache={posting.isClearingCache}
+              saveSetting={postingSaveSetting}
+              clearCache={postingClearCache}
+              cookieStatus={stats.cookieStatus}
+            />
 
-          <RateLimitCard
-            rateLimits={filterSettings.rateLimits}
-            setRateLimits={filterSettings.setRateLimits}
-          />
-        </div>
+            <ApiFallbackCard
+              postMethodSetting={posting.postMethodSetting}
+              setPostMethodSetting={posting.setPostMethodSetting}
+              xUsername={posting.xUsername}
+              setXUsername={posting.setXUsername}
+              xEmail={posting.xEmail}
+              setXEmail={posting.setXEmail}
+              xPassword={posting.xPassword}
+              setXPassword={posting.setXPassword}
+              xTotpSecret={posting.xTotpSecret}
+              setXTotpSecret={posting.setXTotpSecret}
+              apiKeys={posting.apiKeys}
+              setApiKeys={posting.setApiKeys}
+              apiProxy={posting.apiProxy}
+              setApiProxy={posting.setApiProxy}
+              isSavingSetting={posting.isSavingSetting}
+              isSavingAllCredentials={posting.isSavingAllCredentials}
+              saveSetting={postingSaveSetting}
+              saveAllCredentials={postingSaveAllCredentials}
+              apiLoginStatus={stats.apiLoginStatus}
+              apiCredits={stats.apiCredits}
+              onRefreshCredits={handleRefreshCredits}
+              isLoadingCredits={isLoadingCredits}
+            />
+          </motion.div>
+        </TabsContent>
 
-        {/* Right Column */}
-        <div className="space-y-4">
-          <ApiFallbackCard
-            postMethodSetting={posting.postMethodSetting}
-            setPostMethodSetting={posting.setPostMethodSetting}
-            xUsername={posting.xUsername}
-            setXUsername={posting.setXUsername}
-            xEmail={posting.xEmail}
-            setXEmail={posting.setXEmail}
-            xPassword={posting.xPassword}
-            setXPassword={posting.setXPassword}
-            xTotpSecret={posting.xTotpSecret}
-            setXTotpSecret={posting.setXTotpSecret}
-            apiKeys={posting.apiKeys}
-            setApiKeys={posting.setApiKeys}
-            apiProxy={posting.apiProxy}
-            setApiProxy={posting.setApiProxy}
-            isSavingSetting={posting.isSavingSetting}
-            isSavingAllCredentials={posting.isSavingAllCredentials}
-            saveSetting={postingSaveSetting}
-            saveAllCredentials={postingSaveAllCredentials}
-            apiLoginStatus={stats.apiLoginStatus}
-            apiCredits={stats.apiCredits}
-            onRefreshCredits={handleRefreshCredits}
-            isLoadingCredits={isLoadingCredits}
-          />
+        {/* ── Filter Tab ── */}
+        <TabsContent value="filter">
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-4 mt-4"
+          >
+            <FilterCard
+              autoApprove={filterSettings.autoApprove}
+              toggleAutoApprove={filterSettings.toggleAutoApprove}
+              blockedWordsText={filterSettings.blockedWordsText}
+              setBlockedWordsText={filterSettings.setBlockedWordsText}
+              nsfwWordsText={filterSettings.nsfwWordsText}
+              setNsfwWordsText={filterSettings.setNsfwWordsText}
+              filterRules={filterSettings.filterRules}
+              setFilterRules={filterSettings.setFilterRules}
+              geminiEnabled={filterSettings.geminiEnabled}
+              geminiApiKeySet={filterSettings.geminiApiKeySet}
+              isSaving={filterSettings.isSaving}
+              saveFilterSettings={filterSaveFilterSettings}
+              defaultBlockedWords={DEFAULT_BLOCKED_WORDS}
+              defaultNsfwWords={DEFAULT_NSFW_WORDS}
+            />
 
-          <GeminiCard
-            geminiEnabled={filterSettings.geminiEnabled}
-            setGeminiEnabled={filterSettings.setGeminiEnabled}
-            geminiApiKeyInput={filterSettings.geminiApiKeyInput}
-            setGeminiApiKeyInput={filterSettings.setGeminiApiKeyInput}
-            geminiApiKeySet={filterSettings.geminiApiKeySet}
-            showGeminiKey={filterSettings.showGeminiKey}
-            setShowGeminiKey={filterSettings.setShowGeminiKey}
-            saveGeminiKey={filterSaveGeminiKey}
-          />
+            <GeminiCard
+              geminiEnabled={filterSettings.geminiEnabled}
+              setGeminiEnabled={filterSettings.setGeminiEnabled}
+              geminiApiKeyInput={filterSettings.geminiApiKeyInput}
+              setGeminiApiKeyInput={filterSettings.setGeminiApiKeyInput}
+              geminiApiKeySet={filterSettings.geminiApiKeySet}
+              showGeminiKey={filterSettings.showGeminiKey}
+              setShowGeminiKey={filterSettings.setShowGeminiKey}
+              saveGeminiKey={filterSaveGeminiKey}
+            />
 
-          <CircuitBreakerCard
-            circuitBreakerStatus={circuitBreaker.circuitBreakerStatus}
-            liveRemainingMinutes={circuitBreaker.liveRemainingMinutes}
-            rateLimits={filterSettings.rateLimits}
-            setRateLimits={filterSettings.setRateLimits}
-            reset={circuitBreaker.reset}
-          />
+            <WhitelistCard
+              whitelistText={filterSettings.whitelistText}
+              setWhitelistText={filterSettings.setWhitelistText}
+            />
+          </motion.div>
+        </TabsContent>
 
-          <WhitelistCard
-            whitelistText={filterSettings.whitelistText}
-            setWhitelistText={filterSettings.setWhitelistText}
-          />
-        </div>
-      </motion.div>
+        {/* ── Limits Tab ── */}
+        <TabsContent value="limits">
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-4 mt-4"
+          >
+            <RateLimitCard
+              rateLimits={filterSettings.rateLimits}
+              setRateLimits={filterSettings.setRateLimits}
+            />
 
-      {/* Bottom Save Button */}
-      <div className="mt-6 flex justify-end">
-        <Button
-          onClick={() => { filterSaveFilterSettings() }}
-          disabled={filterSettings.isSaving}
-          className="bg-[#0F1419] hover:bg-[#272c30]"
-        >
-          {filterSettings.isSaving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Shield className="w-4 h-4 mr-2" />}
-          Save All Settings
-        </Button>
-      </div>
+            <CircuitBreakerCard
+              circuitBreakerStatus={circuitBreaker.circuitBreakerStatus}
+              liveRemainingMinutes={circuitBreaker.liveRemainingMinutes}
+              rateLimits={filterSettings.rateLimits}
+              setRateLimits={filterSettings.setRateLimits}
+              reset={circuitBreaker.reset}
+            />
+          </motion.div>
+        </TabsContent>
+      </Tabs>
     </>
   )
 }
