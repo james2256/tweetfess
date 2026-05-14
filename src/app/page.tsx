@@ -289,6 +289,7 @@ export default function HomePage() {
   const [submissionsPage, setSubmissionsPage] = useState(1)
   const [submissionsHasMore, setSubmissionsHasMore] = useState(false)
   const [submissionsTotal, setSubmissionsTotal] = useState(0)
+  const [submissionsTotalPages, setSubmissionsTotalPages] = useState(1)
   const [stats, setStats] = useState<Stats | null>(null)
   const [filterStatus, setFilterStatus] = useState('pending')
   const [postSearch, setPostSearch] = useState('')
@@ -630,13 +631,10 @@ export default function HomePage() {
       })
       if (res.ok) {
         const data = await res.json()
-        if (targetPage === 1) {
-          setSubmissions(data.submissions)
-        } else {
-          setSubmissions(prev => [...prev, ...data.submissions])
-        }
+        setSubmissions(data.submissions)
         setSubmissionsHasMore(data.pagination?.hasMore ?? false)
         setSubmissionsTotal(data.pagination?.total ?? 0)
+        setSubmissionsTotalPages(data.pagination?.totalPages ?? 1)
         setSubmissionsPage(targetPage)
       }
     } catch {
@@ -2104,15 +2102,56 @@ export default function HomePage() {
                             })
                             })()}
                           </AnimatePresence>
-                          {submissionsHasMore && (
-                            <div className="flex justify-center py-2">
+                          {submissionsTotalPages > 1 && (
+                            <div className="flex items-center justify-center gap-1 py-3">
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="text-xs"
+                                className="h-7 w-7 p-0 text-xs"
+                                disabled={submissionsPage <= 1}
+                                onClick={() => fetchSubmissions(undefined, false, submissionsPage - 1)}
+                              >
+                                ‹
+                              </Button>
+                              {(() => {
+                                const pages: (number | '...')[] = []
+                                const tp = submissionsTotalPages
+                                const cp = submissionsPage
+                                if (tp <= 7) {
+                                  for (let i = 1; i <= tp; i++) pages.push(i)
+                                } else {
+                                  pages.push(1)
+                                  if (cp > 3) pages.push('...')
+                                  const start = Math.max(2, cp - 1)
+                                  const end = Math.min(tp - 1, cp + 1)
+                                  for (let i = start; i <= end; i++) pages.push(i)
+                                  if (cp < tp - 2) pages.push('...')
+                                  pages.push(tp)
+                                }
+                                return pages.map((p, i) =>
+                                  p === '...' ? (
+                                    <span key={`dots-${i}`} className="px-1 text-xs text-[#71767B]">…</span>
+                                  ) : (
+                                    <Button
+                                      key={p}
+                                      variant={p === submissionsPage ? 'default' : 'outline'}
+                                      size="sm"
+                                      className={`h-7 w-7 p-0 text-xs ${p === submissionsPage ? 'bg-[#0F1419] hover:bg-[#272c30]' : ''}`}
+                                      onClick={() => fetchSubmissions(undefined, false, p)}
+                                    >
+                                      {p}
+                                    </Button>
+                                  )
+                                )
+                              })()}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-xs"
+                                disabled={submissionsPage >= submissionsTotalPages}
                                 onClick={() => fetchSubmissions(undefined, false, submissionsPage + 1)}
                               >
-                                Muat lebih banyak {'('}{submissions.length}/{submissionsTotal}{')'}
+                                ›
                               </Button>
                             </div>
                           )}
