@@ -1,6 +1,10 @@
 /** Milliseconds in 24 hours — used for content filter duplicate checks etc. */
 export const MS_24H = 24 * 60 * 60 * 1000
 
+/** App version — read from package.json at build time */
+import { version } from '../../package.json'
+export const APP_VERSION = version
+
 /**
  * Returns the Date for 00:00:00 WIB (Asia/Jakarta, GMT+7) of the current day.
  * All rate limit counters reset at this boundary — "hari ini" = since this timestamp.

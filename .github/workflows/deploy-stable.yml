@@ -1,9 +1,8 @@
 name: Deploy Stable
 
 on:
-  push:
-    tags:
-      - 'v*' # Triggers when release-please creates a version tag
+  release:
+    types: [published] # Triggers when release-please publishes a release
 
 jobs:
   deploy-stable:
