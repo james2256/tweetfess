@@ -1,6 +1,8 @@
+import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 
 // POST /api/admin/login - Verify admin password
+// Uses crypto.timingSafeEqual to prevent timing side-channel attacks
 export async function POST(req: NextRequest) {
   try {
     const adminPassword = process.env.ADMIN_PASSWORD
@@ -14,7 +16,17 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { password } = body
 
-    if (password === adminPassword) {
+    if (!password || typeof password !== 'string') {
+      return NextResponse.json({ error: 'Password salah' }, { status: 401 })
+    }
+
+    // Timing-safe comparison to prevent leaking password via response time
+    const passwordBuf = Buffer.from(String(password))
+    const expectedBuf = Buffer.from(String(adminPassword))
+    const isMatch = passwordBuf.length === expectedBuf.length
+      && crypto.timingSafeEqual(passwordBuf, expectedBuf)
+
+    if (isMatch) {
       return NextResponse.json({ success: true, token: adminPassword })
     }
 

@@ -188,6 +188,7 @@ export interface SaveFilterSettingsRequest {
   geminiApiKey?: string
   rateLimits?: RateLimitSettings
   whitelistUsernames?: string[]
+  blockedUsernames?: string[]
 }
 
 // --- Auth Response ---

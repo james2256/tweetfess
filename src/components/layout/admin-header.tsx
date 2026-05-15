@@ -24,15 +24,15 @@ export function AdminHeader({ adminToken, onLogout, pendingCount = 0 }: AdminHea
   return (
     <header className="sticky top-0 z-50 border-b border-[#EFF3F4] bg-white/80 backdrop-blur-lg">
       <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-[#0F1419] flex items-center justify-center shadow-md shadow-gray-200">
+        <Link href="/" className="flex items-center gap-3 group">
+          <div className="w-9 h-9 rounded-xl bg-[#0F1419] flex items-center justify-center shadow-md shadow-gray-200 transition-transform group-hover:scale-105">
             <XLogo className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-[#0F1419] leading-tight">Autobase</h1>
+            <h1 className="text-lg font-bold text-[#0F1419] leading-tight group-hover:text-[#536471] transition-colors">Autobase</h1>
             <p className="text-xs text-[#536471]">Dashboard</p>
           </div>
-        </div>
+        </Link>
 
         <nav className="flex items-center gap-1">
           {navLinks.map((link) => {

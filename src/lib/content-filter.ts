@@ -185,7 +185,7 @@ function checkJualan(message: string): string[] {
   // Match WTS/WTB/WTT/LF as standalone tags (at word boundary or start of message)
   const patterns = [
     /\b(WTS|WTB|WTT)\b/,
-    /\b(LF)\b(?=\s)/,  // LF followed by space (to avoid matching "self" etc.)
+    /\b(LF)\b(?=\s|$)/,  // LF followed by space or end-of-message (avoid matching "self" etc.)
   ]
   for (const pattern of patterns) {
     if (pattern.test(normalized)) {
@@ -219,7 +219,8 @@ function checkUrls(message: string): string[] {
 function checkMentions(message: string): string[] {
   const reasons: string[] = []
   // Match @username (X/Twitter handles: letters, numbers, underscores)
-  const mentionPattern = /@(\w{1,15})/g
+  // Negative lookbehind for \w prevents matching email addresses (e.g. user@example.com)
+  const mentionPattern = /(?<!\w)@(\w{1,15})\b/g
   const matches = message.match(mentionPattern)
   if (matches && matches.length > 0) {
     reasons.push(`contains_mention:${matches.length}`)

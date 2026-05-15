@@ -53,3 +53,34 @@ Stage Summary:
 - Most impactful fix: blockedWords/NSFW/whitelist were silently never saved to DB (all filter configuration was lost on save)
 - BigInt fix prevents admin dashboard crash on serialization
 - Form data loss fix prevents user frustration when submission fails
+
+---
+Task ID: 9
+Agent: main
+Task: Verify and fix Bugs #6-#18 from second bug audit round
+
+Work Log:
+- Verified 13 reported bugs (#6-#18) against current source code
+- Confirmed 6 real bugs, 7 not real/feature requests
+- Fixed Bug #6 (MEDIUM): checkMentions false-positive on email addresses — `/@(\w{1,15})/g` matched `@example` in `user@example.com`. Changed to `/(?<!\w)@(\w{1,15})\b/g` with negative lookbehind to exclude email addresses
+- Fixed Bug #7 (LOW): SaveFilterSettingsRequest type missing `blockedUsernames` field — API handler already destructures it, but the shared type didn't declare it. Added `blockedUsernames?: string[]`
+- Fixed Bug #9 (MEDIUM): checkJualan LF pattern `/\b(LF)\b(?=\s)/` didn't match LF at end of message (no trailing space). Changed to `/\b(LF)\b(?=\s|$)/` with end-of-string alternative
+- Fixed Bug #13 (LOW): Admin login route used `===` for password comparison, vulnerable to timing side-channel attacks. Replaced with `crypto.timingSafeEqual()` matching the pattern already used in `admin-auth.ts`
+- Fixed Bug #14 (VERY LOW): Category maxLength mismatch — frontend `maxLength={30}` but backend validated `> 50`. Aligned backend to `> 30` with comment to match frontend
+- Fixed Bug #18 (VERY LOW): `liveRemainingMinutes` showed 0 for first second after component mount — `setInterval(compute, 1000)` didn't call `compute()` immediately. Added `compute()` call before interval starts
+- Skipped Bug #8 (INTEGER vs BIGINT): Fail count never reaches 2.1B, not a real issue
+- Skipped Bug #10 (redundant check): Code quality, not a bug
+- Skipped Bug #11 (punctuation bypass): Normalization already strips punctuation
+- Skipped Bug #12 (no message index): createdAt index narrows search; table is small
+- Skipped Bug #15 (double getFilterSettings): Already verified NOT A BUG
+- Skipped Bug #16 (stale circuitBreakerStatus): Next API call gets correct state
+- Skipped Bug #17 (client-side search): UX limitation, not a bug
+- All fixes pass `bun run lint` with zero errors
+- Dev server compiles and returns 200
+
+Stage Summary:
+- 6 bugs fixed (2 MEDIUM, 1 LOW, 2 VERY LOW, 1 type mismatch)
+- Files modified: content-filter.ts, types/index.ts, admin/login/route.ts, submissions/route.ts, use-circuit-breaker.ts
+- Most impactful fix: email false-positive in @mention filter — legitimate messages with email addresses were being incorrectly flagged
+- Timing-safe login aligns with the earlier admin-auth.ts fix for consistent security posture
+- LF end-of-message fix prevents jualan filter bypass by placing LF at end

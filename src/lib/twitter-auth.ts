@@ -271,9 +271,11 @@ export function verifySessionToken(token: string): SessionData | null {
     const [payload, signature] = token.split('.')
     if (!payload || !signature) return null
 
-    // Verify signature
+    // Verify signature using timing-safe comparison to prevent timing side-channel attacks
     const expectedSignature = crypto.createHmac('sha256', getSessionSecret()).update(payload).digest('base64url')
-    if (signature !== expectedSignature) return null
+    const sigBuf = Buffer.from(signature)
+    const expectedBuf = Buffer.from(expectedSignature)
+    if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) return null
 
     const data: SessionData = JSON.parse(Buffer.from(payload, 'base64url').toString())
 

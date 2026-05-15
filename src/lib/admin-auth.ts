@@ -1,3 +1,4 @@
+import crypto from 'crypto'
 import { NextResponse } from 'next/server'
 
 /**
@@ -11,6 +12,9 @@ import { NextResponse } from 'next/server'
 /**
  * Verify an Authorization header against the admin password.
  * Returns { authorized: true } if valid, or a NextResponse error if not.
+ *
+ * Uses crypto.timingSafeEqual to prevent timing side-channel attacks
+ * that could leak the password byte-by-byte through response time differences.
  */
 export function verifyAdmin(authHeader: string | null):
   | { authorized: true }
@@ -25,7 +29,23 @@ export function verifyAdmin(authHeader: string | null):
       ),
     }
   }
-  if (authHeader !== `Bearer ${password}`) {
+
+  // Extract token from "Bearer <token>" header
+  const expectedHeader = `Bearer ${password}`
+  if (!authHeader) {
+    return {
+      authorized: false,
+      response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
+    }
+  }
+
+  // Timing-safe comparison to prevent leaking password via response time
+  const headerBuf = Buffer.from(authHeader)
+  const expectedBuf = Buffer.from(expectedHeader)
+  const isMatch = headerBuf.length === expectedBuf.length
+    && crypto.timingSafeEqual(headerBuf, expectedBuf)
+
+  if (!isMatch) {
     return {
       authorized: false,
       response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),

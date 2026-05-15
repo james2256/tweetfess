@@ -42,8 +42,11 @@ export function useCircuitBreaker({ adminToken }: UseCircuitBreakerParams) {
       setLiveRemainingMinutes(Math.ceil(remaining / 60000))
     }
 
-    // Start interval — the first tick after 1s will set the initial value
-    // This avoids calling setState directly in the effect body
+    // Compute immediately so the UI shows the correct remaining time
+    // instead of flashing 0 for the first second
+    compute()
+
+    // Then update every second
     intervalRef.current = setInterval(compute, 1000)
 
     return () => {
