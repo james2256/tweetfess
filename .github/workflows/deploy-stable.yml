@@ -18,6 +18,8 @@ jobs:
         with:
           ref: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
 
+      - uses: oven-sh/setup-bun@v2
+
       - name: Install Vercel CLI
         run: npm i -g vercel@latest
 
