@@ -14,9 +14,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Autobase Menfess - X Base Indonesia",
-  description: "Kirim pesan anonim, admin moderasi, otomatis diposting ke X. Autobase/Menfess gratis untuk komunitas Indonesia.",
-  keywords: ["autobase", "menfess", "x", "twitter", "base", "indonesia", "anonim"],
+  title: "Tweetfess - X Menfess Indonesia",
+  description: "Kirim pesan anonim, admin moderasi, otomatis diposting ke X. Menfess gratis untuk komunitas Indonesia.",
+  keywords: ["tweetfess", "menfess", "x", "twitter", "confess", "indonesia", "anonim"],
   icons: {
     icon: "/favicon.svg",
   },

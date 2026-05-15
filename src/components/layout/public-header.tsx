@@ -36,7 +36,7 @@ export function PublicHeader({ submitter, isChecking, isAnonUser, onLogin, onLog
             <XLogo className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-bold text-[#0F1419] leading-tight">Autobase</h1>
+            <h1 className="text-lg font-bold text-[#0F1419] leading-tight">Tweetfess</h1>
             <p className="text-xs text-[#536471]">X Menfess</p>
           </div>
         </div>

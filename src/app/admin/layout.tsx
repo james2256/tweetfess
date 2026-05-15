@@ -17,6 +17,7 @@ import {
 import { useAdminAuth } from '@/hooks/use-admin-auth'
 import { AdminHeader } from '@/components/layout/admin-header'
 import { apiClient } from '@/lib/api-client'
+import { APP_VERSION } from '@/lib/constants'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { isAdmin, isChecking, adminToken, login, logout, loginPassword, setLoginPassword, loginOpen, setLoginOpen } = useAdminAuth()
@@ -106,7 +107,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </motion.div>
         </main>
         <footer className="mt-auto py-4 text-center text-xs text-[#71767B]">
-          Autobase Admin &copy; {new Date().getFullYear()}
+          Tweetfess Admin &copy; {new Date().getFullYear()} · v{APP_VERSION}
         </footer>
       </div>
     )
@@ -119,7 +120,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {children}
       </main>
       <footer className="mt-auto py-4 text-center text-xs text-[#71767B]">
-        Autobase Admin &copy; {new Date().getFullYear()}
+        Tweetfess Admin &copy; {new Date().getFullYear()} · v{APP_VERSION}
       </footer>
     </div>
   )
