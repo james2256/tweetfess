@@ -18,25 +18,11 @@ jobs:
         with:
           ref: ${{ github.event.client_payload.tag || github.event.inputs.tag }}
 
-      - uses: oven-sh/setup-bun@v2
-
       - name: Install Vercel CLI
         run: npm i -g vercel@latest
 
-      - name: Pull Vercel Environment (Stable)
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN_STABLE }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID_STABLE }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_STABLE }}
-
-      - name: Build with Vercel (Stable)
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN_STABLE }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID_STABLE }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_STABLE }}
-
       - name: Deploy to Vercel (Stable — Production)
-        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN_STABLE }}
+        run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN_STABLE }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID_STABLE }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID_STABLE }}
