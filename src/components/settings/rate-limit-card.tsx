@@ -11,7 +11,7 @@ import type { RateLimitSettings } from '@/types'
 
 interface RateLimitCardProps {
   rateLimits: RateLimitSettings
-  setRateLimits: (v: RateLimitSettings) => void
+  setRateLimits: React.Dispatch<React.SetStateAction<RateLimitSettings>>
   isSaving: boolean
   saveFilterSettings: () => void
 }

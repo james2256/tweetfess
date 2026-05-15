@@ -19,7 +19,7 @@ interface CircuitBreakerCardProps {
   circuitBreakerStatus: CircuitBreakerStatus | null
   liveRemainingMinutes: number
   rateLimits: RateLimitSettings
-  setRateLimits: (v: RateLimitSettings) => void
+  setRateLimits: React.Dispatch<React.SetStateAction<RateLimitSettings>>
   reset: () => void
   isSaving: boolean
   saveFilterSettings: () => void
