@@ -115,3 +115,38 @@ Stage Summary:
 - Zero behavior change for existing users (customLimits defaults to null)
 - Admin can set custom limits per user via Users Dialog → Limits button
 - Users see their effective limits on the confession form
+
+---
+Task ID: 11
+Agent: main
+Task: Change all rate limit counters from rolling 24h window to calendar day reset at 00:00 WIB (GMT+7)
+
+Work Log:
+- Added `getStartOfTodayWIB()` to src/lib/constants.ts — returns Date at 00:00:00 Asia/Jakarta using `toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' })` then constructing ISO datetime with +07:00 offset
+- Updated src/app/api/submissions/route.ts:
+  - Replaced all `new Date(Date.now() - MS_24H)` with `getStartOfTodayWIB()` for 4 rate limit checks (global cap, daily cap, pending cap, post cap)
+  - Changed post cap from `updatedAt` to `createdAt` for consistency — all 3 per-user counters now use `createdAt` with the same WIB boundary
+  - Updated comments: "24h window" → "calendar day WIB"
+- Updated src/app/api/submissions/mine/route.ts:
+  - Replaced `twentyFourHoursAgo` with `startOfToday = getStartOfTodayWIB()`
+  - Changed post cap from `updatedAt` to `createdAt` for consistency with enforcement route
+- Updated src/app/api/admin/limit-hits/route.ts:
+  - Replaced `twentyFourHoursAgo` with `startOfToday = getStartOfTodayWIB()`
+  - Changed `windowHours: 24` → `windowLabel: 'hari ini (WIB)'`
+- Updated src/components/settings/limit-health-card.tsx:
+  - Changed `windowHours: number` → `windowLabel: string` in interface
+  - Badge: `hits/24h` → `hits/{windowLabel}`
+  - "User paling sering diblokir (24h)" → "(hari ini)"
+  - "Belum ada limit hit dalam 24 jam terakhir" → "Belum ada limit hit hari ini"
+- Updated src/components/settings/rate-limit-card.tsx:
+  - All field hints: "Pesan/user/24 jam" → "Pesan/user/hari (reset 00:00 WIB)"
+  - Cara kerja: "per 24 jam" → "per hari", added "(semua reset 00:00 WIB)" subtitle
+- Left content-filter.ts checkDuplicate24h as rolling 24h — it's a content quality filter, not a rate limit
+- Lint passes clean, dev server compiles and runs
+
+Stage Summary:
+- All rate limit counters now reset at 00:00 WIB (GMT+7) instead of rolling 24h window
+- "hari ini" now literally means "since midnight WIB today" — intuitive for Indonesian users
+- Post cap changed from `updatedAt` to `createdAt` for consistency (all 3 counters use createdAt)
+- Duplicate check (content filter) remains rolling 24h — prevents gaming by posting same message at 23:59 then 00:01
+- Key change: simpler mental model — all counters reset at the same time every day

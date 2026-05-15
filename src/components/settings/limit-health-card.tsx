@@ -19,7 +19,7 @@ interface LimitHitsData {
   summary: LimitHitSummary[]
   topUsers: { username: string; hits: number }[]
   totalHits: number
-  windowHours: number
+  windowLabel: string
 }
 
 const TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -62,7 +62,7 @@ export function LimitHealthCard() {
               <Activity className="w-4 h-4 text-[#536471]" /> Limit Health
               {hasHits && (
                 <Badge variant="outline" className="text-[9px] px-1 py-0 bg-amber-50 text-amber-700 border-amber-200">
-                  {data.totalHits} hit{data.totalHits !== 1 ? 's' : ''}/24h
+                  {data.totalHits} hit{data.totalHits !== 1 ? 's' : ''}/{data.windowLabel}
                 </Badge>
               )}
               {!hasHits && data && (
@@ -107,7 +107,7 @@ export function LimitHealthCard() {
                 {data.topUsers.length > 0 && (
                   <div className="bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
                     <p className="text-[10px] font-medium text-[#536471] mb-1.5 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" /> User paling sering diblokir (24h)
+                      <AlertTriangle className="w-3 h-3" /> User paling sering diblokir (hari ini)
                     </p>
                     <div className="space-y-1">
                       {data.topUsers.map((user, i) => (
@@ -125,7 +125,7 @@ export function LimitHealthCard() {
                 {/* Empty state */}
                 {!hasHits && (
                   <p className="text-xs text-[#71767B] text-center py-2">
-                    Belum ada limit hit dalam 24 jam terakhir
+                    Belum ada limit hit hari ini
                   </p>
                 )}
               </>

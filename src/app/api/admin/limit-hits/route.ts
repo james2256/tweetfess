@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { verifyAdmin } from '@/lib/admin-auth'
-import { MS_24H } from '@/lib/constants'
+import { getStartOfTodayWIB } from '@/lib/constants'
 import { NextRequest, NextResponse } from 'next/server'
 
 const LIMIT_TYPE_LABELS: Record<string, string> = {
@@ -11,17 +11,17 @@ const LIMIT_TYPE_LABELS: Record<string, string> = {
   post_cap: 'Batas post',
 }
 
-// GET /api/admin/limit-hits — Limit health stats for the last 24h
+// GET /api/admin/limit-hits — Limit health stats for today (calendar day WIB)
 export async function GET(req: NextRequest) {
   const auth = verifyAdmin(req.headers.get('authorization'))
   if (!auth.authorized) return auth.response
 
-  const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
+  const startOfToday = getStartOfTodayWIB()
 
   // Hits per limit type (total count)
   const hitsByType = await db.limitHit.groupBy({
     by: ['limitType'],
-    where: { createdAt: { gte: twentyFourHoursAgo } },
+    where: { createdAt: { gte: startOfToday } },
     _count: { _all: true },
   })
 
@@ -31,17 +31,17 @@ export async function GET(req: NextRequest) {
   >`
     SELECT "limitType", COUNT(DISTINCT username) as "uniqueUsers"
     FROM "LimitHit"
-    WHERE "createdAt" >= ${twentyFourHoursAgo}
+    WHERE "createdAt" >= ${startOfToday}
     GROUP BY "limitType"
   `
 
-  // Top blocked users (24h) — raw SQL for ORDER BY COUNT DESC
+  // Top blocked users (today WIB) — raw SQL for ORDER BY COUNT DESC
   const topUsersRaw = await db.$queryRaw<
     { username: string; hits: bigint }[]
   >`
     SELECT username, COUNT(*) as hits
     FROM "LimitHit"
-    WHERE "createdAt" >= ${twentyFourHoursAgo}
+    WHERE "createdAt" >= ${startOfToday}
     GROUP BY username
     ORDER BY hits DESC
     LIMIT 10
@@ -69,6 +69,6 @@ export async function GET(req: NextRequest) {
       hits: Number(u.hits),
     })),
     totalHits,
-    windowHours: 24,
+    windowLabel: 'hari ini (WIB)',
   })
 }

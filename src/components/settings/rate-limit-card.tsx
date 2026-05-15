@@ -50,9 +50,9 @@ const RATE_GROUPS: RateGroup[] = [
     description: 'Dilanggar whitelist — user di-whitelist lewat batas ini',
     fields: [
       { key: 'submissionCooldown', label: 'Cooldown (menit)', hint: 'Jeda antar pesan per user', min: 0, max: 60 },
-      { key: 'submissionDailyCap', label: 'Batas harian', hint: 'Pesan/user/24 jam', min: 1, max: 100 },
-      { key: 'userPendingCap', label: 'Batas antrean/user/hari', hint: 'Pesan pending/user/24 jam', min: 1, max: 50 },
-      { key: 'userPostDailyCap', label: 'Batas post/user/hari', hint: 'Tweet ke X/user/24 jam', min: 0, max: 100 },
+      { key: 'submissionDailyCap', label: 'Batas harian', hint: 'Pesan/user/hari (reset 00:00 WIB)', min: 1, max: 100 },
+      { key: 'userPendingCap', label: 'Batas antrean/user/hari', hint: 'Pesan pending/user/hari (reset 00:00 WIB)', min: 1, max: 50 },
+      { key: 'userPostDailyCap', label: 'Batas post/user/hari', hint: 'Tweet ke X/user/hari (reset 00:00 WIB)', min: 0, max: 100 },
     ],
   },
   {
@@ -66,7 +66,7 @@ const RATE_GROUPS: RateGroup[] = [
     badgeColor: 'bg-amber-100 text-amber-700 border-amber-200',
     description: 'Selalu aktif — melindungi sistem dari overload',
     fields: [
-      { key: 'globalSubmissionDailyCap', label: 'Batas harian global', hint: 'Total pesan dari semua user/24 jam', min: 0, max: 10000 },
+      { key: 'globalSubmissionDailyCap', label: 'Batas harian global', hint: 'Total pesan dari semua user/hari (reset 00:00 WIB)', min: 0, max: 10000 },
     ],
   },
   {
@@ -147,13 +147,13 @@ export function RateLimitCard({
 
             {/* How it works */}
             <div className="bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4] space-y-1">
-              <p className="text-[10px] font-medium text-[#536471]">Cara kerja:</p>
+              <p className="text-[10px] font-medium text-[#536471]">Cara kerja <span className="text-[#71767B] font-normal">(semua reset 00:00 WIB)</span></p>
               <ul className="text-[10px] text-[#71767B] space-y-0.5 list-disc list-inside">
                 <li><strong>Cooldown</strong> — user harus menunggu sebelum kirim pesan lagi <span className="text-blue-500">(bypass whitelist)</span></li>
-                <li><strong>Batas harian</strong> — maks {rateLimits.submissionDailyCap} pesan per user per 24 jam <span className="text-blue-500">(bypass whitelist)</span></li>
-                <li><strong>Batas antrean/user/hari</strong> — maks {rateLimits.userPendingCap} pesan pending per user per 24 jam, sisanya ditolak <span className="text-blue-500">(bypass whitelist)</span></li>
-                <li><strong>Batas post/user/hari</strong> — maks {rateLimits.userPostDailyCap} tweet per user per 24 jam di X, sisanya masuk antrean <span className="text-blue-500">(bypass whitelist)</span></li>
-                <li><strong>Batas harian global</strong> — maks {rateLimits.globalSubmissionDailyCap} pesan dari semua user per 24 jam <span className="text-amber-500">(selalu aktif)</span></li>
+                <li><strong>Batas harian</strong> — maks {rateLimits.submissionDailyCap} pesan per user per hari <span className="text-blue-500">(bypass whitelist)</span></li>
+                <li><strong>Batas antrean/user/hari</strong> — maks {rateLimits.userPendingCap} pesan pending per user per hari, sisanya ditolak <span className="text-blue-500">(bypass whitelist)</span></li>
+                <li><strong>Batas post/user/hari</strong> — maks {rateLimits.userPostDailyCap} tweet per user per hari di X, sisanya masuk antrean <span className="text-blue-500">(bypass whitelist)</span></li>
+                <li><strong>Batas harian global</strong> — maks {rateLimits.globalSubmissionDailyCap} pesan dari semua user per hari <span className="text-amber-500">(selalu aktif)</span></li>
                 <li><strong>Jeda auto-post</strong> — jika ada pesan baru dalam {rateLimits.autoPostCooldown} detik setelah auto-post terakhir, masuk antrean admin <span className="text-rose-500">(selalu aktif)</span></li>
                 <li><strong>Batas auto-post</strong> — maks {rateLimits.autoPostWindowCap} tweet per {rateLimits.autoPostWindowMinutes} menit, mencegah 226 dari X <span className="text-rose-500">(selalu aktif)</span></li>
               </ul>

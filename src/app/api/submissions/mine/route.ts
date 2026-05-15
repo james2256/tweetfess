@@ -2,7 +2,7 @@ import { db } from '@/lib/db'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
 import { getFilterSettings, DEFAULT_RATE_LIMITS } from '@/app/api/admin/filter-settings/route'
 import { resolveEffectiveLimits, hasCustomLimits } from '@/lib/limit-resolver'
-import { MS_24H } from '@/lib/constants'
+import { getStartOfTodayWIB } from '@/lib/constants'
 import { NextRequest, NextResponse } from 'next/server'
 
 // GET /api/submissions/mine - Get current user's submissions + limits
@@ -55,28 +55,28 @@ export async function GET(req: NextRequest) {
       const effectiveLimits = resolveEffectiveLimits(submitter.customLimits, filterSettings.rateLimits)
       const isCustom = hasCustomLimits(submitter.customLimits)
 
-      const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
+      const startOfToday = getStartOfTodayWIB()
 
       const [dailySubmissionCount, pendingCount, dailyPostCount, lastSubmission] = await Promise.all([
         db.submission.count({
           where: {
             submitterId: submitter.id,
-            createdAt: { gte: twentyFourHoursAgo },
+            createdAt: { gte: startOfToday },
           },
         }),
         db.submission.count({
           where: {
             submitterId: submitter.id,
             status: 'pending',
-            createdAt: { gte: twentyFourHoursAgo },
+            createdAt: { gte: startOfToday },
           },
         }),
-        // Daily posts — uses updatedAt to match enforcement in submissions/route.ts
+        // Daily posts — uses createdAt with calendar day WIB boundary for consistency
         db.submission.count({
           where: {
             submitterId: submitter.id,
             status: 'posted',
-            updatedAt: { gte: twentyFourHoursAgo },
+            createdAt: { gte: startOfToday },
           },
         }),
         db.submission.findFirst({

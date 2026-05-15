@@ -2,7 +2,7 @@ import { db } from '@/lib/db'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
-import { MS_24H } from '@/lib/constants'
+import { getStartOfTodayWIB } from '@/lib/constants'
 import { debug } from '@/lib/debug'
 import { runContentFilter, checkDuplicate24h, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
@@ -151,9 +151,9 @@ export async function POST(req: NextRequest) {
     // --- GLOBAL RATE LIMITS (apply to everyone including whitelisted) ---
     // Check global submission daily cap
     if (filterSettings.rateLimits.globalSubmissionDailyCap > 0) {
-      const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
+      const startOfToday = getStartOfTodayWIB()
       const globalCount = await db.submission.count({
-        where: { createdAt: { gte: twentyFourHoursAgo } },
+        where: { createdAt: { gte: startOfToday } },
       })
       if (globalCount >= filterSettings.rateLimits.globalSubmissionDailyCap) {
         debug('[submit] Global daily cap reached:', globalCount)
@@ -199,11 +199,11 @@ export async function POST(req: NextRequest) {
 
       // Check daily cap
       if (effectiveDailyCap > 0) {
-        const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
+        const startOfToday = getStartOfTodayWIB()
         const todayCount = await db.submission.count({
           where: {
             submitterId: submitter.id,
-            createdAt: { gte: twentyFourHoursAgo },
+            createdAt: { gte: startOfToday },
           },
         })
         if (todayCount >= effectiveDailyCap) {
@@ -216,14 +216,14 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Check per-user pending cap (24h window)
+      // Check per-user pending cap (calendar day WIB)
       if (effectivePendingCap > 0) {
-        const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
+        const startOfToday = getStartOfTodayWIB()
         const pendingCount = await db.submission.count({
           where: {
             submitterId: submitter.id,
             status: 'pending',
-            createdAt: { gte: twentyFourHoursAgo },
+            createdAt: { gte: startOfToday },
           },
         })
         if (pendingCount >= effectivePendingCap) {
@@ -425,13 +425,14 @@ export async function POST(req: NextRequest) {
 
     // Check per-user post daily cap: has this user already had too many posts today?
     // Whitelisted users bypass this limit
+    // Uses createdAt (submission time) with calendar day WIB boundary for consistency
     if (!isWhitelisted && effectivePostCap > 0) {
-      const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
+      const startOfToday = getStartOfTodayWIB()
       const userPostCount = await db.submission.count({
         where: {
           submitterId: submitter.id,
           status: 'posted',
-          updatedAt: { gte: twentyFourHoursAgo },
+          createdAt: { gte: startOfToday },
         },
       })
       if (userPostCount >= effectivePostCap) {
