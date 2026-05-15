@@ -37,8 +37,9 @@ interface ApiFallbackCardProps {
   apiProxy: string
   setApiProxy: (v: string) => void
   isSavingSetting: string | null
+  isSavingAnySetting: boolean
   isSavingAllCredentials: boolean
-  saveSetting: (key: string, value: string, onSuccess?: () => void) => void
+  saveSetting: (key: string, value: string, onSuccess?: () => void, onFailure?: () => void) => void
   saveAllCredentials: () => void
   apiLoginStatus: ApiLoginStatus | null
   apiCredits: KeyCredits[]
@@ -62,6 +63,7 @@ export function ApiFallbackCard({
   apiProxy,
   setApiProxy,
   isSavingSetting,
+  isSavingAnySetting,
   isSavingAllCredentials,
   saveSetting,
   saveAllCredentials,
@@ -119,9 +121,14 @@ export function ApiFallbackCard({
                     size="sm"
                     variant={postMethodSetting === opt.value ? 'default' : 'outline'}
                     onClick={() => {
-                      setPostMethodSetting(opt.value)
-                      saveSetting('post_method', opt.value)
+                      const previous = postMethodSetting
+                      setPostMethodSetting(opt.value) // optimistic update
+                      saveSetting('post_method', opt.value, undefined, () => {
+                        // Revert on failure
+                        setPostMethodSetting(previous)
+                      })
                     }}
+                    disabled={isSavingAnySetting}
                     className={`text-xs h-8 ${postMethodSetting === opt.value ? 'bg-purple-500 hover:bg-purple-600' : 'border-[#EFF3F4]'}`}
                   >
                     {opt.label}

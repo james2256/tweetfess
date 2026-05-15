@@ -6,10 +6,6 @@ import { debug } from '@/lib/debug'
 // Manual admin posts are NOT blocked — admin can decide to retry.
 // Circuit breaker state is stored in the Setting table so it persists
 // across Vercel serverless invocations.
-//
-// Bug #9 fix: recordPostFailure now uses an atomic SQL increment
-// (CAST(CAST(value AS BIGINT) + 1 AS TEXT)) instead of read-modify-write,
-// eliminating the race condition where concurrent failures could lose counts.
 
 const FAIL_COUNT_KEY = 'circuit_breaker_fail_count'
 const PAUSED_UNTIL_KEY = 'circuit_breaker_paused_until'
@@ -51,7 +47,8 @@ async function setSettingValue(key: string, value: string): Promise<void> {
 
 /**
  * Check if the circuit breaker is currently paused.
- * If the pause has expired, auto-resets the state.
+ * If the pause has expired, auto-resets the state using a conditional
+ * UPDATE to avoid erasing a newer legitimate pause (race condition fix).
  */
 export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number }): Promise<boolean> {
   const pausedUntilStr = await getSettingValue(PAUSED_UNTIL_KEY)
@@ -67,10 +64,21 @@ export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThresh
     return true
   }
 
-  // Pause expired — auto-reset
+  // Pause expired — conditional auto-reset to avoid erasing a newer pause
+  // set by a concurrent recordPostFailure() between our read and write
   debug('[circuit-breaker] Pause expired, auto-resetting')
-  await setSettingValue(PAUSED_UNTIL_KEY, '0')
-  await setSettingValue(FAIL_COUNT_KEY, '0')
+  await db.$executeRaw`
+    UPDATE "Setting"
+    SET "value" = '0', "updatedAt" = NOW()
+    WHERE "key" = ${PAUSED_UNTIL_KEY} AND "value" = ${pausedUntilStr}
+  `
+  await db.$executeRaw`
+    UPDATE "Setting"
+    SET "value" = '0', "updatedAt" = NOW()
+    WHERE "key" = ${FAIL_COUNT_KEY} AND (
+      SELECT "value" FROM "Setting" WHERE "key" = ${PAUSED_UNTIL_KEY}
+    ) = '0'
+  `
   return false
 }
 
@@ -105,8 +113,10 @@ export async function getCircuitBreakerStatus(rateLimits?: { circuitBreakerThres
 }
 
 /**
- * Record a successful post — resets the fail count atomically.
+ * Record a successful post — resets the fail count and clears any pause.
  * Called after ANY successful post to X (auto-post, manual, test).
+ * Uses a conditional clear to avoid erasing a new legitimate pause set
+ * by a concurrent recordPostFailure() between our two writes.
  */
 export async function recordPostSuccess(): Promise<void> {
   // Atomically set fail count to 0 using UPSERT
@@ -116,7 +126,16 @@ export async function recordPostSuccess(): Promise<void> {
     ON CONFLICT (key) DO UPDATE
     SET "value" = '0', "updatedAt" = NOW()
   `
-  debug('[circuit-breaker] Post succeeded, resetting fail count to 0')
+
+  // Only clear the pause if fail_count is still 0 (no concurrent failure intervened)
+  await db.$executeRaw`
+    UPDATE "Setting"
+    SET "value" = '0', "updatedAt" = NOW()
+    WHERE "key" = ${PAUSED_UNTIL_KEY}
+      AND (SELECT "value" FROM "Setting" WHERE "key" = ${FAIL_COUNT_KEY}) = '0'
+  `
+
+  debug('[circuit-breaker] Post succeeded, resetting fail count and clearing pause')
 
   // Invalidate API credits cache so next dashboard refresh shows accurate credits
   try {
@@ -145,7 +164,7 @@ export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?:
 
   // Read the new count to check if threshold is reached
   const newCountStr = await getSettingValue(FAIL_COUNT_KEY)
-  const newCount = parseInt(newCountStr || '1', 10) || 1
+  const newCount = parseInt(newCountStr ?? '0', 10) || 0
 
   debug('[circuit-breaker] Post failed, fail count now:', newCount, '(threshold:', config.threshold, ')')
 

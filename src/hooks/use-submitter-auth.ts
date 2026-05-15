@@ -40,14 +40,22 @@ export function useSubmitterAuth() {
     initialCheck()
   }, [checkAuth])
 
-  // Re-check auth after OAuth callback
+  // Re-check auth after OAuth callback with retry (server may need time
+  // to set the session cookie, especially on cold starts)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const authResult = params.get('auth')
     if (authResult === 'success') {
-      const timer = setTimeout(async () => {
-        await checkAuth()
-      }, 300)
+      let attempts = 0
+      const maxAttempts = 4
+      const tryAuth = async () => {
+        const ok = await checkAuth()
+        if (!ok && attempts < maxAttempts) {
+          attempts++
+          setTimeout(tryAuth, 500 * attempts) // 500ms, 1000ms, 1500ms, 2000ms
+        }
+      }
+      const timer = setTimeout(tryAuth, 300)
       return () => clearTimeout(timer)
     }
   }, [checkAuth])

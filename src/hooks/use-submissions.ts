@@ -27,25 +27,54 @@ export function useSubmissions({ isAdmin, adminToken, onStatsRefresh }: UseSubmi
   const pageRef = useRef(page)
   pageRef.current = page
 
+  // Request ID counter to discard stale responses when filter changes
+  const requestIdRef = useRef(0)
+
+  // Track whether any non-silent (loading-spinner) request is outstanding.
+  // This prevents the spinner getting stuck when a silent auto-refresh
+  // supersedes a non-silent fetch — the silent fetch won't clear isLoading
+  // (it didn't set it), but we need the latest request to clear it.
+  const outstandingLoadingRef = useRef(false)
+
   const fetchSubmissions = useCallback(async (silent = false, targetPage?: number) => {
     if (!adminToken) return
     const p = targetPage ?? pageRef.current
-    if (!silent) setIsLoading(true)
+    if (!silent) {
+      setIsLoading(true)
+      outstandingLoadingRef.current = true
+    }
+
+    // Capture current request ID — only apply results if still the latest
+    const thisRequestId = ++requestIdRef.current
+
     try {
       const data = await apiClient.getSubmissions({
         status: (filterStatus === 'all' ? 'all' : filterStatus) as SubmissionStatus | 'all',
         page: p,
         limit: 50,
       })
+
+      // Discard stale response if a newer request was made
+      if (thisRequestId !== requestIdRef.current) return
+
       setSubmissions(data.submissions)
       setHasMore(data.pagination.hasMore)
       setTotal(data.pagination.total)
       setTotalPages(data.pagination.totalPages)
       setPage(p)
     } catch {
-      if (!silent) toast({ title: 'Error', description: 'Gagal memuat data', variant: 'destructive' })
+      if (thisRequestId === requestIdRef.current) {
+        toast({ title: 'Error', description: 'Gagal memuat data', variant: 'destructive' })
+      }
     } finally {
-      if (!silent) setIsLoading(false)
+      // Only the latest request should update isLoading.
+      // A non-silent request sets outstandingLoadingRef, and the
+      // latest request (even if it was silent) is responsible for
+      // clearing the spinner if one was requested.
+      if (thisRequestId === requestIdRef.current && outstandingLoadingRef.current) {
+        setIsLoading(false)
+        outstandingLoadingRef.current = false
+      }
     }
   }, [adminToken, filterStatus, toast])
 

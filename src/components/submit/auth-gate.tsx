@@ -119,9 +119,14 @@ export function AuthGate({
             Akun kamu tidak diperbolehkan mengirim pesan. <br />
             <span className="text-[#71767B] text-xs">Hubungi admin jika kamu rasa ini salah.</span>
           </p>
-          <Button onClick={onLogout} variant="outline" className="border-[#EFF3F4]">
-            <LogOut className="w-4 h-4 mr-2" /> Logout
-          </Button>
+          <div className="flex items-center justify-center gap-3">
+            <Button onClick={onRetry} variant="outline" className="border-[#EFF3F4]">
+              <RotateCcw className="w-4 h-4 mr-2" /> Cek Ulang
+            </Button>
+            <Button onClick={onLogout} variant="outline" className="border-[#EFF3F4]">
+              <LogOut className="w-4 h-4 mr-2" /> Logout
+            </Button>
+          </div>
         </CardContent>
       </Card>
     )

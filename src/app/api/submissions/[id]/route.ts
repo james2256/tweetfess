@@ -63,6 +63,7 @@ export async function PATCH(
               status: 'posted',
               tweetId: tweetResult.tweetId || null,
               postMethod: tweetResult.method,
+              postError: null, // Clear any previous error on success
             },
           })
 

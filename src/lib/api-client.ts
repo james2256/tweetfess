@@ -14,6 +14,7 @@ import type {
   SaveSettingRequest,
   SaveFilterSettingsRequest,
   SubmissionStatus,
+  SubmissionLimitsData,
 } from '@/types'
 
 class ApiError extends Error {
@@ -86,7 +87,7 @@ class ApiClient {
     })
   }
 
-  async getMyPosts(): Promise<{ submissions: Submission[] }> {
+  async getMyPosts(): Promise<{ submissions: Submission[]; limits?: SubmissionLimitsData; stats?: Record<string, number> }> {
     return this.request('/api/submissions/mine')
   }
 

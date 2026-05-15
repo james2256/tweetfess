@@ -20,9 +20,9 @@ export function useMyPosts({ submitter, isAnonUser }: UseMyPostsParams) {
     try {
       const data = await apiClient.getMyPosts()
       setMyPosts(data.submissions)
-      // Also capture limits data if present
-      if ('limits' in data && data.limits) {
-        setLimits(data.limits as SubmissionLimitsData)
+      // Also capture limits data if present (now properly typed)
+      if (data.limits) {
+        setLimits(data.limits)
       }
     } catch {
       // silently fail

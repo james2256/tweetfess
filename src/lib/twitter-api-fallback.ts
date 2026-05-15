@@ -142,7 +142,7 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
     x_username: settings.x_username || '(missing)',
     x_email: settings.x_email ? settings.x_email.slice(0, 3) + '***' : '(missing)',
     x_password: settings.x_password ? `(${settings.x_password.length} chars)` : '(missing)',
-    x_totp_secret: settings.x_totp_secret ? `(${settings.x_totp_secret.length} chars, starts: ${settings.x_totp_secret.slice(0, 4)})` : '(missing)',
+    x_totp_secret: settings.x_totp_secret ? `(${settings.x_totp_secret.length} chars)` : '(missing)',
     twitterapi_proxy: settings.twitterapi_proxy ? settings.twitterapi_proxy.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@') : '(missing)',
     twitterapi_keys: settings.twitterapi_keys ? '(present)' : '(missing)',
   })
@@ -330,11 +330,15 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
       debug('[twitterapi] create_tweet_v2 failed:', lastApiError)
 
       // login_cookies expired/invalid → auto re-login and retry ONCE
+      // Only match specific login_cookie errors — broad matches like
+      // includes('cookie') or includes('session') cause false positives
+      // (e.g. "Too many requests in this session") that waste 500 credits
+      // on unnecessary re-logins and skip trying other API keys.
       if (
         errorMsg.includes('login_cookies is not valid') ||
         errorMsg.includes('login_cookies is required') ||
-        errorMsg.includes('cookie') ||
-        errorMsg.includes('session')
+        errorMsg.includes('login_cookie is not valid') ||
+        errorMsg.includes('login_cookie is required')
       ) {
         // Only re-login once to avoid infinite loops
         const loginResult = await loginViaTwitterApi()

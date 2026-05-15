@@ -20,8 +20,11 @@ export function ApiCredits({ apiCredits, onRefresh, isLoading }: ApiCreditsProps
 
   const handleRefresh = async () => {
     setIsRefreshing(true)
-    await onRefresh()
-    setIsRefreshing(false)
+    try {
+      await onRefresh()
+    } finally {
+      setIsRefreshing(false)
+    }
   }
 
   return (
@@ -43,9 +46,9 @@ export function ApiCredits({ apiCredits, onRefresh, isLoading }: ApiCreditsProps
       </CardHeader>
       <CardContent>
         <div className="space-y-1.5">
-          {apiCredits.map((credit, idx) => (
+          {apiCredits.map((credit) => (
             <div
-              key={idx}
+              key={credit.apiKey}
               className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]"
             >
               <div className="flex items-center gap-2">

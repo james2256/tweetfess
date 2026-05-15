@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
-import { db } from '@/lib/db'
+import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
 
 // GET /api/auth/me - Check if user is logged in via Twitter OAuth
 export async function GET(req: NextRequest) {
@@ -11,17 +11,15 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ authenticated: false })
     }
 
-    // Check if user is blocked
+    // Check if user is blocked — use canonical getFilterSettings() which
+    // handles decryption and normalization, instead of raw JSON.parse
     let blocked = false
     if (submitter.username) {
-      const setting = await db.setting.findUnique({ where: { key: 'blocked_usernames' } })
-      if (setting) {
-        try {
-          const blockedList: string[] = JSON.parse(setting.value)
-          blocked = blockedList.includes(submitter.username.toLowerCase())
-        } catch {
-          // invalid JSON, treat as not blocked
-        }
+      try {
+        const settings = await getFilterSettings()
+        blocked = settings.blockedUsernames.includes(submitter.username.toLowerCase())
+      } catch {
+        // If settings can't be loaded, treat as not blocked
       }
     }
 

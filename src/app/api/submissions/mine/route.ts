@@ -40,12 +40,13 @@ export async function GET(req: NextRequest) {
       where: { submitterId: submitter.id },
       _count: { status: true },
     })
-    const stats: Record<string, number> = { total: 0, pending: 0, posted: 0, rejected: 0 }
+    const stats: Record<string, number> = { total: 0, pending: 0, posted: 0, rejected: 0, postFailed: 0 }
     for (const row of statusCounts) {
       stats.total += row._count.status
       if (row.status === 'pending') stats.pending = row._count.status
       else if (row.status === 'posted') stats.posted = row._count.status
       else if (row.status === 'rejected') stats.rejected = row._count.status
+      else if (row.status === 'post_failed') stats.postFailed = row._count.status
     }
 
     // --- Limits data ---
@@ -68,7 +69,6 @@ export async function GET(req: NextRequest) {
           where: {
             submitterId: submitter.id,
             status: 'pending',
-            createdAt: { gte: startOfToday },
           },
         }),
         // Daily posts — uses createdAt with calendar day WIB boundary for consistency

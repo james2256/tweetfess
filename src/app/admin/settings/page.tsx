@@ -182,6 +182,7 @@ export default function AdminSettingsPage() {
               apiProxy={posting.apiProxy}
               setApiProxy={posting.setApiProxy}
               isSavingSetting={posting.isSavingSetting}
+              isSavingAnySetting={posting.isSavingAnySetting}
               isSavingAllCredentials={posting.isSavingAllCredentials}
               saveSetting={postingSaveSetting}
               saveAllCredentials={postingSaveAllCredentials}
@@ -210,6 +211,7 @@ export default function AdminSettingsPage() {
               setNsfwWordsText={filterSettings.setNsfwWordsText}
               filterRules={filterSettings.filterRules}
               setFilterRules={filterSettings.setFilterRules}
+              toggleRule={filterSettings.toggleRule}
               geminiEnabled={filterSettings.geminiEnabled}
               geminiApiKeySet={filterSettings.geminiApiKeySet}
               isSaving={filterSettings.isSaving}

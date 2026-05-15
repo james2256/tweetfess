@@ -47,15 +47,19 @@ export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSet
   const [showQueryIdGuide, setShowQueryIdGuide] = useState(false)
   const [showBearerGuide, setShowBearerGuide] = useState(false)
 
-  // Loading states
-  const [isSavingSetting, setIsSavingSetting] = useState<string | null>(null) // key being saved
+  // Loading states — use a Set to track concurrent saves properly
+  const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set())
   const [isClearingCache, setIsClearingCache] = useState(false)
   const [isSavingAllCredentials, setIsSavingAllCredentials] = useState(false)
 
+  const isSavingAnySetting = savingKeys.size > 0
+  // For backward compat: return the last key being saved (or null)
+  const isSavingSetting = savingKeys.size > 0 ? [...savingKeys][savingKeys.size - 1] : null
+
   const { toast } = useToast()
 
-  const saveSetting = useCallback(async (key: string, value: string, onSuccess?: () => void) => {
-    setIsSavingSetting(key)
+  const saveSetting = useCallback(async (key: string, value: string, onSuccess?: () => void, onFailure?: () => void) => {
+    setSavingKeys(prev => new Set(prev).add(key))
     try {
       const data = await apiClient.saveSetting(key, value)
       // Cookie string gets parsed confirmation toast
@@ -75,8 +79,13 @@ export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSet
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Gagal menyimpan'
       toast({ title: 'Gagal', description: message, variant: 'destructive' })
+      onFailure?.()
     } finally {
-      setIsSavingSetting(null)
+      setSavingKeys(prev => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
     }
   }, [onStatsRefresh, toast])
 
@@ -187,6 +196,7 @@ export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSet
     setShowBearerGuide,
     // Loading states
     isSavingSetting,
+    isSavingAnySetting,
     isClearingCache,
     isSavingAllCredentials,
     // Actions

@@ -59,6 +59,13 @@ export async function POST(
         debug('[post route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
         console.error('X API error:', tweetResult.error)
 
+        // Persist the latest error to the submission record so admin sees
+        // the most recent failure info on refresh (not a stale older error)
+        await db.submission.update({
+          where: { id },
+          data: { status: 'post_failed', postError: tweetResult.error || 'Unknown error' },
+        })
+
         // Record failure for circuit breaker
         try {
           const settings = await getFilterSettings()

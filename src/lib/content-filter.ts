@@ -217,12 +217,25 @@ function checkUrls(message: string): string[] {
   return reasons
 }
 
+/**
+ * Strip invisible/zero-width characters and normalize full-width characters
+ * to prevent filter bypass via unicode tricks (e.g. zero-width chars between
+ * phone number digits, full-width ＠ for mentions).
+ */
+function normalizeForFilter(text: string): string {
+  return text
+    .replace(/[\u200B-\u200D\uFEFF\u00AD\u200E-\u200F\u2028-\u202F]/g, '')
+    .normalize('NFKC')
+}
+
 function checkMentions(message: string): string[] {
   const reasons: string[] = []
+  // Normalize to catch full-width ＠ and zero-width chars between @ and username
+  const normalized = normalizeForFilter(message)
   // Match @username (X/Twitter handles: letters, numbers, underscores)
   // Negative lookbehind for \w prevents matching email addresses (e.g. user@example.com)
   const mentionPattern = /(?<!\w)@(\w{1,15})\b/g
-  const matches = message.match(mentionPattern)
+  const matches = normalized.match(mentionPattern)
   if (matches && matches.length > 0) {
     reasons.push(`contains_mention:${matches.length}`)
   }
@@ -231,6 +244,8 @@ function checkMentions(message: string): string[] {
 
 function checkPhoneNumbers(message: string): string[] {
   const reasons: string[] = []
+  // Normalize to strip zero-width chars between digits that bypass \d patterns
+  const normalized = normalizeForFilter(message)
   // Indonesian phone numbers: 08xx, +62xx, 62xx
   const phonePatterns = [
     /(?:^|\s|\()(08\d{8,12})(?:\s|\)|$)/,
@@ -238,7 +253,7 @@ function checkPhoneNumbers(message: string): string[] {
     /(?:^|\s|\()(62\d{8,12})(?:\s|\)|$)/,
   ]
   for (const pattern of phonePatterns) {
-    if (pattern.test(message)) {
+    if (pattern.test(normalized)) {
       reasons.push('contains_phone_number')
       break
     }

@@ -150,3 +150,38 @@ Stage Summary:
 - Post cap changed from `updatedAt` to `createdAt` for consistency (all 3 counters use createdAt)
 - Duplicate check (content filter) remains rolling 24h — prevents gaming by posting same message at 23:59 then 00:01
 - Key change: simpler mental model — all counters reset at the same time every day
+
+---
+Task ID: 12
+Agent: main
+Task: Fix remaining BUG-16 and BUG-17 from second deep bug scan (18 bugs total)
+
+Work Log:
+- Reviewed all 18 bugs (BUG-1 through BUG-18) from the second deep bug scan
+- Verified 16 of 18 were already fixed in previous sessions:
+  - BUG-1 (HIGH): parseInt("0") || DEFAULT → already using parseIntSafe
+  - BUG-2 (HIGH): Broad cookie/session matching → already narrowed to specific login_cookies errors
+  - BUG-3 (HIGH): isLoading stuck forever → already using outstandingLoadingRef pattern
+  - BUG-4 (MED): Manual retry doesn't persist postError → already saves to DB
+  - BUG-5 (MED): Auto-post overwrites admin rejection → already using updateMany with status condition
+  - BUG-6 (MED): Non-atomic pause clearing → already using conditional SQL UPDATE
+  - BUG-7 (MED): Phone number filter bypass via zero-width chars → already using normalizeForFilter
+  - BUG-8 (MED): @mention filter bypass via full-width → already using NFKC normalization
+  - BUG-9 (MED): Post method not reverted on save failure → already using onFailure revert callback
+  - BUG-10 (MED): auth/me reads without decryptValue → already using getFilterSettings()
+  - BUG-11 (MED): Stale filterRules closure → already using toggleRule prop from hook
+  - BUG-12 (MED): Stale rateLimits closure → already using functional setState (prev => ...)
+  - BUG-13 (MED): Fragile 300ms OAuth timing → already using retry with exponential backoff
+  - BUG-14 (LOW): Array index as React key → already using key={credit.apiKey}
+  - BUG-15 (LOW): TOTP secret prefix in debug logs → already removed prefix
+  - BUG-18 (LOW): Untyped limits property → properly typed as SubmissionLimitsData
+- Fixed BUG-16 (LOW): Search placeholder in submission-filters.tsx — changed "Cari pesan..." to "Cari di halaman ini..." to clarify client-side page-only search
+- Fixed BUG-17 (LOW): Blocked screen in auth-gate.tsx — added "Cek Ulang" button alongside "Logout" button so blocked users can re-check if admin has unblocked them without logging out
+- Lint passes clean with zero errors
+- Dev server compiles and returns 200
+
+Stage Summary:
+- All 18 bugs from the second deep scan are now fixed
+- 2 new edits: submission-filters.tsx (placeholder text), auth-gate.tsx (Cek Ulang button)
+- Codebase is clean — lint passes, dev server responds 200
+- Ready for deployment

@@ -216,14 +216,12 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Check per-user pending cap (calendar day WIB)
+      // Check per-user pending cap (total pending, not daily — daily cap already handles per-day limits)
       if (effectivePendingCap > 0) {
-        const startOfToday = getStartOfTodayWIB()
         const pendingCount = await db.submission.count({
           where: {
             submitterId: submitter.id,
             status: 'pending',
-            createdAt: { gte: startOfToday },
           },
         })
         if (pendingCount >= effectivePendingCap) {
@@ -231,7 +229,7 @@ export async function POST(req: NextRequest) {
           logLimitHit(submitter.username, 'pending_cap')
           return NextResponse.json({
             error: 'Terlalu banyak pesan menunggu',
-            message: `Kamu sudah mengirim ${pendingCount} pesan hari ini yang belum diproses. Tunggu sampai diproses admin sebelum mengirim lagi.`,
+            message: `Kamu sudah mengirim ${pendingCount} pesan yang belum diproses. Tunggu sampai diproses admin sebelum mengirim lagi.`,
           }, { status: 400 })
         }
       }
@@ -484,8 +482,9 @@ export async function POST(req: NextRequest) {
 
       if (tweetResult.success) {
         debug('[submit] Auto-post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
-        const updated = await db.submission.update({
-          where: { id: submission.id },
+        // Only update if still pending — don't overwrite admin rejection/deletion
+        const result = await db.submission.updateMany({
+          where: { id: submission.id, status: 'pending' },
           data: {
             status: 'posted',
             tweetId: tweetResult.tweetId || null,
@@ -496,6 +495,18 @@ export async function POST(req: NextRequest) {
         // Reset circuit breaker on success
         await recordPostSuccess()
 
+        if (result.count === 0) {
+          debug('[submit] Auto-post succeeded but submission status was changed by admin — not overwriting')
+          return NextResponse.json({
+            autoPosted: true,
+            tweetId: tweetResult.tweetId,
+            postMethod: tweetResult.method,
+            warning: 'Tweet posted, but admin changed submission status before post completed.',
+          }, { status: 201 })
+        }
+
+        const updated = await db.submission.findUnique({ where: { id: submission.id } })
+
         return NextResponse.json({
           submission: updated,
           autoPosted: true,
@@ -504,17 +515,20 @@ export async function POST(req: NextRequest) {
         }, { status: 201 })
       } else {
         // Post failed — mark as post_failed so admin can see the error and retry
+        // Only update if still pending — don't overwrite admin rejection/deletion
         const errorMsg = tweetResult.error || 'Unknown error'
         debug('[submit] Auto-post failed, marking as post_failed:', errorMsg)
-        await db.submission.update({
-          where: { id: submission.id },
+        await db.submission.updateMany({
+          where: { id: submission.id, status: 'pending' },
           data: { status: 'post_failed', postError: errorMsg },
         })
+        const failedSubmission = await db.submission.findUnique({ where: { id: submission.id } })
 
         // Record failure for circuit breaker
         await recordPostFailure(filterSettings.rateLimits)
 
         return NextResponse.json({
+          submission: failedSubmission,
           autoPosted: false,
           queued: true,
           error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
@@ -522,17 +536,20 @@ export async function POST(req: NextRequest) {
       }
     } catch (postError) {
       // Post threw exception — mark as post_failed so admin can see the error and retry
+      // Only update if still pending — don't overwrite admin rejection/deletion
       const errorMsg = postError instanceof Error ? postError.message : String(postError)
       debug('[submit] Auto-post exception, marking as post_failed:', errorMsg)
-      await db.submission.update({
-        where: { id: submission.id },
+      await db.submission.updateMany({
+        where: { id: submission.id, status: 'pending' },
         data: { status: 'post_failed', postError: errorMsg },
       })
+      const failedSubmission = await db.submission.findUnique({ where: { id: submission.id } })
 
       // Record failure for circuit breaker
       await recordPostFailure(filterSettings.rateLimits)
 
       return NextResponse.json({
+        submission: failedSubmission,
         autoPosted: false,
         queued: true,
         error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',

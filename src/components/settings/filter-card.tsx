@@ -27,6 +27,7 @@ interface FilterCardProps {
   setNsfwWordsText: (v: string) => void
   filterRules: FilterRules
   setFilterRules: (v: FilterRules) => void
+  toggleRule: (key: keyof FilterRules) => void
   geminiEnabled: boolean
   geminiApiKeySet: boolean
   isSaving: boolean
@@ -60,6 +61,7 @@ export function FilterCard({
   setNsfwWordsText,
   filterRules,
   setFilterRules,
+  toggleRule,
   geminiEnabled,
   geminiApiKeySet,
   isSaving,
@@ -182,7 +184,7 @@ export function FilterCard({
                       <p className="text-[10px] text-[#71767B]">{rule.desc}</p>
                     </div>
                     <button
-                      onClick={() => setFilterRules({ ...filterRules, [rule.key]: !filterRules[rule.key] })}
+                      onClick={() => toggleRule(rule.key)}
                       className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ml-2 ${filterRules[rule.key] ? 'bg-green-500' : 'bg-[#EFF3F4]'}`}
                     >
                       <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${filterRules[rule.key] ? 'translate-x-5' : 'translate-x-0.5'}`} />

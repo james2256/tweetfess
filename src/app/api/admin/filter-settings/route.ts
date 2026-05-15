@@ -35,6 +35,18 @@ function decryptValue(value: string): string {
 }
 
 /**
+ * Safely parse an integer from a setting value, returning the fallback
+ * only when the value is missing/null/empty/NaN. Unlike `parseInt(x) || fallback`,
+ * this correctly returns 0 when the admin intentionally sets a value to 0.
+ */
+function parseIntSafe(raw: string | null, fallback: number): number {
+  if (raw === null || raw === '') return fallback
+  const parsed = parseInt(raw, 10)
+  if (Number.isNaN(parsed)) return fallback
+  return parsed
+}
+
+/**
  * Get all filter settings as structured objects.
  */
 // Default rate limit settings
@@ -134,47 +146,18 @@ export async function getFilterSettings(): Promise<{
   const geminiApiKey = getRaw('gemini_api_key')
   const geminiApiKeySet = !!geminiApiKey && geminiApiKey.trim().length > 0
 
-  // Rate limit settings
-  const submissionCooldown = Math.max(
-    0,
-    parseInt(getRaw('submission_cooldown') || '', 10) || DEFAULT_RATE_LIMITS.submissionCooldown,
-  )
-  const submissionDailyCap = Math.max(
-    1,
-    parseInt(getRaw('submission_daily_cap') || '', 10) || DEFAULT_RATE_LIMITS.submissionDailyCap,
-  )
-  const autoPostCooldown = Math.max(
-    0,
-    parseInt(getRaw('auto_post_cooldown') || '', 10) || DEFAULT_RATE_LIMITS.autoPostCooldown,
-  )
-  const autoPostWindowCap = Math.max(
-    0,
-    parseInt(getRaw('auto_post_window_cap') || '', 10) || DEFAULT_RATE_LIMITS.autoPostWindowCap,
-  )
-  const autoPostWindowMinutes = Math.max(
-    1,
-    parseInt(getRaw('auto_post_window_minutes') || '', 10) || DEFAULT_RATE_LIMITS.autoPostWindowMinutes,
-  )
-  const userPostDailyCap = Math.max(
-    0,
-    parseInt(getRaw('user_post_daily_cap') || '', 10) || DEFAULT_RATE_LIMITS.userPostDailyCap,
-  )
-  const userPendingCap = Math.max(
-    1,
-    parseInt(getRaw('user_pending_cap') || '', 10) || DEFAULT_RATE_LIMITS.userPendingCap,
-  )
-  const globalSubmissionDailyCap = Math.max(
-    0,
-    parseInt(getRaw('global_submission_daily_cap') || '', 10) || DEFAULT_RATE_LIMITS.globalSubmissionDailyCap,
-  )
-  const circuitBreakerThreshold = Math.max(
-    1,
-    parseInt(getRaw('circuit_breaker_threshold') || '', 10) || DEFAULT_RATE_LIMITS.circuitBreakerThreshold,
-  )
-  const circuitBreakerCooldownMinutes = Math.max(
-    1,
-    parseInt(getRaw('circuit_breaker_cooldown_minutes') || '', 10) || DEFAULT_RATE_LIMITS.circuitBreakerCooldownMinutes,
-  )
+  // Rate limit settings — using parseIntSafe to correctly handle 0 values
+  // (parseInt("0") || default would treat 0 as falsy and revert to default)
+  const submissionCooldown = Math.max(0, parseIntSafe(getRaw('submission_cooldown'), DEFAULT_RATE_LIMITS.submissionCooldown))
+  const submissionDailyCap = Math.max(1, parseIntSafe(getRaw('submission_daily_cap'), DEFAULT_RATE_LIMITS.submissionDailyCap))
+  const autoPostCooldown = Math.max(0, parseIntSafe(getRaw('auto_post_cooldown'), DEFAULT_RATE_LIMITS.autoPostCooldown))
+  const autoPostWindowCap = Math.max(0, parseIntSafe(getRaw('auto_post_window_cap'), DEFAULT_RATE_LIMITS.autoPostWindowCap))
+  const autoPostWindowMinutes = Math.max(1, parseIntSafe(getRaw('auto_post_window_minutes'), DEFAULT_RATE_LIMITS.autoPostWindowMinutes))
+  const userPostDailyCap = Math.max(0, parseIntSafe(getRaw('user_post_daily_cap'), DEFAULT_RATE_LIMITS.userPostDailyCap))
+  const userPendingCap = Math.max(1, parseIntSafe(getRaw('user_pending_cap'), DEFAULT_RATE_LIMITS.userPendingCap))
+  const globalSubmissionDailyCap = Math.max(0, parseIntSafe(getRaw('global_submission_daily_cap'), DEFAULT_RATE_LIMITS.globalSubmissionDailyCap))
+  const circuitBreakerThreshold = Math.max(1, parseIntSafe(getRaw('circuit_breaker_threshold'), DEFAULT_RATE_LIMITS.circuitBreakerThreshold))
+  const circuitBreakerCooldownMinutes = Math.max(1, parseIntSafe(getRaw('circuit_breaker_cooldown_minutes'), DEFAULT_RATE_LIMITS.circuitBreakerCooldownMinutes))
 
   // Whitelist usernames (bypass rate limits)
   let whitelistUsernames: string[] = []
@@ -462,30 +445,43 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Save whitelist usernames (not encrypted, JSON array)
+    // Save whitelist usernames (atomic merge — doesn't overwrite concurrent block/unblock changes)
     if (Array.isArray(whitelistUsernames)) {
       const valid = whitelistUsernames
         .filter((u: unknown) => typeof u === 'string' && u.trim())
         .map((u: string) => u.toLowerCase().trim())
       const unique = [...new Set(valid)]
+      // Read current value, merge with admin's list, then write back.
+      // This ensures that if a concurrent block/unblock route modified the
+      // array while admin was editing, those changes are preserved.
+      const currentWhitelist = await db.setting.findUnique({ where: { key: 'whitelist_usernames' } })
+      const currentList: string[] = currentWhitelist
+        ? (() => { try { const parsed = JSON.parse(decryptValue(currentWhitelist.value)); return Array.isArray(parsed) ? parsed : [] } catch { return [] } })()
+        : []
+      const merged = [...new Set([...currentList.filter((u: string) => typeof u === 'string' && u.trim()).map((u: string) => u.toLowerCase().trim()), ...unique])]
       await db.setting.upsert({
         where: { key: 'whitelist_usernames' },
-        update: { value: JSON.stringify(unique) },
-        create: { key: 'whitelist_usernames', value: JSON.stringify(unique) },
+        update: { value: JSON.stringify(merged) },
+        create: { key: 'whitelist_usernames', value: JSON.stringify(merged) },
       })
       results.push({ key: 'whitelist_usernames', updated: true })
     }
 
-    // Save blocked usernames (not encrypted, JSON array)
+    // Save blocked usernames (atomic merge — doesn't overwrite concurrent block/unblock changes)
     if (Array.isArray(blockedUsernames)) {
       const valid = blockedUsernames
         .filter((u: unknown) => typeof u === 'string' && u.trim())
         .map((u: string) => u.toLowerCase().trim())
       const unique = [...new Set(valid)]
+      const currentBlocked = await db.setting.findUnique({ where: { key: 'blocked_usernames' } })
+      const currentList: string[] = currentBlocked
+        ? (() => { try { const parsed = JSON.parse(decryptValue(currentBlocked.value)); return Array.isArray(parsed) ? parsed : [] } catch { return [] } })()
+        : []
+      const merged = [...new Set([...currentList.filter((u: string) => typeof u === 'string' && u.trim()).map((u: string) => u.toLowerCase().trim()), ...unique])]
       await db.setting.upsert({
         where: { key: 'blocked_usernames' },
-        update: { value: JSON.stringify(unique) },
-        create: { key: 'blocked_usernames', value: JSON.stringify(unique) },
+        update: { value: JSON.stringify(merged) },
+        create: { key: 'blocked_usernames', value: JSON.stringify(merged) },
       })
       results.push({ key: 'blocked_usernames', updated: true })
     }
