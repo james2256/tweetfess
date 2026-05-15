@@ -8,6 +8,7 @@ import { runGeminiFilter } from '@/lib/gemini-filter'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { isCircuitBreakerPaused, recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
 import { getFilterSettings, getGeminiApiKey, DEFAULT_RATE_LIMITS, type RateLimitSettings } from '@/app/api/admin/filter-settings/route'
+import { getEffectiveLimit } from '@/lib/limit-resolver'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — auto-post + Gemini can take up to 15s with retries
@@ -156,9 +157,15 @@ export async function POST(req: NextRequest) {
     }
 
     // --- PER-USER RATE LIMITS (bypassed by whitelist) ---
+    // Resolve effective limits: custom overrides → global defaults
+    const effectiveCooldown = getEffectiveLimit('submissionCooldown', submitter.customLimits, filterSettings.rateLimits.submissionCooldown)
+    const effectiveDailyCap = getEffectiveLimit('submissionDailyCap', submitter.customLimits, filterSettings.rateLimits.submissionDailyCap)
+    const effectivePendingCap = getEffectiveLimit('userPendingCap', submitter.customLimits, filterSettings.rateLimits.userPendingCap)
+    const effectivePostCap = getEffectiveLimit('userPostDailyCap', submitter.customLimits, filterSettings.rateLimits.userPostDailyCap)
+
     if (!isWhitelisted) {
       // Check per-user cooldown
-      if (filterSettings.rateLimits.submissionCooldown > 0) {
+      if (effectiveCooldown > 0) {
         const lastSubmission = await db.submission.findFirst({
           where: { submitterId: submitter.id },
           orderBy: { createdAt: 'desc' },
@@ -166,7 +173,7 @@ export async function POST(req: NextRequest) {
         })
         if (lastSubmission) {
           const elapsedMs = Date.now() - lastSubmission.createdAt.getTime()
-          const cooldownMs = filterSettings.rateLimits.submissionCooldown * 60 * 1000
+          const cooldownMs = effectiveCooldown * 60 * 1000
           if (elapsedMs < cooldownMs) {
             const waitMinutes = Math.ceil((cooldownMs - elapsedMs) / 60000)
             const waitSeconds = Math.ceil((cooldownMs - elapsedMs) / 1000)
@@ -181,7 +188,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Check daily cap
-      if (filterSettings.rateLimits.submissionDailyCap > 0) {
+      if (effectiveDailyCap > 0) {
         const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
         const todayCount = await db.submission.count({
           where: {
@@ -189,24 +196,24 @@ export async function POST(req: NextRequest) {
             createdAt: { gte: twentyFourHoursAgo },
           },
         })
-        if (todayCount >= filterSettings.rateLimits.submissionDailyCap) {
+        if (todayCount >= effectiveDailyCap) {
           debug('[submit] Daily cap reached:', todayCount)
           return NextResponse.json({
             error: 'Batas harian tercapai',
-            message: `Kamu sudah mengirim ${todayCount} pesan hari ini (maksimal ${filterSettings.rateLimits.submissionDailyCap}). Coba lagi besok.`,
+            message: `Kamu sudah mengirim ${todayCount} pesan hari ini (maksimal ${effectiveDailyCap}). Coba lagi besok.`,
           }, { status: 400 })
         }
       }
 
       // Check per-user pending cap
-      if (filterSettings.rateLimits.userPendingCap > 0) {
+      if (effectivePendingCap > 0) {
         const pendingCount = await db.submission.count({
           where: {
             submitterId: submitter.id,
             status: 'pending',
           },
         })
-        if (pendingCount >= filterSettings.rateLimits.userPendingCap) {
+        if (pendingCount >= effectivePendingCap) {
           debug('[submit] User pending cap reached:', pendingCount, 'for user', submitter.username)
           return NextResponse.json({
             error: 'Terlalu banyak pesan menunggu',
@@ -404,7 +411,7 @@ export async function POST(req: NextRequest) {
 
     // Check per-user post daily cap: has this user already had too many posts today?
     // Whitelisted users bypass this limit
-    if (!isWhitelisted && filterSettings.rateLimits.userPostDailyCap > 0) {
+    if (!isWhitelisted && effectivePostCap > 0) {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
       const userPostCount = await db.submission.count({
         where: {
@@ -413,7 +420,7 @@ export async function POST(req: NextRequest) {
           updatedAt: { gte: twentyFourHoursAgo },
         },
       })
-      if (userPostCount >= filterSettings.rateLimits.userPostDailyCap) {
+      if (userPostCount >= effectivePostCap) {
         debug('[submit] User post daily cap reached:', userPostCount, 'for user', submitter.username, 'queuing instead')
         const submission = await db.submission.create({
           data: {
@@ -428,7 +435,7 @@ export async function POST(req: NextRequest) {
           autoPosted: false,
           queued: true,
           postCapped: true,
-          error: `Batas post harian kamu tercapai (${userPostCount}/${filterSettings.rateLimits.userPostDailyCap}). Pesan masuk antrean dan akan diposting oleh admin setelahnya.`,
+          error: `Batas post harian kamu tercapai (${userPostCount}/${effectivePostCap}). Pesan masuk antrean dan akan diposting oleh admin setelahnya.`,
         }, { status: 201 })
       }
     }

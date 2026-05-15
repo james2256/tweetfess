@@ -199,6 +199,17 @@ class ApiClient {
       body: JSON.stringify({ username }),
     })
   }
+
+  async setCustomLimits(username: string, customLimits: Record<string, number | null> | null): Promise<{
+    success?: boolean
+    submitter?: { id: string; username: string; customLimits: Record<string, number> | null }
+    error?: string
+  }> {
+    return this.request('/api/admin/submitters/limits', {
+      method: 'PATCH',
+      body: JSON.stringify({ username, customLimits }),
+    })
+  }
 }
 
 export const apiClient = new ApiClient()

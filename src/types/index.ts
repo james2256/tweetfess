@@ -141,11 +141,43 @@ export interface SubmitterWithStats {
   username: string
   displayName: string | null
   profileImage: string | null
+  customLimits: Record<string, number> | null
   totalSubmissions: number
   posted: number
   pending: number
   rejected: number
   postFailed: number
+}
+
+// --- Per-User Custom Limits ---
+
+export type PerUserLimits = Pick<RateLimitSettings,
+  'submissionCooldown' | 'submissionDailyCap' | 'userPendingCap' | 'userPostDailyCap'
+>
+
+export const PER_USER_LIMIT_KEYS: (keyof PerUserLimits)[] = [
+  'submissionCooldown',
+  'submissionDailyCap',
+  'userPendingCap',
+  'userPostDailyCap',
+]
+
+export const PER_USER_LIMIT_LABELS: Record<keyof PerUserLimits, string> = {
+  submissionCooldown: 'Cooldown (menit)',
+  submissionDailyCap: 'Batas Harian',
+  userPendingCap: 'Max Pending',
+  userPostDailyCap: 'Batas Post Harian',
+}
+
+export interface SubmissionLimitsData {
+  dailyCap: number
+  dailyUsed: number
+  pendingCap: number
+  pendingUsed: number
+  postCap: number
+  postUsed: number
+  cooldownSeconds: number
+  isCustom: boolean
 }
 
 // --- Pagination ---

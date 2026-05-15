@@ -1,8 +1,10 @@
 import { db } from '@/lib/db'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
+import { getFilterSettings, DEFAULT_RATE_LIMITS } from '@/app/api/admin/filter-settings/route'
+import { resolveEffectiveLimits, hasCustomLimits } from '@/lib/limit-resolver'
 import { NextRequest, NextResponse } from 'next/server'
 
-// GET /api/submissions/mine - Get current user's submissions
+// GET /api/submissions/mine - Get current user's submissions + limits
 export async function GET(req: NextRequest) {
   try {
     const submitter = await getSubmitterFromNextRequest(req)
@@ -45,9 +47,66 @@ export async function GET(req: NextRequest) {
       else if (row.status === 'rejected') stats.rejected = row._count.status
     }
 
+    // --- Limits data ---
+    let limitsData = null
+    try {
+      const filterSettings = await getFilterSettings()
+      const effectiveLimits = resolveEffectiveLimits(submitter.customLimits, filterSettings.rateLimits)
+      const isCustom = hasCustomLimits(submitter.customLimits)
+
+      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+
+      const [dailySubmissionCount, pendingCount, dailyPostCount, lastSubmission] = await Promise.all([
+        db.submission.count({
+          where: {
+            submitterId: submitter.id,
+            createdAt: { gte: twentyFourHoursAgo },
+          },
+        }),
+        db.submission.count({
+          where: {
+            submitterId: submitter.id,
+            status: 'pending',
+          },
+        }),
+        // Daily posts — uses updatedAt to match enforcement in submissions/route.ts
+        db.submission.count({
+          where: {
+            submitterId: submitter.id,
+            status: 'posted',
+            updatedAt: { gte: twentyFourHoursAgo },
+          },
+        }),
+        db.submission.findFirst({
+          where: { submitterId: submitter.id },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+      ])
+
+      const cooldownMs = effectiveLimits.submissionCooldown * 60 * 1000
+      const cooldownSeconds = lastSubmission
+        ? Math.max(0, Math.ceil((new Date(lastSubmission.createdAt).getTime() + cooldownMs - Date.now()) / 1000))
+        : 0
+
+      limitsData = {
+        dailyCap: effectiveLimits.submissionDailyCap,
+        dailyUsed: dailySubmissionCount,
+        pendingCap: effectiveLimits.userPendingCap,
+        pendingUsed: pendingCount,
+        postCap: effectiveLimits.userPostDailyCap,
+        postUsed: dailyPostCount,
+        cooldownSeconds,
+        isCustom,
+      }
+    } catch {
+      // If limits computation fails, return null — don't block the main response
+    }
+
     return NextResponse.json({
       submissions,
       stats,
+      limits: limitsData,
     })
   } catch {
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })

@@ -19,6 +19,7 @@ model Submitter {
   profileImage      String?
   oauth2AccessToken String?      // OAuth 2.0 access token (for user identity)
   oauth2RefreshToken String?     // OAuth 2.0 refresh token
+  customLimits      Json?        // Per-user limit overrides, e.g. {"submissionDailyCap": 50}
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
   submissions       Submission[]

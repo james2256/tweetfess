@@ -61,6 +61,24 @@ export function useSubmitters({ adminToken }: UseSubmittersParams) {
     }
   }, [adminToken, fetchSubmitters, toast])
 
+  const setCustomLimits = useCallback(async (username: string, customLimits: Record<string, number | null> | null): Promise<boolean> => {
+    if (!adminToken) return false
+    try {
+      const data = await apiClient.setCustomLimits(username, customLimits)
+      if (data.success) {
+        toast({ title: `Limit @${username} diperbarui` })
+        fetchSubmitters()
+        return true
+      } else {
+        toast({ title: 'Gagal', description: data.error || 'Gagal mengatur limit', variant: 'destructive' })
+        return false
+      }
+    } catch {
+      toast({ title: 'Gagal', description: 'Tidak dapat terhubung ke server', variant: 'destructive' })
+      return false
+    }
+  }, [adminToken, fetchSubmitters, toast])
+
   // Set blocked usernames from external source (e.g. stats response)
   const setBlockedUsernamesFromSource = useCallback((usernames: string[]) => {
     setBlockedUsernames(usernames)
@@ -74,6 +92,7 @@ export function useSubmitters({ adminToken }: UseSubmittersParams) {
     fetchSubmitters,
     block,
     unblock,
+    setCustomLimits,
     setSearch,
     setBlockedUsernames: setBlockedUsernamesFromSource,
   }

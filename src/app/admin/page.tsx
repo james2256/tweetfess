@@ -59,6 +59,7 @@ export default function AdminDashboardPage() {
     fetchSubmitters,
     block,
     unblock,
+    setCustomLimits,
     setBlockedUsernames,
   } = useSubmitters({ adminToken })
 
@@ -120,6 +121,8 @@ export default function AdminDashboardPage() {
         onFetchSubmitters={fetchSubmitters}
         onBlock={block}
         onUnblock={unblock}
+        onSetCustomLimits={setCustomLimits}
+        globalRateLimits={stats?.filterSettings?.rateLimits ?? null}
       />
 
       {/* Connection Status Banner */}

@@ -1,17 +1,19 @@
 'use client'
 
 import { useState } from 'react'
-import { Send, Loader2, MessageSquare } from 'lucide-react'
+import { Send, Loader2, MessageSquare, Zap } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import type { SubmissionLimitsData } from '@/types'
 
 interface ConfessionFormProps {
   submitterUsername: string
   submitterImage: string | null
   onSubmit: (message: string, category: string) => Promise<boolean>
   isSubmitting: boolean
+  limits: SubmissionLimitsData | null
 }
 
 export function ConfessionForm({
@@ -19,6 +21,7 @@ export function ConfessionForm({
   submitterImage,
   onSubmit,
   isSubmitting,
+  limits,
 }: ConfessionFormProps) {
   const [message, setMessage] = useState('')
   const [category, setCategory] = useState('')
@@ -30,6 +33,9 @@ export function ConfessionForm({
       setCategory('')
     }
   }
+
+  const remainingDaily = limits ? Math.max(0, limits.dailyCap - limits.dailyUsed) : null
+  const isCustom = limits?.isCustom ?? false
 
   return (
     <Card className="max-w-lg mx-auto shadow-lg border-[#EFF3F4]">
@@ -82,6 +88,44 @@ export function ConfessionForm({
           {isSubmitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Send className="w-4 h-4 mr-2" />}
           {isSubmitting ? 'Mengirim...' : 'Kirim Pesan'}
         </Button>
+
+        {/* Limits display */}
+        {limits && (
+          <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-xs px-3 py-2 rounded-lg ${
+            isCustom
+              ? 'bg-purple-50 border border-purple-100'
+              : 'bg-[#F7F9F9] border border-[#EFF3F4]'
+          }`}>
+            {isCustom && (
+              <span className="inline-flex items-center gap-0.5 text-purple-600 font-medium">
+                <Zap className="w-3 h-3" /> Custom
+              </span>
+            )}
+            <span className={isCustom ? 'text-purple-700' : 'text-[#536471]'}>
+              {limits.dailyUsed}/{limits.dailyCap} hari ini
+            </span>
+            <span className={isCustom ? 'text-purple-400' : 'text-[#71767B]'}>&middot;</span>
+            <span className={isCustom ? 'text-purple-700' : 'text-[#536471]'}>
+              {limits.cooldownSeconds > 0
+                ? `cooldown ${limits.cooldownSeconds < 60 ? `${limits.cooldownSeconds}d` : `${Math.ceil(limits.cooldownSeconds / 60)}m`}`
+                : 'siap kirim'}
+            </span>
+            {remainingDaily !== null && remainingDaily <= 3 && remainingDaily > 0 && (
+              <>
+                <span className={isCustom ? 'text-purple-400' : 'text-[#71767B]'}>&middot;</span>
+                <span className={isCustom ? 'text-purple-600' : 'text-amber-600'}>
+                  {remainingDaily} tersisa
+                </span>
+              </>
+            )}
+            {remainingDaily === 0 && (
+              <>
+                <span className={isCustom ? 'text-purple-400' : 'text-[#71767B]'}>&middot;</span>
+                <span className="text-red-500">Habis — coba besok</span>
+              </>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

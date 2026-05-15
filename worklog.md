@@ -84,3 +84,34 @@ Stage Summary:
 - Most impactful fix: email false-positive in @mention filter — legitimate messages with email addresses were being incorrectly flagged
 - Timing-safe login aligns with the earlier admin-auth.ts fix for consistent security posture
 - LF end-of-message fix prevents jualan filter bypass by placing LF at end
+
+---
+Task ID: 10
+Agent: main
+Task: Implement per-user custom limits feature
+
+Work Log:
+- Added `customLimits Json?` field to Submitter model in prisma/schema.prisma
+- Added type system in types/index.ts: `PerUserLimits` (Pick from RateLimitSettings), `PER_USER_LIMIT_KEYS`, `PER_USER_LIMIT_LABELS`, `SubmissionLimitsData`, updated `SubmitterWithStats` with `customLimits` field
+- Created src/lib/limit-resolver.ts with `getEffectiveLimit()`, `resolveEffectiveLimits()`, and `hasCustomLimits()` utility functions
+- Updated src/lib/twitter-auth.ts: added `customLimits: true` to `getSubmitterFromNextRequest()` select + return type
+- Created src/app/api/admin/submitters/limits/route.ts: PATCH endpoint accepting `username` + `customLimits`, with merge logic and `{}` → `null` guard
+- Updated src/app/api/submissions/route.ts: replaced 4 hardcoded global limit reads with `getEffectiveLimit()` calls for `effectiveCooldown`, `effectiveDailyCap`, `effectivePendingCap`, `effectivePostCap`
+- Updated src/app/api/submissions/mine/route.ts: added `limits` object to response with `dailyCap`, `dailyUsed`, `pendingCap`, `pendingUsed`, `postCap`, `postUsed`, `cooldownSeconds`, `isCustom`; uses `resolveEffectiveLimits()` + `hasCustomLimits()`
+- Updated src/app/api/admin/submitters/route.ts: added `customLimits: true` to select + mapping
+- Added `setCustomLimits()` method to src/lib/api-client.ts
+- Updated src/hooks/use-submitters.ts: added `setCustomLimits` callback
+- Rewrote src/components/dashboard/users-dialog.tsx: added custom limits indicator (purple CUSTOM badge), inline limits editor with 4 number inputs, Save/Clear buttons, default value display from globalRateLimits
+- Updated src/app/admin/page.tsx: passed `onSetCustomLimits` and `globalRateLimits` props to UsersDialog
+- Updated src/hooks/use-my-posts.ts: added `limits` state, captured from mine API response
+- Rewrote src/components/submit/confession-form.tsx: added `limits` prop, displays daily usage (e.g. "3/20 hari ini"), cooldown status, remaining warning, custom limit indicator with purple styling and ⚡ icon
+- Updated src/app/page.tsx: passed `limits` prop to ConfessionForm
+- Lint passes clean, both / and /admin compile and return 200
+
+Stage Summary:
+- Full per-user custom limits feature implemented
+- 1 new DB field (customLimits Json? on Submitter), 2 new files (limit-resolver.ts, limits/route.ts)
+- 10 modified files across backend and frontend
+- Zero behavior change for existing users (customLimits defaults to null)
+- Admin can set custom limits per user via Users Dialog → Limits button
+- Users see their effective limits on the confession form

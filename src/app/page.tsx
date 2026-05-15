@@ -19,7 +19,7 @@ export default function HomePage() {
   const { toast } = useToast()
 
   const isAnonUser = submitter?.username?.startsWith('anon_') ?? false
-  const { myPosts, isLoading: myPostsLoading, refetch: refetchMyPosts } = useMyPosts({
+  const { myPosts, limits, isLoading: myPostsLoading, refetch: refetchMyPosts } = useMyPosts({
     submitter,
     isAnonUser,
   })
@@ -92,6 +92,7 @@ export default function HomePage() {
               submitterImage={submitter?.profileImage || null}
               onSubmit={handleSubmit}
               isSubmitting={isSubmitting}
+              limits={limits}
             />
           </AuthGate>
 

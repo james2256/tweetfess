@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
       displayName: true,
       profileImage: true,
       twitterId: true,
+      customLimits: true,
       createdAt: true,
       _count: {
         select: {
@@ -49,6 +50,7 @@ export async function GET(req: NextRequest) {
       username: s.username,
       displayName: s.displayName,
       profileImage: s.profileImage,
+      customLimits: s.customLimits as Record<string, number> | null,
       twitterId: s.twitterId,
       createdAt: s.createdAt,
       totalSubmissions: s._count.submissions,

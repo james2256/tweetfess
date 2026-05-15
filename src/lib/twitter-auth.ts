@@ -295,6 +295,7 @@ export async function getSubmitterFromNextRequest(request: NextRequest): Promise
   displayName: string | null
   profileImage: string | null
   twitterId: string | null
+  customLimits: unknown
 } | null> {
   const tokenCookie = request.cookies.get(SESSION_COOKIE_NAME)
   const token = tokenCookie?.value
@@ -305,7 +306,7 @@ export async function getSubmitterFromNextRequest(request: NextRequest): Promise
 
   const submitter = await db.submitter.findUnique({
     where: { id: session.submitterId },
-    select: { id: true, username: true, displayName: true, profileImage: true, twitterId: true },
+    select: { id: true, username: true, displayName: true, profileImage: true, twitterId: true, customLimits: true },
   })
 
   return submitter

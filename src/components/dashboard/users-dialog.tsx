@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Users, Ban, Filter, RefreshCw, Loader2, User } from 'lucide-react'
+import { Users, Ban, Filter, RefreshCw, Loader2, User, Settings2, X } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -12,7 +12,9 @@ import {
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 import type { SubmitterWithStats } from '@/types'
+import { PER_USER_LIMIT_KEYS, PER_USER_LIMIT_LABELS, type PerUserLimits } from '@/types'
 
 interface UsersDialogProps {
   open: boolean
@@ -23,6 +25,8 @@ interface UsersDialogProps {
   onFetchSubmitters: () => void
   onBlock: (username: string) => Promise<void>
   onUnblock: (username: string) => Promise<void>
+  onSetCustomLimits: (username: string, customLimits: Record<string, number | null> | null) => Promise<boolean>
+  globalRateLimits: PerUserLimits | null
 }
 
 export function UsersDialog({
@@ -34,13 +38,77 @@ export function UsersDialog({
   onFetchSubmitters,
   onBlock,
   onUnblock,
+  onSetCustomLimits,
+  globalRateLimits,
 }: UsersDialogProps) {
   const [search, setSearch] = useState('')
+  const [editingUsername, setEditingUsername] = useState<string | null>(null)
+  const [editValues, setEditValues] = useState<Record<string, string>>({})
+  const [isSaving, setIsSaving] = useState(false)
 
-  // Reset search when dialog closes
+  // Reset state when dialog closes
   const handleOpenChange = (isOpen: boolean) => {
     onOpenChange(isOpen)
-    if (!isOpen) setSearch('')
+    if (!isOpen) {
+      setSearch('')
+      setEditingUsername(null)
+      setEditValues({})
+    }
+  }
+
+  const startEditing = (submitter: SubmitterWithStats) => {
+    setEditingUsername(submitter.username)
+    const vals: Record<string, string> = {}
+    for (const key of PER_USER_LIMIT_KEYS) {
+      const override = submitter.customLimits?.[key]
+      vals[key] = override !== undefined && override !== null ? String(override) : ''
+    }
+    setEditValues(vals)
+  }
+
+  const handleSaveLimits = async (username: string) => {
+    setIsSaving(true)
+    try {
+      const customLimits: Record<string, number | null> = {}
+      let hasAnyOverride = false
+
+      for (const key of PER_USER_LIMIT_KEYS) {
+        const raw = editValues[key]?.trim()
+        if (raw === '') {
+          // Empty = remove this override (send null to clear)
+          customLimits[key] = null
+        } else {
+          const num = parseInt(raw, 10)
+          if (!isNaN(num) && num >= 0) {
+            customLimits[key] = num
+            hasAnyOverride = true
+          } else {
+            customLimits[key] = null
+          }
+        }
+      }
+
+      // If no fields have values, clear all custom limits
+      const payload = hasAnyOverride ? customLimits : null
+      const success = await onSetCustomLimits(username, payload)
+      if (success) {
+        setEditingUsername(null)
+        setEditValues({})
+      }
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleClearLimits = async (username: string) => {
+    setIsSaving(true)
+    try {
+      await onSetCustomLimits(username, null)
+      setEditingUsername(null)
+      setEditValues({})
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -51,7 +119,7 @@ export function UsersDialog({
             <Users className="w-5 h-5 text-purple-600" /> Pengguna
           </DialogTitle>
           <DialogDescription>
-            Kelola pengguna — blokir yang spam atau bermasalah.
+            Kelola pengguna — blokir yang spam, atur batas custom.
           </DialogDescription>
         </DialogHeader>
 
@@ -194,63 +262,154 @@ export function UsersDialog({
                     const isBlocked = blockedUsernames.includes(
                       s.username.toLowerCase()
                     )
+                    const isEditing = editingUsername === s.username
+                    const hasCustom = s.customLimits && Object.keys(s.customLimits).length > 0
+
                     return (
                       <div
                         key={s.id}
-                        className={`flex items-center gap-2 p-2 rounded-lg text-xs ${
-                          isBlocked
+                        className={`rounded-lg text-xs ${
+                          isEditing
+                            ? 'bg-purple-50 border border-purple-200'
+                            : isBlocked
                             ? 'bg-red-50 border border-red-200'
                             : 'bg-[#F7F9F9] border border-[#EFF3F4]'
                         }`}
                       >
-                        {s.profileImage ? (
-                          <img
-                            src={s.profileImage}
-                            alt=""
-                            className="w-8 h-8 rounded-full flex-shrink-0"
-                          />
-                        ) : (
-                          <div className="w-8 h-8 rounded-full bg-[#EFF3F4] flex items-center justify-center flex-shrink-0">
-                            <User className="w-4 h-4 text-[#71767B]" />
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1">
-                            <span className="font-medium text-[#0F1419] truncate">
-                              @{s.username}
+                        {/* User row */}
+                        <div className="flex items-center gap-2 p-2">
+                          {s.profileImage ? (
+                            <img
+                              src={s.profileImage}
+                              alt=""
+                              className="w-8 h-8 rounded-full flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-[#EFF3F4] flex items-center justify-center flex-shrink-0">
+                              <User className="w-4 h-4 text-[#71767B]" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1">
+                              <span className="font-medium text-[#0F1419] truncate">
+                                @{s.username}
+                              </span>
+                              {isBlocked && (
+                                <Badge
+                                  variant="destructive"
+                                  className="text-[8px] px-1 py-0"
+                                >
+                                  BLOCKED
+                                </Badge>
+                              )}
+                              {hasCustom && !isBlocked && (
+                                <Badge
+                                  className="text-[8px] px-1.5 py-0 bg-purple-100 text-purple-700 border-purple-200 hover:bg-purple-100"
+                                >
+                                  CUSTOM
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-[#71767B]">
+                              {s.totalSubmissions} pesan · {s.posted} posted ·{' '}
+                              {s.pending} pending
                             </span>
-                            {isBlocked && (
-                              <Badge
-                                variant="destructive"
-                                className="text-[8px] px-1 py-0"
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {!isBlocked && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className={`text-[10px] h-6 px-2 ${
+                                  isEditing
+                                    ? 'text-purple-600 hover:text-purple-700 hover:bg-purple-50 border-purple-200'
+                                    : 'text-[#536471] hover:text-purple-600 hover:bg-purple-50 border-[#EFF3F4]'
+                                }`}
+                                onClick={() => isEditing ? setEditingUsername(null) : startEditing(s)}
                               >
-                                BLOCKED
-                              </Badge>
+                                <Settings2 className="w-3 h-3 mr-0.5" />
+                                {isEditing ? 'Tutup' : 'Limits'}
+                              </Button>
+                            )}
+                            {!isBlocked ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-[10px] h-6 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                                onClick={() => onBlock(s.username)}
+                              >
+                                <Ban className="w-3 h-3 mr-1" /> Block
+                              </Button>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-[10px] h-6 px-2 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
+                                onClick={() => onUnblock(s.username)}
+                              >
+                                Unblock
+                              </Button>
                             )}
                           </div>
-                          <span className="text-[#71767B]">
-                            {s.totalSubmissions} pesan · {s.posted} posted ·{' '}
-                            {s.pending} pending
-                          </span>
                         </div>
-                        {!isBlocked ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-[10px] h-6 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200 flex-shrink-0"
-                            onClick={() => onBlock(s.username)}
-                          >
-                            <Ban className="w-3 h-3 mr-1" /> Block
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-[10px] h-6 px-2 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200 flex-shrink-0"
-                            onClick={() => onUnblock(s.username)}
-                          >
-                            Unblock
-                          </Button>
+
+                        {/* Limits editor (expandable) */}
+                        {isEditing && (
+                          <div className="px-2 pb-2 pt-1">
+                            <Separator className="mb-2" />
+                            <div className="grid grid-cols-2 gap-2">
+                              {PER_USER_LIMIT_KEYS.map((key) => (
+                                <div key={key} className="space-y-0.5">
+                                  <label className="text-[10px] text-[#536471] font-medium flex items-center gap-1">
+                                    {PER_USER_LIMIT_LABELS[key]}
+                                    {globalRateLimits && (
+                                      <span className="text-[9px] text-[#71767B]">
+                                        (default: {globalRateLimits[key]})
+                                      </span>
+                                    )}
+                                  </label>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    placeholder={globalRateLimits ? String(globalRateLimits[key]) : '—'}
+                                    value={editValues[key] || ''}
+                                    onChange={(e) => setEditValues(prev => ({ ...prev, [key]: e.target.value }))}
+                                    className="h-7 text-xs border-[#EFF3F4]"
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2 mt-2">
+                              <Button
+                                size="sm"
+                                className="text-[10px] h-6 px-3 bg-purple-600 hover:bg-purple-700 text-white"
+                                onClick={() => handleSaveLimits(s.username)}
+                                disabled={isSaving}
+                              >
+                                {isSaving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                                Simpan
+                              </Button>
+                              {hasCustom && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-[10px] h-6 px-3 text-amber-600 hover:text-amber-700 hover:bg-amber-50 border-amber-200"
+                                  onClick={() => handleClearLimits(s.username)}
+                                  disabled={isSaving}
+                                >
+                                  Reset ke Default
+                                </Button>
+                              )}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-[10px] h-6 px-2 ml-auto text-[#71767B]"
+                                onClick={() => setEditingUsername(null)}
+                              >
+                                <X className="w-3 h-3" />
+                              </Button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     )

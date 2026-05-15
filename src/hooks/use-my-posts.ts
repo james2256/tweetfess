@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import type { Submission, SubmitterInfo } from '@/types'
+import type { Submission, SubmitterInfo, SubmissionLimitsData } from '@/types'
 import { apiClient } from '@/lib/api-client'
 
 interface UseMyPostsParams {
@@ -11,6 +11,7 @@ interface UseMyPostsParams {
 
 export function useMyPosts({ submitter, isAnonUser }: UseMyPostsParams) {
   const [myPosts, setMyPosts] = useState<Submission[]>([])
+  const [limits, setLimits] = useState<SubmissionLimitsData | null>(null)
   const [isLoading, setIsLoading] = useState(false)
 
   const fetchMyPosts = useCallback(async () => {
@@ -19,6 +20,10 @@ export function useMyPosts({ submitter, isAnonUser }: UseMyPostsParams) {
     try {
       const data = await apiClient.getMyPosts()
       setMyPosts(data.submissions)
+      // Also capture limits data if present
+      if ('limits' in data && data.limits) {
+        setLimits(data.limits as SubmissionLimitsData)
+      }
     } catch {
       // silently fail
     } finally {
@@ -32,6 +37,7 @@ export function useMyPosts({ submitter, isAnonUser }: UseMyPostsParams) {
       fetchMyPosts()
     } else {
       setMyPosts([])
+      setLimits(null)
     }
   }, [submitter, isAnonUser, fetchMyPosts])
 
@@ -41,6 +47,7 @@ export function useMyPosts({ submitter, isAnonUser }: UseMyPostsParams) {
 
   return {
     myPosts,
+    limits,
     isLoading,
     fetchMyPosts,
     refetch,
