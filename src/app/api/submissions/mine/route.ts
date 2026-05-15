@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
 import { getFilterSettings, DEFAULT_RATE_LIMITS } from '@/app/api/admin/filter-settings/route'
 import { resolveEffectiveLimits, hasCustomLimits } from '@/lib/limit-resolver'
+import { MS_24H } from '@/lib/constants'
 import { NextRequest, NextResponse } from 'next/server'
 
 // GET /api/submissions/mine - Get current user's submissions + limits
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
       const effectiveLimits = resolveEffectiveLimits(submitter.customLimits, filterSettings.rateLimits)
       const isCustom = hasCustomLimits(submitter.customLimits)
 
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
 
       const [dailySubmissionCount, pendingCount, dailyPostCount, lastSubmission] = await Promise.all([
         db.submission.count({

@@ -78,7 +78,7 @@ export async function PATCH(req: NextRequest) {
     const merged: Record<string, number> = {}
 
     for (const [key, value] of Object.entries(customLimits as Record<string, unknown>)) {
-      if (!PER_USER_LIMIT_KEYS.includes(key as any)) {
+      if (!(PER_USER_LIMIT_KEYS as readonly string[]).includes(key)) {
         return NextResponse.json(
           { error: `Key tidak valid: ${key}. Key yang valid: ${PER_USER_LIMIT_KEYS.join(', ')}` },
           { status: 400 }
@@ -110,7 +110,7 @@ export async function PATCH(req: NextRequest) {
 
     const updated = await db.submitter.update({
       where: { id: submitter.id },
-      data: { customLimits: finalCustomLimits ? (finalCustomLimits as any) : Prisma.DbNull },
+      data: { customLimits: finalCustomLimits ? (finalCustomLimits as Prisma.InputJsonObject) : Prisma.DbNull },
       select: { id: true, username: true, customLimits: true },
     })
 

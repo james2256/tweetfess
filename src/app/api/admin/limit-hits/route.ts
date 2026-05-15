@@ -1,5 +1,6 @@
 import { db } from '@/lib/db'
 import { verifyAdmin } from '@/lib/admin-auth'
+import { MS_24H } from '@/lib/constants'
 import { NextRequest, NextResponse } from 'next/server'
 
 const LIMIT_TYPE_LABELS: Record<string, string> = {
@@ -15,25 +16,16 @@ export async function GET(req: NextRequest) {
   const auth = verifyAdmin(req.headers.get('authorization'))
   if (!auth.authorized) return auth.response
 
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
 
-  // Hits per limit type (total + unique users)
+  // Hits per limit type (total count)
   const hitsByType = await db.limitHit.groupBy({
     by: ['limitType'],
     where: { createdAt: { gte: twentyFourHoursAgo } },
     _count: { _all: true },
   })
 
-  // Unique users per limit type
-  const uniqueUsersByType = await db.limitHit.groupBy({
-    by: ['limitType'],
-    where: { createdAt: { gte: twentyFourHoursAgo } },
-    _count: { username: true },
-  })
-
-  // Wait... groupBy _count on username still counts all rows, not distinct.
-  // Need raw SQL for distinct count.
-
+  // Unique users per limit type (raw SQL for DISTINCT COUNT)
   const distinctByType = await db.$queryRaw<
     { limitType: string; uniqueUsers: bigint }[]
   >`
@@ -43,14 +35,17 @@ export async function GET(req: NextRequest) {
     GROUP BY "limitType"
   `
 
-  // Top blocked users (24h)
-  const topUsers = await db.limitHit.groupBy({
-    by: ['username'],
-    where: { createdAt: { gte: twentyFourHoursAgo } },
-    _count: { _all: true },
-    orderBy: { _count: { _all: 'desc' } },
-    take: 10,
-  })
+  // Top blocked users (24h) — raw SQL for ORDER BY COUNT DESC
+  const topUsersRaw = await db.$queryRaw<
+    { username: string; hits: bigint }[]
+  >`
+    SELECT username, COUNT(*) as hits
+    FROM "LimitHit"
+    WHERE "createdAt" >= ${twentyFourHoursAgo}
+    GROUP BY username
+    ORDER BY hits DESC
+    LIMIT 10
+  `
 
   // Build summary
   const summary = Object.keys(LIMIT_TYPE_LABELS).map((type) => {
@@ -69,9 +64,9 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     summary,
-    topUsers: topUsers.map((u) => ({
+    topUsers: topUsersRaw.map((u) => ({
       username: u.username,
-      hits: u._count._all,
+      hits: Number(u.hits),
     })),
     totalHits,
     windowHours: 24,

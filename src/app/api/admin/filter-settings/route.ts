@@ -28,7 +28,8 @@ const FILTER_SETTING_KEYS = [
 function decryptValue(value: string): string {
   try {
     return isEncrypted(value) ? decrypt(value) : value
-  } catch {
+  } catch (e) {
+    console.error('[filter-settings] Decryption failed:', e)
     return value
   }
 }
@@ -96,8 +97,8 @@ export async function getFilterSettings(): Promise<{
       if (Array.isArray(parsed)) {
         blockedWords = parsed.filter((w: unknown) => typeof w === 'string' && w.trim())
       }
-    } catch {
-      // Keep default on parse error
+    } catch (e) {
+      console.error('[filter-settings] Failed to parse blocked_words:', e)
     }
   }
 
@@ -110,8 +111,8 @@ export async function getFilterSettings(): Promise<{
       if (Array.isArray(parsed)) {
         nsfwWords = parsed.filter((w: unknown) => typeof w === 'string' && w.trim())
       }
-    } catch {
-      // Keep default on parse error
+    } catch (e) {
+      console.error('[filter-settings] Failed to parse nsfw_words:', e)
     }
   }
 
@@ -123,8 +124,8 @@ export async function getFilterSettings(): Promise<{
       const parsed = JSON.parse(filterRulesRaw) as Partial<FilterRules>
       // Merge with defaults so new rules are added automatically
       filterRules = { ...DEFAULT_FILTER_RULES, ...parsed }
-    } catch {
-      // Keep default on parse error
+    } catch (e) {
+      console.error('[filter-settings] Failed to parse filter_rules:', e)
     }
   }
 
@@ -186,8 +187,8 @@ export async function getFilterSettings(): Promise<{
           .filter((u: unknown) => typeof u === 'string' && u.trim())
           .map((u: string) => u.toLowerCase().trim())
       }
-    } catch {
-      // Keep empty on parse error
+    } catch (e) {
+      console.error('[filter-settings] Failed to parse whitelist_usernames:', e)
     }
   }
 
@@ -202,8 +203,8 @@ export async function getFilterSettings(): Promise<{
           .filter((u: unknown) => typeof u === 'string' && u.trim())
           .map((u: string) => u.toLowerCase().trim())
       }
-    } catch {
-      // Keep empty on parse error
+    } catch (e) {
+      console.error('[filter-settings] Failed to parse blocked_usernames:', e)
     }
   }
 
@@ -490,7 +491,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, results })
-  } catch {
+  } catch (e) {
+    console.error('[filter-settings] Save error:', e)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }
 }

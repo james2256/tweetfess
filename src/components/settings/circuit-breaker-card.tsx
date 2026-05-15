@@ -103,7 +103,10 @@ export function CircuitBreakerCard({
                   min={1}
                   max={20}
                   value={rateLimits.circuitBreakerThreshold}
-                  onChange={(e) => setRateLimits({ ...rateLimits, circuitBreakerThreshold: parseInt(e.target.value) || 1 })}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10)
+                    setRateLimits({ ...rateLimits, circuitBreakerThreshold: isNaN(val) ? 1 : val })
+                  }}
                   className="text-xs h-8"
                 />
                 <p className="text-[9px] text-[#71767B] mt-0.5">Gagal N kali → pause auto-post</p>
@@ -115,7 +118,10 @@ export function CircuitBreakerCard({
                   min={1}
                   max={1440}
                   value={rateLimits.circuitBreakerCooldownMinutes}
-                  onChange={(e) => setRateLimits({ ...rateLimits, circuitBreakerCooldownMinutes: parseInt(e.target.value) || 1 })}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10)
+                    setRateLimits({ ...rateLimits, circuitBreakerCooldownMinutes: isNaN(val) ? 1 : val })
+                  }}
                   className="text-xs h-8"
                 />
                 <p className="text-[9px] text-[#71767B] mt-0.5">Durasi pause auto-post</p>

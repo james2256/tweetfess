@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ error: 'Password salah' }, { status: 401 })
-  } catch {
+  } catch (e) {
+    console.error('[admin/login] Error:', e)
     return NextResponse.json({ error: 'Terjadi kesalahan' }, { status: 500 })
   }
 }

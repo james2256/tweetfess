@@ -132,7 +132,10 @@ export function RateLimitCard({
                         min={field.min}
                         max={field.max}
                         value={rateLimits[field.key]}
-                        onChange={(e) => setRateLimits({ ...rateLimits, [field.key]: parseInt(e.target.value) || field.min })}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10)
+                          setRateLimits({ ...rateLimits, [field.key]: isNaN(val) ? field.min : val })
+                        }}
                         className="text-xs h-8 bg-white"
                       />
                       <p className="text-[9px] text-[#71767B] mt-0.5">{field.hint}</p>

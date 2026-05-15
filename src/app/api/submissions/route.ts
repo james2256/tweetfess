@@ -2,6 +2,7 @@ import { db } from '@/lib/db'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
+import { MS_24H } from '@/lib/constants'
 import { debug } from '@/lib/debug'
 import { runContentFilter, checkDuplicate24h, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
@@ -150,7 +151,7 @@ export async function POST(req: NextRequest) {
     // --- GLOBAL RATE LIMITS (apply to everyone including whitelisted) ---
     // Check global submission daily cap
     if (filterSettings.rateLimits.globalSubmissionDailyCap > 0) {
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
       const globalCount = await db.submission.count({
         where: { createdAt: { gte: twentyFourHoursAgo } },
       })
@@ -198,7 +199,7 @@ export async function POST(req: NextRequest) {
 
       // Check daily cap
       if (effectiveDailyCap > 0) {
-        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+        const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
         const todayCount = await db.submission.count({
           where: {
             submitterId: submitter.id,
@@ -424,7 +425,7 @@ export async function POST(req: NextRequest) {
     // Check per-user post daily cap: has this user already had too many posts today?
     // Whitelisted users bypass this limit
     if (!isWhitelisted && effectivePostCap > 0) {
-      const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
       const userPostCount = await db.submission.count({
         where: {
           submitterId: submitter.id,
@@ -537,7 +538,8 @@ export async function POST(req: NextRequest) {
     } finally {
       await releasePostingLock(lockValue)
     }
-  } catch {
+  } catch (e) {
+    console.error('[submit] Unexpected error:', e)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }
 }

@@ -5,6 +5,8 @@
 // Flagged submissions go to pending for manual admin review.
 // ============================================================
 
+import { MS_24H } from '@/lib/constants'
+
 // --- Default Blocked Words List ---
 // Indonesian profanity (from community wordlists: Filter-Kata-Kotor, menfess rules)
 // + English profanity
@@ -286,7 +288,7 @@ export async function checkDuplicate24h(
   message: string,
   db: { submission: { findFirst: (args: { where: { message: string; createdAt: { gte: Date } } }) => Promise<{ id: string } | null> } },
 ): Promise<DuplicateCheckResult> {
-  const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
   const existing = await db.submission.findFirst({
     where: {
       message,

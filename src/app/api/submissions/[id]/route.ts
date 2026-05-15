@@ -138,7 +138,8 @@ export async function PATCH(
     })
 
     return NextResponse.json({ submission: updated })
-  } catch {
+  } catch (e) {
+    console.error('[submissions] Reject error:', e)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }
 }
@@ -162,7 +163,8 @@ export async function DELETE(
     await db.submission.delete({ where: { id } })
 
     return NextResponse.json({ success: true })
-  } catch {
+  } catch (e) {
+    console.error('[submissions] Delete error:', e)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }
 }
