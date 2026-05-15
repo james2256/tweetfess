@@ -72,7 +72,6 @@ export const DEFAULT_FILTER_RULES: FilterRules = {
 // These cause outright rejection (not pending) — spam/low-quality with zero chance of approval
 const ALWAYS_ON_RULES: (keyof FilterRules)[] = [
   'capsSpam',
-  'repeatedChars',
   'tooShort',
   'duplicate24h',
 ]
@@ -80,7 +79,6 @@ const ALWAYS_ON_RULES: (keyof FilterRules)[] = [
 // Reason strings produced by always-on rules
 export const ALWAYS_ON_REASONS: string[] = [
   'caps_spam',
-  'repeated_characters',
   'too_short',
   'duplicate_24h',
 ]

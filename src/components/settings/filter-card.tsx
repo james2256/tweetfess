@@ -43,11 +43,11 @@ const TOGGLEABLE_RULES: { key: keyof FilterRules; label: string; desc: string }[
   { key: 'mentions', label: 'Block @mentions', desc: 'Prevents targeted harassment via @username' },
   { key: 'phoneNumbers', label: 'Block phone numbers', desc: 'Prevents doxxing and privacy leaks' },
   { key: 'nsfw', label: 'Block NSFW/explicit content', desc: 'OFF by default for Alter menfess — toggle on if needed' },
+  { key: 'repeatedChars', label: 'Block repeated characters', desc: '6+ consecutive identical characters (e.g. aaaaaa)' },
 ]
 
 const ALWAYS_ON_RULES = [
   { key: 'capsSpam', label: 'ALL CAPS spam' },
-  { key: 'repeatedChars', label: 'Repeated chars' },
   { key: 'tooShort', label: 'Too short (<5)' },
   { key: 'duplicate24h', label: 'Duplicate (24h)' },
 ]
