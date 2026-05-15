@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import type { SubmitterWithStats } from '@/types'
 import { PER_USER_LIMIT_KEYS, PER_USER_LIMIT_LABELS, type PerUserLimits } from '@/types'
+import { useToast } from '@/hooks/use-toast'
 
 interface UsersDialogProps {
   open: boolean
@@ -45,6 +46,7 @@ export function UsersDialog({
   const [editingUsername, setEditingUsername] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<Record<string, string>>({})
   const [isSaving, setIsSaving] = useState(false)
+  const { toast } = useToast()
 
   // Reset state when dialog closes
   const handleOpenChange = (isOpen: boolean) => {
@@ -83,7 +85,9 @@ export function UsersDialog({
             customLimits[key] = num
             hasAnyOverride = true
           } else {
-            customLimits[key] = null
+            // Invalid input — abort and show error
+            toast({ title: 'Input tidak valid', description: `${PER_USER_LIMIT_LABELS[key]}: masukkan angka tidak negatif atau kosongkan`, variant: 'destructive' })
+            return false
           }
         }
       }

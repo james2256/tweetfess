@@ -26,14 +26,26 @@ export async function PATCH(req: NextRequest) {
 
     const normalizedUsername = username.toLowerCase().trim()
 
-    // Find submitter by username
-    const submitter = await db.submitter.findUnique({
-      where: { username: normalizedUsername },
+    // Find or create submitter by username
+    // A user can be whitelisted before they ever log in, so they may not
+    // have a Submitter record yet. We create a placeholder if needed.
+    // Use case-insensitive lookup — the DB stores the original-case username
+    // from Twitter (e.g. "JohnDoe"), but admins type lowercase in the UI.
+    let submitter = await db.submitter.findFirst({
+      where: { username: { equals: normalizedUsername, mode: 'insensitive' } },
       select: { id: true, username: true, customLimits: true },
     })
 
     if (!submitter) {
-      return NextResponse.json({ error: 'Pengguna tidak ditemukan' }, { status: 404 })
+      // No existing record — create a placeholder for this username
+      submitter = await db.submitter.create({
+        data: {
+          username: normalizedUsername,
+          twitterId: `pending:${normalizedUsername}`,
+          displayName: normalizedUsername,
+        },
+        select: { id: true, username: true, customLimits: true },
+      })
     }
 
     // Handle customLimits

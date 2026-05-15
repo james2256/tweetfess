@@ -56,7 +56,8 @@ export async function POST(req: NextRequest) {
     `
 
     return NextResponse.json({ success: true, blocked: normalizedUsername })
-  } catch {
+  } catch (error) {
+    console.error('Block user error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }
 }

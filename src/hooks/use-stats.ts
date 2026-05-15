@@ -52,19 +52,19 @@ export function useStats({ adminToken, lightweight }: UseStatsParams, callbacks?
 
   // Shared logic for processing summary/stats response fields
   const processResponse = useCallback((data: StatsResponse) => {
-    if (data.cookieAuthStatus) setCookieStatus(data.cookieAuthStatus)
-    if (data.apiCredits) setApiCredits(data.apiCredits)
-    if (data.apiLoginStatus) setApiLoginStatus(data.apiLoginStatus)
+    if (data.cookieAuthStatus !== undefined) setCookieStatus(data.cookieAuthStatus)
+    if (data.apiCredits !== undefined) setApiCredits(data.apiCredits ?? [])
+    if (data.apiLoginStatus !== undefined) setApiLoginStatus(data.apiLoginStatus)
     if (data.postMethodSetting) {
       setPostMethodSetting(data.postMethodSetting as PostMethod)
       callbacksRef.current?.onPostMethodSetting?.(data.postMethodSetting as PostMethod)
     }
-    if (data.filterSettings) {
+    if (data.filterSettings !== undefined) {
       callbacksRef.current?.onFilterSettings?.(data.filterSettings)
-      if (data.filterSettings.blockedUsernames) callbacksRef.current?.onBlockedUsernames?.(data.filterSettings.blockedUsernames)
+      if (data.filterSettings?.blockedUsernames) callbacksRef.current?.onBlockedUsernames?.(data.filterSettings.blockedUsernames)
     }
     // Circuit breaker is a top-level field in both /stats and /summary responses
-    if (data.circuitBreaker) {
+    if (data.circuitBreaker !== undefined) {
       callbacksRef.current?.onCircuitBreaker?.(data.circuitBreaker)
     }
   }, [])

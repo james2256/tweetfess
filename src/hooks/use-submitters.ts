@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import type { SubmitterWithStats } from '@/types'
-import { apiClient } from '@/lib/api-client'
+import { apiClient, ApiError } from '@/lib/api-client'
 import { useToast } from '@/hooks/use-toast'
 
 interface UseSubmittersParams {
@@ -73,8 +73,9 @@ export function useSubmitters({ adminToken }: UseSubmittersParams) {
         toast({ title: 'Gagal', description: data.error || 'Gagal mengatur limit', variant: 'destructive' })
         return false
       }
-    } catch {
-      toast({ title: 'Gagal', description: 'Tidak dapat terhubung ke server', variant: 'destructive' })
+    } catch (err: unknown) {
+      const message = err instanceof ApiError ? err.message : 'Tidak dapat terhubung ke server'
+      toast({ title: 'Gagal', description: message, variant: 'destructive' })
       return false
     }
   }, [adminToken, fetchSubmitters, toast])

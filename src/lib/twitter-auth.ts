@@ -188,6 +188,30 @@ export async function upsertSubmitterFromTwitter(twitterUser: {
   // twitterId both find null, both try create → second gets unique constraint violation.
   // upsert makes this atomic.
   try {
+    // First, check if there's a placeholder record (admin-created) with this username
+    // but a pending twitterId. If so, claim it by updating the twitterId.
+    // Use case-insensitive match — admin may have created the placeholder with
+    // lowercase username, while Twitter returns original case (e.g. "JohnDoe").
+    const placeholder = await db.submitter.findFirst({
+      where: {
+        username: { equals: username, mode: 'insensitive' },
+        twitterId: { startsWith: 'pending:' },
+      },
+    })
+    if (placeholder) {
+      return db.submitter.update({
+        where: { id: placeholder.id },
+        data: {
+          username,  // Update to the real-cased username from Twitter
+          twitterId,
+          displayName: displayName || placeholder.displayName,
+          profileImage: profile_image_url || placeholder.profileImage,
+          ...(tokens?.accessToken && { oauth2AccessToken: tokens.accessToken }),
+          ...(tokens?.refreshToken && { oauth2RefreshToken: tokens.refreshToken }),
+        },
+      })
+    }
+
     return await db.submitter.upsert({
       where: { twitterId },
       update: {

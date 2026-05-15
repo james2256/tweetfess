@@ -51,7 +51,8 @@ export async function POST(req: NextRequest) {
     `
 
     return NextResponse.json({ success: true, whitelisted: normalizedUsername })
-  } catch {
+  } catch (error) {
+    console.error('Whitelist POST error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }
 }
@@ -97,7 +98,8 @@ export async function DELETE(req: NextRequest) {
     `
 
     return NextResponse.json({ success: true, removed: normalizedUsername })
-  } catch {
+  } catch (error) {
+    console.error('Whitelist DELETE error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }
 }

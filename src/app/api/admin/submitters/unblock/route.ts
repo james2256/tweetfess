@@ -48,7 +48,8 @@ export async function POST(req: NextRequest) {
     `
 
     return NextResponse.json({ success: true, unblocked: normalizedUsername })
-  } catch {
+  } catch (error) {
+    console.error('Unblock user error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }
 }

@@ -414,48 +414,8 @@ export function runContentFilter(
 }
 
 // --- Filter Reason Display Helpers ---
-
-export function getFilterReasonLabel(reason: string): string {
-  const labels: Record<string, string> = {
-    'caps_spam': 'ALL CAPS',
-    'repeated_characters': 'Repeated Chars',
-    'too_short': 'Too Short',
-    'duplicate_24h': 'Duplicate (24h)',
-    'contains_url': 'Contains Link',
-    'contains_phone_number': 'Phone Number',
-  }
-
-  // Blocked word
-  if (reason.startsWith('blocked_word:')) {
-    const word = reason.replace('blocked_word:', '')
-    const masked = word.length > 2
-      ? word[0] + '*'.repeat(word.length - 2) + word[word.length - 1]
-      : '**'
-    return `Blocked: "${masked}"`
-  }
-
-  // NSFW word
-  if (reason.startsWith('nsfw_word:')) {
-    const word = reason.replace('nsfw_word:', '')
-    const masked = word.length > 2
-      ? word[0] + '*'.repeat(word.length - 2) + word[word.length - 1]
-      : '**'
-    return `NSFW: "${masked}"`
-  }
-
-  // Jualan
-  if (reason.startsWith('jualan:')) {
-    const tag = reason.replace('jualan:', '')
-    return `Marketplace (${tag})`
-  }
-
-  // Mentions
-  if (reason.startsWith('contains_mention:')) {
-    return '@Mention'
-  }
-
-  return labels[reason] || reason
-}
+// NOTE: getFilterReasonLabel and getFilterReasonColor are defined in src/types/index.ts
+// and imported by UI components. These helpers are kept only for the filter engine itself.
 
 export function getFilterReasonColor(reason: string): string {
   if (reason.startsWith('blocked_word:') || reason === 'contains_phone_number') {
