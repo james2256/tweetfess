@@ -11,6 +11,13 @@ import { getFilterSettings, getGeminiApiKey, DEFAULT_RATE_LIMITS, type RateLimit
 import { getEffectiveLimit } from '@/lib/limit-resolver'
 import { NextRequest, NextResponse } from 'next/server'
 
+// Log a rate limit hit (fire-and-forget, never blocks the response)
+function logLimitHit(username: string, limitType: string) {
+  db.limitHit.create({ data: { username, limitType } }).catch(() => {
+    // Swallow — logging must never break the submission flow
+  })
+}
+
 // Vercel serverless function timeout — auto-post + Gemini can take up to 15s with retries
 export const maxDuration = 30
 
@@ -149,6 +156,7 @@ export async function POST(req: NextRequest) {
       })
       if (globalCount >= filterSettings.rateLimits.globalSubmissionDailyCap) {
         debug('[submit] Global daily cap reached:', globalCount)
+        logLimitHit(submitter.username, 'global_cap')
         return NextResponse.json({
           error: 'Sistem sedang sibuk',
           message: 'Batas harian sistem tercapai. Coba lagi besok.',
@@ -179,6 +187,7 @@ export async function POST(req: NextRequest) {
             const waitSeconds = Math.ceil((cooldownMs - elapsedMs) / 1000)
             const waitMsg = waitMinutes > 1 ? `${waitMinutes} menit` : `${waitSeconds} detik`
             debug('[submit] Cooldown: user must wait', waitMsg)
+            logLimitHit(submitter.username, 'cooldown')
             return NextResponse.json({
               error: 'Tunggu sebentar',
               message: `Tunggu ${waitMsg} sebelum mengirim pesan lagi.`,
@@ -198,6 +207,7 @@ export async function POST(req: NextRequest) {
         })
         if (todayCount >= effectiveDailyCap) {
           debug('[submit] Daily cap reached:', todayCount)
+          logLimitHit(submitter.username, 'daily_cap')
           return NextResponse.json({
             error: 'Batas harian tercapai',
             message: `Kamu sudah mengirim ${todayCount} pesan hari ini (maksimal ${effectiveDailyCap}). Coba lagi besok.`,
@@ -205,19 +215,21 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Check per-user pending cap
+      // Check per-user pending cap (24h window)
       if (effectivePendingCap > 0) {
         const pendingCount = await db.submission.count({
           where: {
             submitterId: submitter.id,
             status: 'pending',
+            createdAt: { gte: twentyFourHoursAgo },
           },
         })
         if (pendingCount >= effectivePendingCap) {
           debug('[submit] User pending cap reached:', pendingCount, 'for user', submitter.username)
+          logLimitHit(submitter.username, 'pending_cap')
           return NextResponse.json({
             error: 'Terlalu banyak pesan menunggu',
-            message: `Kamu sudah memiliki ${pendingCount} pesan dalam antrean. Tunggu sampai diproses admin sebelum mengirim lagi.`,
+            message: `Kamu sudah mengirim ${pendingCount} pesan hari ini yang belum diproses. Tunggu sampai diproses admin sebelum mengirim lagi.`,
           }, { status: 400 })
         }
       }
@@ -422,6 +434,7 @@ export async function POST(req: NextRequest) {
       })
       if (userPostCount >= effectivePostCap) {
         debug('[submit] User post daily cap reached:', userPostCount, 'for user', submitter.username, 'queuing instead')
+        logLimitHit(submitter.username, 'post_cap')
         const submission = await db.submission.create({
           data: {
             message: trimmedMessage,

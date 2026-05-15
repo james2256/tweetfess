@@ -67,6 +67,7 @@ export async function GET(req: NextRequest) {
           where: {
             submitterId: submitter.id,
             status: 'pending',
+            createdAt: { gte: twentyFourHoursAgo },
           },
         }),
         // Daily posts — uses updatedAt to match enforcement in submissions/route.ts

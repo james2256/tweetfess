@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Send, Loader2, MessageSquare, Zap } from 'lucide-react'
+import { Send, Loader2, MessageSquare, Zap, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -36,6 +36,7 @@ export function ConfessionForm({
 
   const remainingDaily = limits ? Math.max(0, limits.dailyCap - limits.dailyUsed) : null
   const isCustom = limits?.isCustom ?? false
+  const pendingOverCap = limits ? limits.pendingUsed > limits.pendingCap : false
 
   return (
     <Card className="max-w-lg mx-auto shadow-lg border-[#EFF3F4]">
@@ -105,19 +106,20 @@ export function ConfessionForm({
               {limits.dailyUsed}/{limits.dailyCap} hari ini
             </span>
             <span className={isCustom ? 'text-purple-400' : 'text-[#71767B]'}>&middot;</span>
+            <span className={pendingOverCap ? 'text-red-500' : isCustom ? 'text-purple-700' : 'text-[#536471]'}>
+              antrean {limits.pendingUsed}/{limits.pendingCap}
+              {pendingOverCap && <AlertTriangle className="w-3 h-3 inline ml-0.5" />}
+            </span>
+            <span className={isCustom ? 'text-purple-400' : 'text-[#71767B]'}>&middot;</span>
+            <span className={isCustom ? 'text-purple-700' : 'text-[#536471]'}>
+              post {limits.postUsed}/{limits.postCap}
+            </span>
+            <span className={isCustom ? 'text-purple-400' : 'text-[#71767B]'}>&middot;</span>
             <span className={isCustom ? 'text-purple-700' : 'text-[#536471]'}>
               {limits.cooldownSeconds > 0
                 ? `cooldown ${limits.cooldownSeconds < 60 ? `${limits.cooldownSeconds}d` : `${Math.ceil(limits.cooldownSeconds / 60)}m`}`
                 : 'siap kirim'}
             </span>
-            {remainingDaily !== null && remainingDaily <= 3 && remainingDaily > 0 && (
-              <>
-                <span className={isCustom ? 'text-purple-400' : 'text-[#71767B]'}>&middot;</span>
-                <span className={isCustom ? 'text-purple-600' : 'text-amber-600'}>
-                  {remainingDaily} tersisa
-                </span>
-              </>
-            )}
             {remainingDaily === 0 && (
               <>
                 <span className={isCustom ? 'text-purple-400' : 'text-[#71767B]'}>&middot;</span>

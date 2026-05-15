@@ -57,3 +57,13 @@ model Setting {
   value     String             // The actual value
   updatedAt DateTime @updatedAt
 }
+
+model LimitHit {
+  id          String   @id @default(cuid())
+  username    String
+  limitType   String   // "cooldown" | "daily_cap" | "pending_cap" | "global_cap" | "post_cap"
+  createdAt   DateTime @default(now())
+
+  @@index([limitType, createdAt])
+  @@index([username, createdAt])
+}

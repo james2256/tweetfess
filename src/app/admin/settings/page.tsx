@@ -16,6 +16,7 @@ import { GeminiCard } from '@/components/settings/gemini-card'
 import { RateLimitCard } from '@/components/settings/rate-limit-card'
 import { CircuitBreakerCard } from '@/components/settings/circuit-breaker-card'
 import { WhitelistCard } from '@/components/settings/whitelist-card'
+import { LimitHealthCard } from '@/components/settings/limit-health-card'
 import { DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS } from '@/lib/content-filter'
 
 export default function AdminSettingsPage() {
@@ -243,6 +244,8 @@ export default function AdminSettingsPage() {
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="space-y-4 mt-4"
           >
+            <LimitHealthCard />
+
             <RateLimitCard
               rateLimits={filterSettings.rateLimits}
               setRateLimits={filterSettings.setRateLimits}
