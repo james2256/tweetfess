@@ -1,32 +1,42 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { apiClient } from '@/lib/api-client'
 import { setAdminCookie, getAdminCookie, clearAdminCookie } from '@/types'
 import { useToast } from '@/hooks/use-toast'
 
 export function useAdminAuth() {
   const [isAdmin, setIsAdmin] = useState(false)
+  const [isChecking, setIsChecking] = useState(true)
   const [adminToken, setAdminToken] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [loginOpen, setLoginOpen] = useState(false)
   const { toast } = useToast()
+  const initialCheckDone = useRef(false)
 
   // Restore admin session from cookie on mount
   useEffect(() => {
+    if (initialCheckDone.current) return
+    initialCheckDone.current = true
+
     const savedToken = getAdminCookie()
     if (savedToken) {
       // Verify the token is still valid by calling stats
       apiClient.setAdminToken(savedToken)
-      apiClient.getStats().then((res) => {
-        // If we get here, token is valid
+      apiClient.getStats().then(() => {
+        // Token is valid
         setIsAdmin(true)
         setAdminToken(savedToken)
       }).catch(() => {
         // Token invalid — clear cookie
         apiClient.setAdminToken(null)
         clearAdminCookie()
+      }).finally(() => {
+        setIsChecking(false)
       })
+    } else {
+      // No saved token — use a microtask to avoid setState in effect
+      queueMicrotask(() => setIsChecking(false))
     }
   }, [])
 
@@ -58,6 +68,7 @@ export function useAdminAuth() {
 
   return {
     isAdmin,
+    isChecking,
     adminToken,
     login,
     logout,

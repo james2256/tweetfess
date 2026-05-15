@@ -14,7 +14,7 @@ export function TrustBadges() {
         </div>
         <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-50 border border-amber-100">
           <Zap className="w-4 h-4 text-amber-500 shrink-0" />
-          <span className="text-xs text-amber-700">Gratis</span>
+          <span className="text-xs text-amber-700">Gratis 100%</span>
         </div>
       </div>
       <p className="text-center text-xs text-[#71767B] mt-4">

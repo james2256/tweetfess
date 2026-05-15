@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url)
-    const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100)
+    const limit = Math.min(parseInt(searchParams.get('limit') || '50', 10) || 50, 100)
 
     const submissions = await db.submission.findMany({
       where: { submitterId: submitter.id },

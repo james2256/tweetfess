@@ -19,7 +19,7 @@ import { AdminHeader } from '@/components/layout/admin-header'
 import { apiClient } from '@/lib/api-client'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { isAdmin, adminToken, login, logout, loginPassword, setLoginPassword, loginOpen, setLoginOpen } = useAdminAuth()
+  const { isAdmin, isChecking, adminToken, login, logout, loginPassword, setLoginPassword, loginOpen, setLoginOpen } = useAdminAuth()
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
 
@@ -43,6 +43,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setIsLoggingIn(true)
     await login(loginPassword)
     setIsLoggingIn(false)
+  }
+
+  if (isChecking) {
+    return (
+      <div className="min-h-screen flex flex-col bg-[#F7F9F9]">
+        <main className="flex-1 flex items-center justify-center px-4">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-2 border-[#0F1419] border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm text-[#536471]">Memeriksa sesi...</p>
+          </div>
+        </main>
+      </div>
+    )
   }
 
   if (!isAdmin) {

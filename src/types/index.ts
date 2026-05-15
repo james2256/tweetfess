@@ -243,11 +243,32 @@ export const STATUS_CONFIG = {
 // --- Filter Reason Label Helper ---
 
 export function getFilterReasonLabel(reason: string): string {
+  // Blocked word — mask the word for display
   if (reason.startsWith('blocked_word:')) {
-    return `"${reason.replace('blocked_word:', '').replace(/(.).+(.)/, (_, a, b) => a + '***' + b)}"`
+    const word = reason.replace('blocked_word:', '')
+    const masked = word.length > 2
+      ? word[0] + '*'.repeat(word.length - 2) + word[word.length - 1]
+      : '**'
+    return `Blocked: "${masked}"`
   }
+
+  // NSFW word — mask the word for display
+  if (reason.startsWith('nsfw_word:')) {
+    const word = reason.replace('nsfw_word:', '')
+    const masked = word.length > 2
+      ? word[0] + '*'.repeat(word.length - 2) + word[word.length - 1]
+      : '**'
+    return `NSFW: "${masked}"`
+  }
+
   if (reason.startsWith('ai:')) return `AI: ${reason.replace('ai:', '')}`
-  if (reason.startsWith('jualan:')) return 'Jualan'
+
+  // Jualan
+  if (reason.startsWith('jualan:')) {
+    const tag = reason.replace('jualan:', '')
+    return `Marketplace (${tag})`
+  }
+
   if (reason === 'contains_url') return 'Link'
   if (reason.startsWith('contains_mention')) return '@Mention'
   if (reason === 'contains_phone_number') return 'No. HP'
@@ -261,7 +282,8 @@ export function getFilterReasonLabel(reason: string): string {
 export function parseFilterReasons(filterReasons: string | null): string[] {
   if (!filterReasons) return []
   try {
-    return JSON.parse(filterReasons)
+    const parsed = JSON.parse(filterReasons)
+    return Array.isArray(parsed) ? parsed : []
   } catch {
     return []
   }
@@ -284,7 +306,8 @@ export function formatDate(dateStr: string): string {
 const ADMIN_COOKIE = 'tweetfess_admin'
 
 export function setAdminCookie(token: string): void {
-  document.cookie = `${ADMIN_COOKIE}=${encodeURIComponent(token)};path=/;max-age=${7 * 24 * 60 * 60};samesite=strict`
+  const secure = window.location.protocol === 'https:' ? ';Secure' : ''
+  document.cookie = `${ADMIN_COOKIE}=${encodeURIComponent(token)};path=/;max-age=${7 * 24 * 60 * 60};samesite=strict${secure}`
 }
 
 export function getAdminCookie(): string {

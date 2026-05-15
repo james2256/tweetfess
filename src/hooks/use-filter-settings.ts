@@ -93,7 +93,10 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
         filterRules,
         geminiEnabled,
         rateLimits,
-        whitelistUsernames: whitelist,
+        // whitelistUsernames is NOT saved here — the block/unblock routes
+        // manage it atomically via SQL. Sending it here would overwrite
+        // the whitelist with stale data if another admin blocked/unblocked
+        // a user since this page loaded.
       })
       if (!data.error) {
         toast({

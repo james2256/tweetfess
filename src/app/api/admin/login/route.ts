@@ -1,8 +1,11 @@
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
+import { deriveAdminToken } from '@/lib/admin-auth'
 
 // POST /api/admin/login - Verify admin password
-// Uses crypto.timingSafeEqual to prevent timing side-channel attacks
+// Uses crypto.timingSafeEqual to prevent timing side-channel attacks.
+// Returns an HMAC-derived token instead of the raw password —
+// the raw password never leaves the server.
 export async function POST(req: NextRequest) {
   try {
     const adminPassword = process.env.ADMIN_PASSWORD
@@ -27,7 +30,9 @@ export async function POST(req: NextRequest) {
       && crypto.timingSafeEqual(passwordBuf, expectedBuf)
 
     if (isMatch) {
-      return NextResponse.json({ success: true, token: adminPassword })
+      // Derive a token from the password — raw password is never exposed to the client
+      const token = deriveAdminToken(adminPassword)
+      return NextResponse.json({ success: true, token })
     }
 
     return NextResponse.json({ error: 'Password salah' }, { status: 401 })

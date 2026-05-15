@@ -588,7 +588,7 @@ export async function postTweetViaCookie(
     return {
       success: false,
       error: `Direct posting gagal setelah ${MAX_ATTEMPTS} percobaan. Fallback API juga gagal: ${fallbackResult.error}`,
-      method: 'retry',
+      method: 'fallback',
       retriesUsed: MAX_ATTEMPTS,
     }
   }

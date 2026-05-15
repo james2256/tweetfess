@@ -42,13 +42,15 @@ export async function POST(req: NextRequest) {
 
     // Also remove from whitelist if present (blocked takes priority)
     // Atomic jsonb removal — no race condition
+    // COALESCE ensures empty array becomes '[]' instead of NULL
+    // (jsonb_agg returns NULL when no rows remain after filtering)
     await db.$executeRaw`
       UPDATE "Setting"
-      SET value = (
-        SELECT jsonb_agg(elem)
-        FROM jsonb_array_elements_text("Setting".value::jsonb) AS elem
-        WHERE elem != ${normalizedUsername}
-      )::text
+      SET value = COALESCE(
+        (SELECT jsonb_agg(elem) FROM jsonb_array_elements_text("Setting".value::jsonb) AS elem WHERE elem != ${normalizedUsername}),
+        '[]'::jsonb
+      )::text,
+      "updatedAt" = NOW()
       WHERE key = 'whitelist_usernames'
       AND "Setting".value::jsonb @> ${JSON.stringify([normalizedUsername])}::jsonb
     `

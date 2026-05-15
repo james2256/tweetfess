@@ -61,9 +61,11 @@ export function useStats({ adminToken, lightweight }: UseStatsParams, callbacks?
     }
     if (data.filterSettings) {
       callbacksRef.current?.onFilterSettings?.(data.filterSettings)
-      const cb = (data.filterSettings as Stats['filterSettings'] & { circuitBreaker?: { paused: boolean; failCount: number; pausedUntil: number | null; threshold: number } }).circuitBreaker
-      if (cb) callbacksRef.current?.onCircuitBreaker?.(cb)
       if (data.filterSettings.blockedUsernames) callbacksRef.current?.onBlockedUsernames?.(data.filterSettings.blockedUsernames)
+    }
+    // Circuit breaker is a top-level field in both /stats and /summary responses
+    if (data.circuitBreaker) {
+      callbacksRef.current?.onCircuitBreaker?.(data.circuitBreaker)
     }
   }, [])
 
