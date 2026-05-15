@@ -31,7 +31,8 @@ model Submitter {
 model Submission {
   id          String    @id @default(cuid())
   message     String
-  status      String    @default("pending") // pending, post_failed, rejected, posted
+  normalizedMessage String  // Normalized fingerprint for duplicate detection (strips zero-width chars, normalizes Unicode)
+  status      String    @default("pending") // pending, posting, post_failed, rejected, posted
   tweetId     String?   // X tweet ID after posting
   postMethod  String?   // "direct" | "retry" | "fallback" — which method posted this tweet
   postError   String?   // Error message from last failed post attempt (cleared on success)
@@ -49,6 +50,7 @@ model Submission {
   @@index([status, updatedAt])                // "last posted submission"
   @@index([submitterId, createdAt])           // per-user cooldown, daily cap, user list
   @@index([submitterId, status, updatedAt])   // per-user post daily cap
+  @@index([submitterId, normalizedMessage, createdAt])  // duplicate detection: same user, same fingerprint, within 24h
 }
 
 model Setting {

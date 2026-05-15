@@ -343,7 +343,9 @@ function parseDAttribute(d: string): number[][] {
 
   return items.map((item) => {
     // Replace non-digits with spaces, split, convert to ints
-    // Reference strips hyphens — SVG path coords are always positive
+    // Hyphens are intentionally stripped: X's loading-x-anim SVGs encode unsigned
+    // byte values (0–255) as path coordinates — negatives never occur in this data.
+    // All reference implementations (Lqm1, iSarabjitDhiman, vladkens) do the same.
     const cleaned = item.replace(/[^\d]+/g, ' ').trim()
     if (cleaned === '') return []
     return cleaned.split(/\s+/).map((s) => parseInt(s, 10))

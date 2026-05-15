@@ -126,7 +126,7 @@ export interface FilterResult {
 // --- Text Normalization ---
 // Removes zero-width chars, normalizes Unicode, strips diacritical tricks
 
-function normalizeText(text: string): string {
+export function normalizeText(text: string): string {
   return text
     .replace(/[\u200B-\u200D\uFEFF]/g, '')     // Zero-width chars
     .replace(/[\u00AD\u200B-\u200F\u2028-\u202F]/g, '') // More invisible chars
@@ -299,12 +299,15 @@ export interface DuplicateCheckResult {
 
 export async function checkDuplicate24h(
   message: string,
-  db: { submission: { findFirst: (args: { where: { message: string; createdAt: { gte: Date } } }) => Promise<{ id: string } | null> } },
+  db: { submission: { findFirst: (args: { where: { submitterId: string; normalizedMessage: string; createdAt: { gte: Date } } }) => Promise<{ id: string } | null> } },
+  submitterId: string,
 ): Promise<DuplicateCheckResult> {
   const twentyFourHoursAgo = new Date(Date.now() - MS_24H)
+  const normalized = normalizeText(message)
   const existing = await db.submission.findFirst({
     where: {
-      message,
+      submitterId,
+      normalizedMessage: normalized,
       createdAt: { gte: twentyFourHoursAgo },
     },
   })

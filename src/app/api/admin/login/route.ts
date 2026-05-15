@@ -23,11 +23,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Password salah' }, { status: 401 })
     }
 
-    // Timing-safe comparison to prevent leaking password via response time
+    // Timing-safe comparison to prevent leaking password length via response time.
+    // Both buffers are padded to equal length so timingSafeEqual always runs,
+    // then we check length separately — the && short-circuit is safe because
+    // by that point the time cost of the comparison is already spent.
     const passwordBuf = Buffer.from(String(password))
     const expectedBuf = Buffer.from(String(adminPassword))
-    const isMatch = passwordBuf.length === expectedBuf.length
-      && crypto.timingSafeEqual(passwordBuf, expectedBuf)
+    const maxLen = Math.max(passwordBuf.length, expectedBuf.length)
+    const paddedPassword = Buffer.concat([passwordBuf, Buffer.alloc(maxLen - passwordBuf.length)])
+    const paddedExpected = Buffer.concat([expectedBuf, Buffer.alloc(maxLen - expectedBuf.length)])
+    const isMatch = crypto.timingSafeEqual(paddedPassword, paddedExpected)
+      && passwordBuf.length === expectedBuf.length
 
     if (isMatch) {
       // Derive a token from the password — raw password is never exposed to the client

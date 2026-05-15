@@ -149,7 +149,7 @@ export async function getFilterSettings(): Promise<{
   // Rate limit settings — using parseIntSafe to correctly handle 0 values
   // (parseInt("0") || default would treat 0 as falsy and revert to default)
   const submissionCooldown = Math.max(0, parseIntSafe(getRaw('submission_cooldown'), DEFAULT_RATE_LIMITS.submissionCooldown))
-  const submissionDailyCap = Math.max(1, parseIntSafe(getRaw('submission_daily_cap'), DEFAULT_RATE_LIMITS.submissionDailyCap))
+  const submissionDailyCap = Math.max(0, parseIntSafe(getRaw('submission_daily_cap'), DEFAULT_RATE_LIMITS.submissionDailyCap))
   const autoPostCooldown = Math.max(0, parseIntSafe(getRaw('auto_post_cooldown'), DEFAULT_RATE_LIMITS.autoPostCooldown))
   const autoPostWindowCap = Math.max(0, parseIntSafe(getRaw('auto_post_window_cap'), DEFAULT_RATE_LIMITS.autoPostWindowCap))
   const autoPostWindowMinutes = Math.max(1, parseIntSafe(getRaw('auto_post_window_minutes'), DEFAULT_RATE_LIMITS.autoPostWindowMinutes))
@@ -363,7 +363,7 @@ export async function POST(req: NextRequest) {
         results.push({ key: 'submission_cooldown', updated: true })
       }
       if (typeof rateLimits.submissionDailyCap === 'number') {
-        const val = Math.max(1, rateLimits.submissionDailyCap).toString()
+        const val = Math.max(0, rateLimits.submissionDailyCap).toString()
         await db.setting.upsert({
           where: { key: 'submission_daily_cap' },
           update: { value: val },

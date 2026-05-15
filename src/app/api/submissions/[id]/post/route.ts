@@ -31,6 +31,10 @@ export async function POST(
       return NextResponse.json({ error: 'Submission sudah diposting' }, { status: 400 })
     }
 
+    if (submission.status === 'posting') {
+      return NextResponse.json({ error: 'Submission sedang diproses (posting ke X)' }, { status: 409 })
+    }
+
     if (submission.status === 'rejected') {
       return NextResponse.json({ error: 'Submission sudah ditolak' }, { status: 400 })
     }
@@ -50,6 +54,20 @@ export async function POST(
       )
     }
 
+    // Mark as "posting" before calling X API — prevents double-post race condition
+    const marked = await db.submission.updateMany({
+      where: { id, status: { in: ['pending', 'post_failed'] } },
+      data: { status: 'posting' },
+    })
+    if (marked.count === 0) {
+      debug('[post route] Submission status changed before posting, aborting')
+      await releasePostingLock(lockValue)
+      return NextResponse.json(
+        { error: 'Submission sedang diproses oleh proses lain.' },
+        { status: 409 }
+      )
+    }
+
     // Post to X using cookie-based auth (with retry + fallback)
     try {
       debug('[post route] Posting submission:', id, 'message length:', submission.message.length)
@@ -59,10 +77,9 @@ export async function POST(
         debug('[post route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
         console.error('X API error:', tweetResult.error)
 
-        // Persist the latest error to the submission record so admin sees
-        // the most recent failure info on refresh (not a stale older error)
-        await db.submission.update({
-          where: { id },
+        // Persist the latest error — only update if still "posting"
+        await db.submission.updateMany({
+          where: { id, status: 'posting' },
           data: { status: 'post_failed', postError: tweetResult.error || 'Unknown error' },
         })
 
@@ -79,9 +96,9 @@ export async function POST(
       }
 
       debug('[post route] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method, 'retries:', tweetResult.retriesUsed)
-      // Update submission status with postMethod tracking, clear postError on success
-      const updated = await db.submission.update({
-        where: { id },
+      // Update submission status — only if still "posting" (prevents double-write)
+      const result = await db.submission.updateMany({
+        where: { id, status: 'posting' },
         data: {
           status: 'posted',
           tweetId: tweetResult.tweetId || null,
@@ -92,6 +109,18 @@ export async function POST(
 
       // Reset circuit breaker on success
       await recordPostSuccess()
+
+      if (result.count === 0) {
+        debug('[post route] Post succeeded but status was changed by another process')
+        return NextResponse.json({
+          autoPosted: true,
+          tweetId: tweetResult.tweetId,
+          postMethod: tweetResult.method,
+          warning: 'Tweet posted, but submission status was changed by another process.',
+        })
+      }
+
+      const updated = await db.submission.findUnique({ where: { id } })
 
       return NextResponse.json({
         submission: updated,

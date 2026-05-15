@@ -117,7 +117,7 @@ export function ConfessionForm({
             <span className={isCustom ? 'text-purple-400' : 'text-[#71767B]'}>&middot;</span>
             <span className={isCustom ? 'text-purple-700' : 'text-[#536471]'}>
               {limits.cooldownSeconds > 0
-                ? `cooldown ${limits.cooldownSeconds < 60 ? `${limits.cooldownSeconds}d` : `${Math.ceil(limits.cooldownSeconds / 60)}m`}`
+                ? `cooldown ${limits.cooldownSeconds < 60 ? `${limits.cooldownSeconds}s` : `${Math.ceil(limits.cooldownSeconds / 60)}m`}`
                 : 'siap kirim'}
             </span>
             {remainingDaily === 0 && (

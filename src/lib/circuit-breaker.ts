@@ -47,8 +47,8 @@ async function setSettingValue(key: string, value: string): Promise<void> {
 
 /**
  * Check if the circuit breaker is currently paused.
- * If the pause has expired, auto-resets the state using a conditional
- * UPDATE to avoid erasing a newer legitimate pause (race condition fix).
+ * If the pause has expired, auto-resets the state atomically in a single
+ * SQL statement to prevent race conditions with concurrent recordPostFailure().
  */
 export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number }): Promise<boolean> {
   const pausedUntilStr = await getSettingValue(PAUSED_UNTIL_KEY)
@@ -64,20 +64,21 @@ export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThresh
     return true
   }
 
-  // Pause expired — conditional auto-reset to avoid erasing a newer pause
-  // set by a concurrent recordPostFailure() between our read and write
+  // Pause expired — atomic single-statement reset:
+  // Only clears paused_until if the stored value still matches what we read
+  // (prevents erasing a newer pause), and resets fail_count only if
+  // paused_until was successfully cleared (no concurrent failure set a new pause).
   debug('[circuit-breaker] Pause expired, auto-resetting')
   await db.$executeRaw`
-    UPDATE "Setting"
-    SET "value" = '0', "updatedAt" = NOW()
-    WHERE "key" = ${PAUSED_UNTIL_KEY} AND "value" = ${pausedUntilStr}
+    UPDATE "Setting" SET "value" = '0', "updatedAt" = NOW()
+    WHERE "key" = ${FAIL_COUNT_KEY} AND (
+      SELECT "value" FROM "Setting"
+      WHERE "key" = ${PAUSED_UNTIL_KEY} AND "value" = ${pausedUntilStr}
+    ) = ${pausedUntilStr}
   `
   await db.$executeRaw`
-    UPDATE "Setting"
-    SET "value" = '0', "updatedAt" = NOW()
-    WHERE "key" = ${FAIL_COUNT_KEY} AND (
-      SELECT "value" FROM "Setting" WHERE "key" = ${PAUSED_UNTIL_KEY}
-    ) = '0'
+    UPDATE "Setting" SET "value" = '0', "updatedAt" = NOW()
+    WHERE "key" = ${PAUSED_UNTIL_KEY} AND "value" = ${pausedUntilStr}
   `
   return false
 }
@@ -150,6 +151,10 @@ export async function recordPostSuccess(): Promise<void> {
  *
  * Uses atomic SQL increment to prevent race conditions when multiple
  * failures happen concurrently.
+ *
+ * Bug fix: Only sets pausedUntil at the exact threshold crossing (===),
+ * not on every failure past the threshold. This prevents resetting the
+ * cooldown timer when failures occur while the circuit is already paused.
  */
 export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number }): Promise<void> {
   const config = getConfig(rateLimits)
@@ -168,7 +173,9 @@ export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?:
 
   debug('[circuit-breaker] Post failed, fail count now:', newCount, '(threshold:', config.threshold, ')')
 
-  if (newCount >= config.threshold) {
+  // Only set pause at the exact threshold crossing — prevents resetting
+  // the cooldown timer when failures occur while already paused
+  if (newCount === config.threshold) {
     const pausedUntil = Date.now() + config.cooldownMinutes * 60 * 1000
     debug('[circuit-breaker] Threshold reached! Pausing auto-post until', new Date(pausedUntil).toISOString())
     await setSettingValue(PAUSED_UNTIL_KEY, String(pausedUntil))

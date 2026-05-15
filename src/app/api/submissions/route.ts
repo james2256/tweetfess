@@ -4,7 +4,7 @@ import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { getStartOfTodayWIB } from '@/lib/constants'
 import { debug } from '@/lib/debug'
-import { runContentFilter, checkDuplicate24h, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
+import { runContentFilter, checkDuplicate24h, normalizeText, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { isCircuitBreakerPaused, recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
@@ -255,7 +255,7 @@ export async function POST(req: NextRequest) {
 
     // Check for duplicates (24h) if rule is enabled
     if (filterSettings.filterRules.duplicate24h) {
-      const dupCheck = await checkDuplicate24h(trimmedMessage, db)
+      const dupCheck = await checkDuplicate24h(trimmedMessage, db, submitter.id)
       if (dupCheck.isDuplicate && dupCheck.reason) {
         filterResult.passed = false
         filterResult.reasons.push(dupCheck.reason)
@@ -320,6 +320,7 @@ export async function POST(req: NextRequest) {
       const submission = await db.submission.create({
         data: {
           message: trimmedMessage,
+          normalizedMessage: normalizeText(trimmedMessage),
           category: category?.trim() || null,
           submitterId: submitter.id,
           filterReasons: allFilterReasons.length > 0 ? JSON.stringify(allFilterReasons) : null,
@@ -335,6 +336,7 @@ export async function POST(req: NextRequest) {
       const submission = await db.submission.create({
         data: {
           message: trimmedMessage,
+          normalizedMessage: normalizeText(trimmedMessage),
           category: category?.trim() || null,
           submitterId: submitter.id,
           filterReasons: allFilterReasons.length > 0 ? JSON.stringify(allFilterReasons) : null,
@@ -377,6 +379,7 @@ export async function POST(req: NextRequest) {
           const submission = await db.submission.create({
             data: {
               message: trimmedMessage,
+              normalizedMessage: normalizeText(trimmedMessage),
               category: category?.trim() || null,
               submitterId: submitter.id,
               filterReasons: null,
@@ -406,6 +409,7 @@ export async function POST(req: NextRequest) {
         const submission = await db.submission.create({
           data: {
             message: trimmedMessage,
+            normalizedMessage: normalizeText(trimmedMessage),
             category: category?.trim() || null,
             submitterId: submitter.id,
             filterReasons: null,
@@ -438,6 +442,7 @@ export async function POST(req: NextRequest) {
         const submission = await db.submission.create({
           data: {
             message: trimmedMessage,
+            normalizedMessage: normalizeText(trimmedMessage),
             category: category?.trim() || null,
             submitterId: submitter.id,
             filterReasons: null,
@@ -457,6 +462,7 @@ export async function POST(req: NextRequest) {
     const submission = await db.submission.create({
       data: {
         message: trimmedMessage,
+        normalizedMessage: normalizeText(trimmedMessage),
         category: category?.trim() || null,
         submitterId: submitter.id,
         filterReasons: null,
@@ -475,15 +481,34 @@ export async function POST(req: NextRequest) {
       }, { status: 201 })
     }
 
+    // Mark as "posting" before calling X API — prevents double-post race condition.
+    // If another process checks this submission's status while we're mid-post,
+    // it will see "posting" instead of "pending" and won't attempt a duplicate post.
+    const marked = await db.submission.updateMany({
+      where: { id: submission.id, status: 'pending' },
+      data: { status: 'posting' },
+    })
+    if (marked.count === 0) {
+      // Status was changed by another process (e.g. admin rejected it) — abort
+      debug('[submit] Submission status changed before posting, aborting')
+      await releasePostingLock(lockValue)
+      return NextResponse.json({
+        submission,
+        autoPosted: false,
+        queued: true,
+        error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+      }, { status: 201 })
+    }
+
     // Attempt to post to X
     try {
       const tweetResult = await postTweetViaCookie(trimmedMessage)
 
       if (tweetResult.success) {
         debug('[submit] Auto-post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
-        // Only update if still pending — don't overwrite admin rejection/deletion
+        // Only update if still "posting" — don't overwrite admin rejection/deletion
         const result = await db.submission.updateMany({
-          where: { id: submission.id, status: 'pending' },
+          where: { id: submission.id, status: 'posting' },
           data: {
             status: 'posted',
             tweetId: tweetResult.tweetId || null,
@@ -514,11 +539,11 @@ export async function POST(req: NextRequest) {
         }, { status: 201 })
       } else {
         // Post failed — mark as post_failed so admin can see the error and retry
-        // Only update if still pending — don't overwrite admin rejection/deletion
+        // Only update if still "posting" — don't overwrite admin rejection/deletion
         const errorMsg = tweetResult.error || 'Unknown error'
         debug('[submit] Auto-post failed, marking as post_failed:', errorMsg)
         await db.submission.updateMany({
-          where: { id: submission.id, status: 'pending' },
+          where: { id: submission.id, status: 'posting' },
           data: { status: 'post_failed', postError: errorMsg },
         })
         const failedSubmission = await db.submission.findUnique({ where: { id: submission.id } })
@@ -535,11 +560,11 @@ export async function POST(req: NextRequest) {
       }
     } catch (postError) {
       // Post threw exception — mark as post_failed so admin can see the error and retry
-      // Only update if still pending — don't overwrite admin rejection/deletion
+      // Only update if still "posting" — don't overwrite admin rejection/deletion
       const errorMsg = postError instanceof Error ? postError.message : String(postError)
       debug('[submit] Auto-post exception, marking as post_failed:', errorMsg)
       await db.submission.updateMany({
-        where: { id: submission.id, status: 'pending' },
+        where: { id: submission.id, status: 'posting' },
         data: { status: 'post_failed', postError: errorMsg },
       })
       const failedSubmission = await db.submission.findUnique({ where: { id: submission.id } })

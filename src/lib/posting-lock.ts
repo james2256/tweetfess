@@ -23,7 +23,7 @@ import { db } from '@/lib/db'
 import { debug } from '@/lib/debug'
 
 const LOCK_KEY = 'posting_lock'
-const LOCK_TIMEOUT_MS = 30_000 // 30s — max time a post attempt can take
+const LOCK_TIMEOUT_MS = 60_000 // 60s — 2× maxDuration to prevent double-post race
 
 /**
  * Atomically acquire the posting lock.

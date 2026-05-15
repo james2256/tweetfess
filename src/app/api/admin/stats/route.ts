@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   const circuitBreaker = await getCircuitBreakerStatus(filterSettingsData.rateLimits)
 
   return NextResponse.json({
-    pending: counts['pending'] || 0,
+    pending: (counts['pending'] || 0) + (counts['posting'] || 0),
     postFailed: counts['post_failed'] || 0,
     rejected: counts['rejected'] || 0,
     posted: counts['posted'] || 0,
