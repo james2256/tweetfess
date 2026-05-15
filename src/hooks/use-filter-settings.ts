@@ -23,7 +23,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
   const [geminiApiKeySet, setGeminiApiKeySet] = useState(false)
   const [showGeminiKey, setShowGeminiKey] = useState(false)
   const [rateLimits, setRateLimits] = useState<RateLimitSettings>({ ...DEFAULT_RATE_LIMITS })
-  const [whitelistText, setWhitelistText] = useState('')
+  const [whitelistUsernames, setWhitelistUsernames] = useState<string[]>([])
   const { toast } = useToast()
 
   // Load filter settings from stats response
@@ -35,7 +35,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     setGeminiEnabled(settings.geminiEnabled)
     setGeminiApiKeySet(settings.geminiApiKeySet)
     if (settings.rateLimits) setRateLimits(settings.rateLimits)
-    if (settings.whitelistUsernames) setWhitelistText(settings.whitelistUsernames.join(', '))
+    if (settings.whitelistUsernames) setWhitelistUsernames(settings.whitelistUsernames)
   }, [])
 
   const toggleAutoApprove = useCallback(() => {
@@ -81,11 +81,6 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
         .map((w) => w.trim().toLowerCase())
         .filter((w) => w.length > 0)
 
-      const whitelist = whitelistText
-        .split(/[,\n]+/)
-        .map((u) => u.trim().toLowerCase())
-        .filter((u) => u.length > 0)
-
       const data = await apiClient.saveFilterSettings({
         autoApprove,
         blockedWords: words,
@@ -93,10 +88,10 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
         filterRules,
         geminiEnabled,
         rateLimits,
-        // whitelistUsernames is NOT saved here — the block/unblock routes
+        // whitelistUsernames is NOT saved here — the whitelist/unwhitelist routes
         // manage it atomically via SQL. Sending it here would overwrite
-        // the whitelist with stale data if another admin blocked/unblocked
-        // a user since this page loaded.
+        // the whitelist with stale data if another admin modified it
+        // since this page loaded.
       })
       if (!data.error) {
         toast({
@@ -112,7 +107,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     } finally {
       setIsSaving(false)
     }
-  }, [adminToken, autoApprove, blockedWordsText, nsfwWordsText, filterRules, geminiEnabled, rateLimits, whitelistText, onStatsRefresh, toast])
+  }, [adminToken, autoApprove, blockedWordsText, nsfwWordsText, filterRules, geminiEnabled, rateLimits, onStatsRefresh, toast])
 
   // Reset state (used when admin logs out)
   const resetState = useCallback(() => {
@@ -124,7 +119,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     setGeminiApiKeyInput('')
     setGeminiApiKeySet(false)
     setRateLimits({ ...DEFAULT_RATE_LIMITS })
-    setWhitelistText('')
+    setWhitelistUsernames([])
   }, [])
 
   return {
@@ -138,7 +133,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     geminiApiKeySet,
     showGeminiKey,
     rateLimits,
-    whitelistText,
+    whitelistUsernames,
     DEFAULT_BLOCKED_WORDS,
     DEFAULT_NSFW_WORDS,
     toggleAutoApprove,
@@ -150,7 +145,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     setGeminiApiKeyInput,
     setShowGeminiKey,
     setRateLimits,
-    setWhitelistText,
+    setWhitelistUsernames,
     saveGeminiKey,
     saveFilterSettings,
     loadFromFilterSettings,

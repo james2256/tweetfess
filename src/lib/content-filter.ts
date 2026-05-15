@@ -29,8 +29,7 @@ export const DEFAULT_BLOCKED_WORDS: string[] = [
   // English profanity
   'fuck', 'fucking', 'shit', 'asshole', 'bitch', 'dick', 'pussy',
   'penis', 'vagina', 'damn', 'blowjob',
-  // Marketplace tags
-  'wts', 'wtb', 'wtt',
+  // Marketplace tags (WTS/WTB/WTT) are handled by checkJualan() with more context
 ]
 
 // NSFW/explicit words (OFF by default for Alter menfess, admin can enable)

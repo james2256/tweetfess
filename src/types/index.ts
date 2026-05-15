@@ -348,5 +348,6 @@ export function getAdminCookie(): string {
 }
 
 export function clearAdminCookie(): void {
-  document.cookie = `${ADMIN_COOKIE}=;path=/;max-age=0`
+  const secure = window.location.protocol === 'https:' ? ';Secure' : ''
+  document.cookie = `${ADMIN_COOKIE}=;path=/;max-age=0;samesite=strict${secure}`
 }

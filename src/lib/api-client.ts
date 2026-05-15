@@ -210,6 +210,20 @@ class ApiClient {
       body: JSON.stringify({ username, customLimits }),
     })
   }
+
+  async whitelistUser(username: string): Promise<{ success?: boolean; whitelisted?: string; error?: string }> {
+    return this.request('/api/admin/submitters/whitelist', {
+      method: 'POST',
+      body: JSON.stringify({ username }),
+    })
+  }
+
+  async unwhitelistUser(username: string): Promise<{ success?: boolean; removed?: string; error?: string }> {
+    return this.request('/api/admin/submitters/whitelist', {
+      method: 'DELETE',
+      body: JSON.stringify({ username }),
+    })
+  }
 }
 
 export const apiClient = new ApiClient()

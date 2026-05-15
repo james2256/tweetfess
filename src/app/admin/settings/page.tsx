@@ -229,10 +229,8 @@ export default function AdminSettingsPage() {
             />
 
             <WhitelistCard
-              whitelistText={filterSettings.whitelistText}
-              setWhitelistText={filterSettings.setWhitelistText}
-              isSaving={filterSettings.isSaving}
-              saveFilterSettings={filterSaveFilterSettings}
+              whitelistUsernames={filterSettings.whitelistUsernames}
+              onWhitelistChange={() => stats.refetch()}
             />
           </motion.div>
         </TabsContent>
