@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { PER_USER_LIMIT_KEYS } from '@/types'
+import { Prisma } from '@prisma/client'
 
 // PATCH /api/admin/submitters/limits — Set/clear custom limits for a submitter
 // Only accepts `username` as identifier (matches existing admin patterns).
@@ -40,7 +41,7 @@ export async function PATCH(req: NextRequest) {
       // Clear all custom limits
       const updated = await db.submitter.update({
         where: { id: submitter.id },
-        data: { customLimits: null },
+        data: { customLimits: Prisma.DbNull },
         select: { id: true, username: true, customLimits: true },
       })
       return NextResponse.json({
@@ -97,7 +98,7 @@ export async function PATCH(req: NextRequest) {
 
     const updated = await db.submitter.update({
       where: { id: submitter.id },
-      data: { customLimits: finalCustomLimits ? (finalCustomLimits as any) : null },
+      data: { customLimits: finalCustomLimits ? (finalCustomLimits as any) : Prisma.DbNull },
       select: { id: true, username: true, customLimits: true },
     })
 
