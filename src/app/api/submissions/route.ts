@@ -65,6 +65,10 @@ export async function GET(req: NextRequest) {
 // POST /api/submissions - Create new submission (requires Twitter login)
 // When auto-approve is ON and both filters pass, submission is auto-posted to X
 export async function POST(req: NextRequest) {
+  // Declare lockValue outside try so outer catch can release it on error
+  // (e.g. if updateMany throws between lock acquisition and inner try/finally)
+  let lockValue: string | null = null
+
   try {
     // Get submitter from session cookie (Twitter OAuth)
     const submitter = await getSubmitterFromNextRequest(req)
@@ -471,7 +475,7 @@ export async function POST(req: NextRequest) {
     })
 
     // Acquire distributed lock — only one post to X at a time
-    const lockValue = await acquirePostingLock()
+    lockValue = await acquirePostingLock()
     if (!lockValue) {
       debug('[submit] Posting lock busy, queuing submission')
       return NextResponse.json({
@@ -580,9 +584,15 @@ export async function POST(req: NextRequest) {
         error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
       }, { status: 201 })
     } finally {
-      await releasePostingLock(lockValue)
+      await releasePostingLock(lockValue!)
+      lockValue = null // Mark as released so outer catch doesn't double-release
     }
   } catch (e) {
+    // Release lock if it was acquired but not yet released by inner finally
+    // (e.g. updateMany threw between lock acquisition and inner try/finally)
+    if (lockValue) {
+      await releasePostingLock(lockValue).catch(() => {})
+    }
     console.error('[submit] Unexpected error:', e)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }

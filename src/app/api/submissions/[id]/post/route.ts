@@ -19,6 +19,10 @@ export async function POST(
   const auth = verifyAdmin(req.headers.get('authorization'))
   if (!auth.authorized) return auth.response
 
+  // Declare lockValue outside try so outer catch can release it on error
+  // (e.g. if updateMany throws between lock acquisition and inner try/finally)
+  let lockValue: string | null = null
+
   try {
     const { id } = await params
 
@@ -45,7 +49,7 @@ export async function POST(
     }
 
     // Acquire distributed lock — only one post to X at a time
-    const lockValue = await acquirePostingLock()
+    lockValue = await acquirePostingLock()
     if (!lockValue) {
       debug('[post route] Posting lock busy')
       return NextResponse.json(
@@ -129,9 +133,15 @@ export async function POST(
         retriesUsed: tweetResult.retriesUsed,
       })
     } finally {
-      await releasePostingLock(lockValue)
+      await releasePostingLock(lockValue!)
+      lockValue = null // Mark as released so outer catch doesn't double-release
     }
   } catch (error) {
+    // Release lock if it was acquired but not yet released by inner finally
+    // (e.g. updateMany threw between lock acquisition and inner try/finally)
+    if (lockValue) {
+      await releasePostingLock(lockValue).catch(() => {})
+    }
     console.error('Post to X error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }

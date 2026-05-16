@@ -195,7 +195,10 @@ export function normalizeText(text: string): string {
     .normalize('NFKC')
     // 5. Replace homoglyphs (Cyrillic/Greek → Latin)
     .replace(/[^\x00-\x7F]/g, (ch) => HOMOGLYPH_MAP[ch] || ch)
-    // 6. Strip remaining non-word chars (keep word chars, spaces, @)
+    // 6. Lowercase — ensures case-insensitive duplicate detection and
+    //    consistent blocked word matching (prevents bypass by toggling case)
+    .toLowerCase()
+    // 7. Strip remaining non-word chars (keep word chars, spaces, @)
     .replace(/[^\w\s@]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -207,7 +210,7 @@ function checkBlockedWords(
   message: string,
   blockedWords: string[],
 ): { matched: string[]; reasons: string[] } {
-  const normalized = normalizeText(message).toLowerCase()
+  const normalized = normalizeText(message).toLowerCase() // toLowerCase is redundant but safe — normalizeText already lowercases
   const words = normalized.split(/\s+/)
   const matched: string[] = []
   const reasons: string[] = []
@@ -264,6 +267,9 @@ function checkJualan(message: string): string[] {
 
 function checkUrls(message: string): string[] {
   const reasons: string[] = []
+  // Normalize to strip zero-width characters that break URL regex patterns
+  // (e.g. "https\u200B://evil.com" bypasses /https?:\/\/\S+/ without normalization)
+  const normalized = normalizeForFilter(message)
   const urlPatterns = [
     /https?:\/\/\S+/i,
     /\bbit\.ly\/\S+/i,
@@ -272,7 +278,7 @@ function checkUrls(message: string): string[] {
     /\bcutt\.ly\/\S+/i,
   ]
   for (const pattern of urlPatterns) {
-    if (pattern.test(message)) {
+    if (pattern.test(normalized)) {
       reasons.push('contains_url')
       break // one reason is enough
     }
