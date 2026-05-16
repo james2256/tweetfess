@@ -69,3 +69,16 @@ model LimitHit {
   @@index([limitType, createdAt])
   @@index([username, createdAt])
 }
+
+// Server-side OAuth state storage — eliminates dependency on browser cookies
+// for PKCE code_verifier and CSRF state. Fixes mobile login where X app's
+// WebView has a separate cookie store from Chrome/Safari.
+model OAuthFlow {
+  id            String   @id @default(cuid())
+  codeVerifier  String   // PKCE code_verifier
+  state         String   // Full CSRF state string (flowId.randomState)
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime // 10 min TTL
+
+  @@index([expiresAt])  // for cleanup: deleteMany({ where: { expiresAt: { lt: now } } })
+}

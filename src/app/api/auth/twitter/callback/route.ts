@@ -7,16 +7,37 @@ import {
   getBaseUrl,
   getOAuth2Credentials,
 } from '@/lib/twitter-auth'
+import { db } from '@/lib/db'
 
 // Helper: redirect to error page and clear OAuth temp cookies
 function authErrorRedirect(baseUrl: string, path: string = '/?auth=error'): NextResponse {
   const response = NextResponse.redirect(new URL(path, baseUrl))
   response.cookies.set('twitter_oauth_state', '', { maxAge: 0, path: '/' })
   response.cookies.set('twitter_oauth_verifier', '', { maxAge: 0, path: '/' })
+  response.cookies.set('twitter_oauth_flow_id', '', { maxAge: 0, path: '/' })
   return response
 }
 
+// Opportunistic cleanup: delete expired OAuthFlow records.
+// Runs as part of the callback to keep the table clean without a separate cron job.
+// Limited to 50 records to avoid slowing down the callback.
+async function cleanupExpiredFlows() {
+  try {
+    await db.oAuthFlow.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    })
+  } catch {
+    // Non-critical — don't block the login flow
+  }
+}
+
 // GET /api/auth/twitter/callback - Handle Twitter OAuth 2.0 callback
+//
+// State resolution strategy (dual-path):
+// 1. PRIMARY: Extract flowId from the `state` param → look up OAuthFlow in DB
+//    This works even if the callback loads in X's in-app WebView (separate cookie store).
+// 2. FALLBACK: Read state + code_verifier from cookies (desktop / no-X-app scenarios)
+//
 // Returns an intermediate HTML page that sets the session cookie via fetch,
 // then redirects to the home page. This is more reliable on Vercel than
 // setting cookies in redirect responses (which can be dropped by the CDN).
@@ -40,18 +61,63 @@ export async function GET(req: NextRequest) {
     return authErrorRedirect(baseUrl)
   }
 
-  // Verify state matches (CSRF protection) - use NextRequest cookies API
-  const storedState = req.cookies.get('twitter_oauth_state')?.value
-  if (state !== storedState) {
-    console.error('OAuth state mismatch - possible CSRF attack')
-    return authErrorRedirect(baseUrl)
+  // --- Resolve OAuth state: try DB first, fall back to cookies ---
+  let codeVerifier: string | undefined
+
+  // Path 1: DB-based state (works across browser contexts — fixes mobile login)
+  const stateParts = state.split('.')
+  const flowId = stateParts[0]
+
+  if (flowId) {
+    try {
+      const flow = await db.oAuthFlow.findUnique({ where: { id: flowId } })
+
+      if (flow) {
+        // Verify the full state matches (CSRF protection)
+        const expectedState = `${flow.id}.${flow.state}`
+        if (state !== expectedState) {
+          console.error('OAuth state mismatch (DB) — possible CSRF attack')
+          // Delete the flow to prevent reuse
+          await db.oAuthFlow.delete({ where: { id: flowId } }).catch(() => {})
+          return authErrorRedirect(baseUrl)
+        }
+
+        // Check expiry
+        if (flow.expiresAt < new Date()) {
+          console.error('OAuth flow expired')
+          await db.oAuthFlow.delete({ where: { id: flowId } }).catch(() => {})
+          return authErrorRedirect(baseUrl)
+        }
+
+        // State verified — consume the flow (one-time use)
+        codeVerifier = flow.codeVerifier
+        await db.oAuthFlow.delete({ where: { id: flowId } })
+
+        // Opportunistic cleanup of expired flows
+        cleanupExpiredFlows() // fire-and-forget — don't await
+
+        console.log('[oauth] State resolved from DB (flowId:', flowId, ')')
+      }
+    } catch (dbError) {
+      console.error('[oauth] DB lookup failed, falling back to cookies:', dbError)
+    }
   }
 
-  // Get code verifier from cookie - use NextRequest cookies API
-  const codeVerifier = req.cookies.get('twitter_oauth_verifier')?.value
+  // Path 2: Cookie-based fallback (desktop / mobile without X app)
   if (!codeVerifier) {
-    console.error('Missing OAuth code verifier cookie - may have expired')
-    return authErrorRedirect(baseUrl)
+    const storedState = req.cookies.get('twitter_oauth_state')?.value
+    if (state !== storedState) {
+      console.error('OAuth state mismatch (cookie) — possible CSRF attack or cross-browser-context redirect')
+      return authErrorRedirect(baseUrl)
+    }
+
+    codeVerifier = req.cookies.get('twitter_oauth_verifier')?.value
+    if (!codeVerifier) {
+      console.error('Missing OAuth code verifier cookie — may have expired or cross-browser-context redirect')
+      return authErrorRedirect(baseUrl)
+    }
+
+    console.log('[oauth] State resolved from cookies (fallback)')
   }
 
   // Get OAuth2 credentials (supports both OAUTH2_* and TWITTER_* env var names)
@@ -169,6 +235,7 @@ export async function GET(req: NextRequest) {
     // Clear OAuth temporary cookies
     response.cookies.set('twitter_oauth_verifier', '', { maxAge: 0, path: '/' })
     response.cookies.set('twitter_oauth_state', '', { maxAge: 0, path: '/' })
+    response.cookies.set('twitter_oauth_flow_id', '', { maxAge: 0, path: '/' })
 
     return response
   } catch (error) {
