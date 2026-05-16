@@ -87,8 +87,8 @@ export function ApiFallbackCard({
       <Card className="shadow-sm border-[#EFF3F4]">
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Key className="w-4 h-4 text-purple-500" /> API Fallback (twitterapi.io)
+            <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <Key className="w-4 h-4 text-purple-500 shrink-0" /> <span>API Fallback (twitterapi.io)</span>
               {apiLoginStatus?.hasLoginCookie ? (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-green-50 text-green-700 border-green-300">
                   <CircleDot className="w-2.5 h-2.5 mr-1 fill-green-500 text-green-500" />
@@ -324,7 +324,7 @@ export function ApiFallbackCard({
                 </label>
                 <div className="space-y-1.5">
                   {apiCredits.map((credit, idx) => (
-                    <div key={idx} className="flex items-center justify-between bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
+                    <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4] gap-1">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-mono text-[#536471]">{credit.apiKey}</span>
                         {credit.error && (
@@ -333,7 +333,7 @@ export function ApiFallbackCard({
                           </Badge>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[10px] text-[#71767B]">Bonus: {credit.bonusCredits}</span>
                         <span className="text-[10px] font-medium text-[#3D4145]">Total: {credit.totalCredits}</span>
                         <span className="text-[8px] text-[#71767B]">(~{Math.floor(credit.totalCredits / 300)} tweets)</span>

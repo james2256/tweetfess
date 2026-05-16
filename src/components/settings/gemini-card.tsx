@@ -45,8 +45,8 @@ export function GeminiCard({
       <Card className="shadow-sm border-[#EFF3F4]">
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-500" /> Gemini AI Filter
+            <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <Sparkles className="w-4 h-4 text-purple-500 shrink-0" /> <span>Gemini AI Filter</span>
               {geminiEnabled && geminiApiKeySet && (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-green-50 text-green-700 border-green-300">
                   Active

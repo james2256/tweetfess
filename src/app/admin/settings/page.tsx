@@ -111,34 +111,34 @@ export default function AdminSettingsPage() {
 
       {/* Tab-based Settings Layout */}
       <Tabs defaultValue="posting" className="w-full">
-        <TabsList className="bg-[#EFF3F4] p-1 h-auto rounded-xl w-full sm:w-fit">
+        <TabsList className="bg-[#EFF3F4] p-1 h-auto rounded-xl w-full sm:w-fit grid grid-cols-4 sm:flex">
           <TabsTrigger
             value="posting"
-            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-4 py-2 text-sm font-medium gap-2"
+            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium gap-1 sm:gap-2"
           >
-            <Send className="size-4" />
-            Posting
+            <Send className="size-3.5 sm:size-4" />
+            <span className="truncate">Posting</span>
           </TabsTrigger>
           <TabsTrigger
             value="filter"
-            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-4 py-2 text-sm font-medium gap-2"
+            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium gap-1 sm:gap-2"
           >
-            <Shield className="size-4" />
-            Filter
+            <Shield className="size-3.5 sm:size-4" />
+            <span className="truncate">Filter</span>
           </TabsTrigger>
           <TabsTrigger
             value="users"
-            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-4 py-2 text-sm font-medium gap-2"
+            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium gap-1 sm:gap-2"
           >
-            <Users className="size-4" />
-            Users
+            <Users className="size-3.5 sm:size-4" />
+            <span className="truncate">Users</span>
           </TabsTrigger>
           <TabsTrigger
             value="limits"
-            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-4 py-2 text-sm font-medium gap-2"
+            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-2 sm:px-4 py-2 text-xs sm:text-sm font-medium gap-1 sm:gap-2"
           >
-            <Clock className="size-4" />
-            Limits
+            <Clock className="size-3.5 sm:size-4" />
+            <span className="truncate">Limits</span>
           </TabsTrigger>
         </TabsList>
 

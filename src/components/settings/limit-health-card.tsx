@@ -58,8 +58,8 @@ export function LimitHealthCard() {
       <Card className="shadow-sm border-[#EFF3F4]">
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Activity className="w-4 h-4 text-[#536471]" /> Limit Health
+            <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <Activity className="w-4 h-4 text-[#536471] shrink-0" /> <span>Limit Health</span>
               {hasHits && (
                 <Badge variant="outline" className="text-[9px] px-1 py-0 bg-amber-50 text-amber-700 border-amber-200">
                   {data.totalHits} hit{data.totalHits !== 1 ? 's' : ''}/{data.windowLabel}
@@ -85,7 +85,7 @@ export function LimitHealthCard() {
             {data && (
               <>
                 {/* Summary grid */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
                   {data.summary.map((item) => {
                     const colors = TYPE_COLORS[item.limitType] || TYPE_COLORS.cooldown
                     const isHot = item.totalHits >= 20

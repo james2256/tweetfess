@@ -20,7 +20,7 @@ export function StatsGrid({ stats, onPenggunaClick }: StatsGridProps) {
   ]
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+    <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
       {statCards.map((stat) => {
         const isPengguna = stat.label === 'Pengguna'
         return (

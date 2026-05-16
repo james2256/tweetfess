@@ -73,8 +73,8 @@ export function WhitelistCard({
       <Card className="shadow-sm border-[#EFF3F4]">
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
-            <CardTitle className="text-base flex items-center gap-2">
-              <UserCheck className="w-4 h-4 text-[#536471]" /> Whitelist
+            <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <UserCheck className="w-4 h-4 text-[#536471] shrink-0" /> <span>Whitelist</span>
               {whitelistUsernames.length > 0 && (
                 <Badge variant="secondary" className="text-[9px] px-1.5 py-0">
                   {whitelistUsernames.length} user

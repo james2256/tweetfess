@@ -75,8 +75,8 @@ export function DirectPostingCard({
       <Card className="shadow-sm border-[#EFF3F4]">
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Settings className="w-4 h-4 text-[#536471]" /> Direct Posting (Cookie Method)
+            <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <Settings className="w-4 h-4 text-[#536471] shrink-0" /> <span>Direct Posting (Cookie Method)</span>
               {cookieStatus?.configured ? (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-green-50 text-green-700 border-green-300">
                   <CircleDot className="w-2.5 h-2.5 mr-1 fill-green-500 text-green-500" />

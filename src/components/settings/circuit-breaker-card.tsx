@@ -41,8 +41,8 @@ export function CircuitBreakerCard({
       <Card className="shadow-sm border-[#EFF3F4]">
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Activity className="w-4 h-4 text-[#536471]" /> Circuit Breaker
+            <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <Activity className="w-4 h-4 text-[#536471] shrink-0" /> <span>Circuit Breaker</span>
               {circuitBreakerStatus?.paused && (
                 <Badge variant="destructive" className="text-[9px] px-1.5 py-0">
                   PAUSED — {liveRemainingMinutes}m tersisa
@@ -65,7 +65,7 @@ export function CircuitBreakerCard({
         <CollapsibleContent>
           <CardContent className="space-y-3">
             {/* Status display */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-medium text-[#536471]">Status</span>
               {circuitBreakerStatus?.paused && (
                 <>
@@ -95,7 +95,7 @@ export function CircuitBreakerCard({
             </div>
 
             {/* Threshold + Cooldown + Window inputs */}
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div>
                 <label className="text-[10px] font-medium text-[#536471] block mb-1">Kegagalan berturut-turut</label>
                 <Input

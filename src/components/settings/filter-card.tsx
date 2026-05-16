@@ -76,8 +76,8 @@ export function FilterCard({
       <Card className="shadow-sm border-[#EFF3F4]">
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Filter className="w-4 h-4 text-[#536471]" /> Filter & Auto-Approve
+            <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <Filter className="w-4 h-4 text-[#536471] shrink-0" /> <span>Filter & Auto-Approve</span>
               {autoApprove ? (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-green-50 text-green-700 border-green-300">
                   <ShieldCheck className="w-2.5 h-2.5 mr-1" />

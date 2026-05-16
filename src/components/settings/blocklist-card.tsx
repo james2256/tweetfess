@@ -73,8 +73,8 @@ export function BlocklistCard({
       <Card className="shadow-sm border-[#EFF3F4]">
         <CollapsibleTrigger asChild>
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
-            <CardTitle className="text-base flex items-center gap-2">
-              <UserX className="w-4 h-4 text-[#536471]" /> Blocklist
+            <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <UserX className="w-4 h-4 text-[#536471] shrink-0" /> <span>Blocklist</span>
               {blockedUsernames.length > 0 && (
                 <Badge variant="secondary" className="text-[9px] px-1.5 py-0 bg-red-50 text-red-700">
                   {blockedUsernames.length} user
