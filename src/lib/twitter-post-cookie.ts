@@ -1,7 +1,7 @@
 import { db } from '@/lib/db'
 import { generateTransactionId, fetchXcomHtml, clearTransactionIdCache as clearXactCache } from '@/lib/x-transaction-id'
 import { generateTransactionIdFromPair, clearPairCache } from '@/lib/x-transaction-id-pair'
-import { postViaTwitterApi } from '@/lib/twitter-api-fallback'
+import { postViaCookieApi, postViaTwitterApi, isV2LoginEnabled } from '@/lib/twitter-api-fallback'
 import { decrypt, isEncrypted } from '@/lib/encrypt'
 import { debug } from '@/lib/debug'
 
@@ -13,7 +13,7 @@ import { debug } from '@/lib/debug'
 //
 // How it works:
 // 1. Read cookie string from DB → env var → null
-// 2. Parse auth_token and ct0 from the cookie string
+// 2. Parse auth_token, ct0, and twid from the cookie string
 // 3. Resolve queryId: in-memory cache → DB → live fetch → DB fallback
 // 4. Read bearer token from DB (required, no default)
 // 5. Generate x-client-transaction-id:
@@ -148,7 +148,7 @@ async function getSettings(): Promise<Record<string, string>> {
 
 /**
  * Parse the full cookie string from the browser.
- * Extracts auth_token and ct0 which are required for X API calls.
+ * Extracts auth_token, ct0, and twid which are required for X API calls.
  *
  * The cookie string looks like:
  *   "auth_token=abc123; ct0=xyz789; twid=...; kdt=..."
@@ -161,11 +161,13 @@ async function getSettings(): Promise<Record<string, string>> {
 export function parseXCookies(cookieString: string): {
   auth_token: string | null
   ct0: string | null
+  twid: string | null
   raw: string
 } {
   const auth_token = cookieString.match(/auth_token=([^;]+)/)?.[1] || null
   const ct0 = cookieString.match(/ct0=([^;]+)/)?.[1] || null
-  return { auth_token, ct0, raw: cookieString }
+  const twid = cookieString.match(/twid=([^;]+)/)?.[1] || null
+  return { auth_token, ct0, twid, raw: cookieString }
 }
 
 /**
@@ -233,7 +235,7 @@ export async function postTweetViaCookie(
   success: boolean
   tweetId?: string
   error?: string
-  method: 'direct' | 'retry' | 'fallback'
+  method: 'direct' | 'retry' | 'fallback_cookie' | 'fallback_login'
   retriesUsed?: number
 }> {
   // 1. Get all settings in one DB query (includes post_method)
@@ -241,15 +243,10 @@ export async function postTweetViaCookie(
   const postMethod = (settings.post_method === 'direct' || settings.post_method === 'api') ? settings.post_method : 'auto'
 
   // If API-only mode, skip direct posting entirely
+  // Try Layer 2 (cookie API) first, then Layer 3 (V2 login) if enabled
   if (postMethod === 'api') {
     debug('[direct] Post method is API-only, skipping direct post')
-    const fallbackResult = await postViaTwitterApi(text)
-    return {
-      success: fallbackResult.success,
-      tweetId: fallbackResult.tweetId,
-      error: fallbackResult.error,
-      method: 'fallback',
-    }
+    return tryApiFallback(text)
   }
 
   debug('[direct] Post method:', postMethod)
@@ -261,9 +258,72 @@ export async function postTweetViaCookie(
     has_api_keys: !!settings.twitterapi_keys,
   })
 
-  // Helper: try twitterapi.io fallback if in auto mode, otherwise return direct failure.
-  // Ensures auto-mode degrades gracefully — if cookie-based posting fails for any
-  // reason (expired cookie, auth errors, network errors), the paid API takes over.
+  // Helper: try API fallback — Layer 2 (cookie API) first, then Layer 3 (V2 login) if enabled.
+  // This is used by both auto-mode (after direct fails) and api-only mode.
+  async function tryApiFallback(
+    directError?: string,
+    retriesUsed: number = 0,
+    directMethod?: 'direct' | 'retry',
+  ): Promise<{
+    success: boolean
+    tweetId?: string
+    error?: string
+    method: 'direct' | 'retry' | 'fallback_cookie' | 'fallback_login'
+    retriesUsed?: number
+  }> {
+    // Layer 2: Cookie-based API (300 credits)
+    debug('[direct] Trying Layer 2: Cookie API fallback')
+    const cookieResult = await postViaCookieApi(text)
+    if (cookieResult.success) {
+      return {
+        success: true,
+        tweetId: cookieResult.tweetId,
+        method: 'fallback_cookie',
+        retriesUsed,
+      }
+    }
+
+    debug('[direct] Layer 2 failed:', cookieResult.error?.slice(0, 100))
+
+    // Layer 3: V2 Login API (800 credits) — only if toggle is ON
+    const v2Enabled = await isV2LoginEnabled()
+    if (v2Enabled) {
+      debug('[direct] Trying Layer 3: V2 Login API fallback')
+      const v2Result = await postViaTwitterApi(text)
+      if (v2Result.success) {
+        return {
+          success: true,
+          tweetId: v2Result.tweetId,
+          method: 'fallback_login',
+          retriesUsed,
+        }
+      }
+      // Both layers failed
+      const combinedError = directError
+        ? `Direct gagal: ${directError.slice(0, 150)}. Cookie API gagal: ${cookieResult.error?.slice(0, 100)}. V2 Login gagal: ${v2Result.error?.slice(0, 100)}`
+        : `Cookie API gagal: ${cookieResult.error?.slice(0, 150)}. V2 Login gagal: ${v2Result.error?.slice(0, 100)}`
+      return {
+        success: false,
+        error: combinedError,
+        method: v2Result.method,
+        retriesUsed,
+      }
+    }
+
+    // V2 login not enabled — return Layer 2 error
+    const combinedError = directError
+      ? `Direct gagal: ${directError.slice(0, 150)}. Cookie API juga gagal: ${cookieResult.error || 'Unknown error'}`
+      : `Cookie API gagal: ${cookieResult.error || 'Unknown error'}`
+    return {
+      success: false,
+      error: combinedError,
+      method: cookieResult.method,
+      retriesUsed,
+    }
+  }
+
+  // Helper: fallbackOrFail — used when direct posting fails in auto mode.
+  // In direct mode, just returns the error.
   async function fallbackOrFail(
     error: string,
     method: 'direct' | 'retry',
@@ -272,28 +332,14 @@ export async function postTweetViaCookie(
     success: boolean
     tweetId?: string
     error?: string
-    method: 'direct' | 'retry' | 'fallback'
+    method: 'direct' | 'retry' | 'fallback_cookie' | 'fallback_login'
     retriesUsed?: number
   }> {
     if (postMethod !== 'auto') {
       return { success: false, error, method, retriesUsed }
     }
-    debug('[direct] Direct posting failed, trying twitterapi.io fallback:', error.slice(0, 100))
-    const fallbackResult = await postViaTwitterApi(text)
-    if (fallbackResult.success) {
-      return {
-        success: true,
-        tweetId: fallbackResult.tweetId,
-        method: 'fallback',
-        retriesUsed,
-      }
-    }
-    return {
-      success: false,
-      error: `Direct gagal: ${error.slice(0, 200)}. Fallback juga gagal: ${fallbackResult.error || 'Unknown error'}`,
-      method: 'fallback',
-      retriesUsed,
-    }
+    debug('[direct] Direct posting failed, trying API fallback:', error.slice(0, 100))
+    return tryApiFallback(error, retriesUsed, method)
   }
 
   // 2. Resolve cookie string: DB → env var → null
@@ -309,10 +355,16 @@ export async function postTweetViaCookie(
   debug('[direct] Cookie parsed:', {
     has_auth_token: !!cookies.auth_token,
     has_ct0: !!cookies.ct0,
+    has_twid: !!cookies.twid,
     cookie_length: cookies.raw.length,
   })
-  if (!cookies.auth_token || !cookies.ct0) {
-    return fallbackOrFail('Cookie string is missing auth_token or ct0. Copy the full cookie string from your browser.', 'direct')
+  if (!cookies.auth_token || !cookies.ct0 || !cookies.twid) {
+    const missing = [
+      !cookies.auth_token && 'auth_token',
+      !cookies.ct0 && 'ct0',
+      !cookies.twid && 'twid',
+    ].filter(Boolean).join(', ')
+    return fallbackOrFail(`Cookie string is missing ${missing}. Copy the full cookie string from your browser.`, 'direct')
   }
 
   // 4. Resolve bearer token (required — no default)
@@ -572,25 +624,10 @@ export async function postTweetViaCookie(
     }
   }
 
-  // All direct retries exhausted — try twitterapi.io fallback (if auto mode)
+  // All direct retries exhausted — try API fallback (if auto mode)
   if (postMethod === 'auto') {
-    debug('[direct] All retries exhausted, falling back to twitterapi.io')
-    const fallbackResult = await postViaTwitterApi(text)
-    if (fallbackResult.success) {
-      return {
-        success: true,
-        tweetId: fallbackResult.tweetId,
-        method: 'fallback',
-        retriesUsed: MAX_ATTEMPTS,
-      }
-    }
-    // Fallback also failed — return combined error
-    return {
-      success: false,
-      error: `Direct posting gagal setelah ${MAX_ATTEMPTS} percobaan. Fallback API juga gagal: ${fallbackResult.error}`,
-      method: 'fallback',
-      retriesUsed: MAX_ATTEMPTS,
-    }
+    debug('[direct] All retries exhausted, falling back to API')
+    return tryApiFallback(lastError, MAX_ATTEMPTS, 'retry')
   }
 
   // Direct mode only — no fallback
@@ -605,7 +642,7 @@ export async function postTweetViaCookie(
 /**
  * Check if cookie auth is configured and return status info.
  * Used by the admin dashboard to show connection status.
- * "Configured" means the two required values are set: cookie and bearer.
+ * "Configured" means the required values are set: cookie string (must contain auth_token, ct0, twid) and bearer token.
  * queryId is optional (auto-fetched at post time), but tracked in `missing`
  * so admins know it's not stored as a fallback.
  */
@@ -622,7 +659,7 @@ export async function getCookieAuthStatus(): Promise<{
   const hasBearer = !!settings.x_bearer_token
   const hasQueryId = !!settings.x_query_id
 
-  // Cookie and bearer are required; queryId is auto-fetched but tracked
+  // Cookie (auth_token + ct0 + twid) and bearer are required; queryId is auto-fetched but tracked
   if (!hasCookie) missing.push('x_cookie_string')
   if (!hasBearer) missing.push('x_bearer_token')
   if (!hasQueryId) missing.push('x_query_id')

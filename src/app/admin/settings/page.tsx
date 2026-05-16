@@ -47,6 +47,9 @@ export default function AdminSettingsPage() {
     if (s.postMethodSetting) {
       posting.setPostMethodSetting(s.postMethodSetting)
     }
+    if (s.apiLoginStatus?.v2LoginEnabled !== undefined) {
+      posting.setV2LoginEnabled(s.apiLoginStatus.v2LoginEnabled)
+    }
     if (s.circuitBreaker) {
       circuitBreaker.setStatus(s.circuitBreaker)
     }
@@ -188,6 +191,8 @@ export default function AdminSettingsPage() {
             <ApiFallbackCard
               postMethodSetting={posting.postMethodSetting}
               setPostMethodSetting={posting.setPostMethodSetting}
+              v2LoginEnabled={posting.v2LoginEnabled}
+              setV2LoginEnabled={posting.setV2LoginEnabled}
               xUsername={posting.xUsername}
               setXUsername={posting.setXUsername}
               xEmail={posting.xEmail}

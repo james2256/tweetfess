@@ -151,7 +151,7 @@ class ApiClient {
   }
 
   async saveSetting(key: string, value: string): Promise<{
-    parsed?: { auth_token: string; ct0: string }
+    parsed?: { auth_token: string; ct0: string; twid: string }
     autoLogin?: { attempted: boolean; success: boolean; error?: string }
     error?: string
   }> {

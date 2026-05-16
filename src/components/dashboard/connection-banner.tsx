@@ -1,6 +1,6 @@
 'use client'
 
-import { Wifi, CircleDot, AlertTriangle } from 'lucide-react'
+import { Wifi, CircleDot, AlertTriangle, Cookie, Shield } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import type { CookieAuthStatus, ApiLoginStatus } from '@/types'
 
@@ -42,34 +42,44 @@ export function ConnectionBanner({ cookieStatus, apiLoginStatus }: ConnectionBan
             )}
           </span>
           <span className="text-[#71767B] hidden sm:inline">|</span>
-          {/* API (Login Cookie) Status */}
+          {/* Cookie API Status (Layer 2) */}
           <span className="flex items-center gap-1.5">
-            <CircleDot
-              className={`w-3 h-3 ${
-                apiLoginStatus?.hasLoginCookie
-                  ? 'text-green-500 fill-green-500'
-                  : apiLoginStatus?.hasCredentials
-                  ? 'text-amber-500 fill-amber-500'
-                  : 'text-red-500 fill-red-500'
-              }`}
-            />
+            <Cookie className="w-3 h-3 text-[#536471]" />
             <span
               className={
-                apiLoginStatus?.hasLoginCookie
+                apiLoginStatus?.cookieApiReady
                   ? 'text-green-700 font-medium'
-                  : apiLoginStatus?.hasCredentials
-                  ? 'text-amber-600 font-medium'
                   : 'text-red-600'
               }
             >
-              API:{' '}
-              {apiLoginStatus?.hasLoginCookie
-                ? 'Logged in'
-                : apiLoginStatus?.hasCredentials
-                ? 'Need login'
-                : 'Not configured'}
+              Cookie API: {apiLoginStatus?.cookieApiReady ? 'Ready' : 'Not ready'}
             </span>
-            {apiLoginStatus?.lastLoginAt && (
+          </span>
+          <span className="text-[#71767B] hidden sm:inline">|</span>
+          {/* V2 Login Status (Layer 3) */}
+          <span className="flex items-center gap-1.5">
+            <Shield className="w-3 h-3 text-[#536471]" />
+            <span
+              className={
+                !apiLoginStatus?.v2LoginEnabled
+                  ? 'text-[#71767B]'
+                  : apiLoginStatus?.hasLoginCookie
+                    ? 'text-green-700 font-medium'
+                    : apiLoginStatus?.hasCredentials
+                      ? 'text-amber-600 font-medium'
+                      : 'text-red-600'
+              }
+            >
+              V2 Login:{' '}
+              {!apiLoginStatus?.v2LoginEnabled
+                ? 'Off'
+                : apiLoginStatus?.hasLoginCookie
+                  ? 'Active'
+                  : apiLoginStatus?.hasCredentials
+                    ? 'Need login'
+                    : 'Not configured'}
+            </span>
+            {apiLoginStatus?.v2LoginEnabled && apiLoginStatus?.lastLoginAt && (
               <span className="text-[#71767B]">
                 Last:{' '}
                 {new Date(apiLoginStatus.lastLoginAt).toLocaleDateString('id-ID', {
@@ -96,16 +106,6 @@ export function ConnectionBanner({ cookieStatus, apiLoginStatus }: ConnectionBan
                   {cookieStatus.missing.includes('x_query_id') && (
                     <span className="text-[#71767B]">(query ID: auto-fetch)</span>
                   )}
-                </span>
-              </>
-            )}
-          {apiLoginStatus?.missingCredentials &&
-            apiLoginStatus.missingCredentials.length > 0 &&
-            !apiLoginStatus.hasLoginCookie && (
-              <>
-                <span className="text-[#71767B] hidden sm:inline">|</span>
-                <span className="text-amber-600">
-                  API missing: {apiLoginStatus.missingCredentials.join(', ')}
                 </span>
               </>
             )}

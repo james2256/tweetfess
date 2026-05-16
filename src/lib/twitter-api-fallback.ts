@@ -3,14 +3,23 @@ import { encrypt, decrypt, isEncrypted } from '@/lib/encrypt'
 import { debug } from '@/lib/debug'
 
 // ============================================================
-// TwitterAPI.io fallback posting module (V2 API)
+// TwitterAPI.io posting module — 3-layer architecture
 //
-// Uses user_login_v2 → create_tweet_v2 flow:
-// 1. Login via user_login_v2 (username + email + password + totp_secret + proxy)
-//    → returns opaque login_cookie (NOT browser cookies)
-// 2. Cache login_cookie in DB (encrypted)
-// 3. Post via create_tweet_v2 with cached login_cookie + proxy
-// 4. If login_cookie expires → auto re-login → cache → retry
+// Layer 2: Cookie-based API posting (postViaCookieApi)
+//   Converts stored browser cookies → base64(JSON) → login_cookies
+//   for create_tweet_v2. Cost: 300 credits/tweet ($0.003).
+//   No login step needed — cookies are already in the DB.
+//   Proxy is required.
+//
+// Layer 3: V2 Login API posting (postViaTwitterApi)
+//   Uses user_login_v2 → create_tweet_v2 flow:
+//   1. Login via user_login_v2 (username + email + password + totp_secret + proxy)
+//      → returns login_cookie
+//   2. Cache login_cookie in DB (encrypted)
+//   3. Post via create_tweet_v2 with cached login_cookie + proxy
+//   4. If login_cookie expires → auto re-login → cache → retry
+//   Cost: 500 + 300 = 800 credits/tweet ($0.008).
+//   Controlled by v2_login_enabled toggle (OFF by default).
 //
 // Verified:
 // - V6:  API key validation works
@@ -19,15 +28,19 @@ import { debug } from '@/lib/debug'
 // - V10: 10k free credits on registration
 // - V12: /oapi/my/info is free
 // - V20: user_login_v2 returns login_cookie
-// - V22: Browser cookies do NOT work as login_cookies (U1 DISPROVED)
+// - V22: Browser cookies as raw string do NOT work as login_cookies (U1 DISPROVED)
 // - V23: login_cookie from user_login_v2 is an opaque string, not browser cookie format
 // - V24: login_cookie stays valid indefinitely (per twitterapi.io docs)
-// - V25: Proxy is REQUIRED for user_login_v2, recommended for create_tweet_v2
+// - V25: Proxy is REQUIRED for user_login_v2, required for create_tweet_v2
 // - V26: user_login_v2 costs 500 credits ($0.005) per call
+// - L2-1: Manual login_cookies = base64(JSON cookie dict) — verified by live test
+// - L2-2: auth_token + ct0 + twid is sufficient for manual construction
+// - L2-3: Proxy is required for create_tweet_v2 (returns "proxy is required" without it)
+// - L2-4: Manual construction works with create_tweet_v2 — tweet_id confirmed
 //
-// Key insight: login_cookies ≠ browser cookies.
-// login_cookies is a server-generated opaque token from user_login_v2.
-// Browser cookies (auth_token, ct0) are completely incompatible.
+// Key insight: login_cookies = base64(JSON of cookie key-value pairs).
+// The V2 login endpoint generates this from a browser session, but we can
+// construct it directly from stored browser cookies — saving 500 credits/tweet.
 // ============================================================
 
 const TWITTERAPI_BASE = 'https://api.twitterapi.io'
@@ -36,7 +49,7 @@ interface FallbackResult {
   success: boolean
   tweetId?: string
   error?: string
-  method: 'fallback'
+  method: 'fallback_cookie' | 'fallback_login'
   apiKeyUsed?: string
 }
 
@@ -79,7 +92,8 @@ async function getApiSettings(): Promise<Record<string, string>> {
         in: [
           'twitterapi_keys', 'twitterapi_proxy',
           'x_username', 'x_email', 'x_password', 'x_totp_secret',
-          'twitterapi_login_cookie',
+          'twitterapi_login_cookie', 'v2_login_enabled',
+          'x_cookie_string',
         ],
       },
       value: { not: '' },
@@ -111,6 +125,42 @@ async function setRotationIndex(index: number): Promise<void> {
     update: { value: String(index) },
     create: { key: 'twitterapi_key_index', value: String(index) },
   })
+}
+
+/**
+ * Convert a semicolon-separated cookie string to a base64-encoded JSON object
+ * suitable for twitterapi.io's login_cookies parameter.
+ *
+ * Input:  "auth_token=abc; ct0=xyz; twid=u=123; kdt=def"
+ * Output: base64('{"auth_token":"abc","ct0":"xyz","twid":"u=123","kdt":"def"}')
+ *
+ * Verified by live test: this format works with create_tweet_v2.
+ * Sends ALL cookies (not just the minimum 3) for better session fidelity.
+ */
+export function cookieStringToLoginCookies(cookieString: string): string | null {
+  if (!cookieString || !cookieString.trim()) return null
+
+  const cookies: Record<string, string> = {}
+  const pairs = cookieString.split(';')
+
+  for (const pair of pairs) {
+    const trimmed = pair.trim()
+    if (!trimmed) continue
+
+    const eqIdx = trimmed.indexOf('=')
+    if (eqIdx <= 0) continue // skip empty keys or missing '='
+
+    const key = trimmed.slice(0, eqIdx).trim()
+    const value = trimmed.slice(eqIdx + 1).trim()
+    if (key && value) {
+      cookies[key] = value
+    }
+  }
+
+  // Must have auth_token as the absolute minimum. Downstream (postTweetViaCookie) validates auth_token + ct0 + twid before posting.
+  if (!cookies.auth_token) return null
+
+  return Buffer.from(JSON.stringify(cookies)).toString('base64')
 }
 
 /**
@@ -231,13 +281,177 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
 }
 
 /**
- * Post a tweet via twitterapi.io create_tweet_v2.
+ * Layer 2: Post a tweet via twitterapi.io using browser cookies as login_cookies.
+ *
+ * Converts the stored x_cookie_string (semicolon-separated) to base64(JSON)
+ * and uses it directly with create_tweet_v2. No login step needed.
+ *
+ * Cost: 300 credits/tweet ($0.003).
+ * No caching — cookies are read fresh from DB on every call.
+ */
+export async function postViaCookieApi(text: string): Promise<FallbackResult> {
+  const settings = await getApiSettings()
+
+  // 1. Convert stored cookie string to login_cookies format
+  const loginCookies = cookieStringToLoginCookies(settings.x_cookie_string || '')
+  if (!loginCookies) {
+    return {
+      success: false,
+      error: 'Cookie API: No browser cookies configured or missing required cookies (auth_token, ct0, twid). Paste cookies in X Settings.',
+      method: 'fallback_cookie',
+    }
+  }
+
+  // 2. Proxy is required for create_tweet_v2
+  const proxy = settings.twitterapi_proxy
+  if (!proxy) {
+    return {
+      success: false,
+      error: 'Cookie API: Proxy is required. Configure in API Settings.',
+      method: 'fallback_cookie',
+    }
+  }
+
+  // 3. Parse API keys
+  let apiKeys: string[] = []
+  try {
+    const parsed = JSON.parse(settings.twitterapi_keys || '[]')
+    if (Array.isArray(parsed)) apiKeys = parsed.filter((k: unknown) => typeof k === 'string' && k.trim())
+  } catch {
+    // invalid JSON
+  }
+
+  if (apiKeys.length === 0) {
+    return {
+      success: false,
+      error: 'Cookie API: No API keys configured. Add keys in Admin → API Settings.',
+      method: 'fallback_cookie',
+    }
+  }
+
+  // 4. Round-robin through API keys
+  const startIndex = await getRotationIndex()
+
+  for (let i = 0; i < apiKeys.length; i++) {
+    const keyIndex = (startIndex + i) % apiKeys.length
+    const apiKey = apiKeys[keyIndex]
+
+    try {
+      const body: Record<string, string> = {
+        login_cookies: loginCookies,
+        tweet_text: text,
+        proxy,
+      }
+
+      debug('[cookie-api] create_tweet_v2 request:', {
+        login_cookies: `(${loginCookies.length} chars, base64)`,
+        tweet_text: text ? `(${text.length} chars)` : '(missing)',
+        proxy: proxy.replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@'),
+        apiKey: apiKey.slice(0, 8) + '...',
+      })
+
+      const response = await fetch(`${TWITTERAPI_BASE}/twitter/create_tweet_v2`, {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      })
+
+      const data = await response.json()
+      debug('[cookie-api] create_tweet_v2 response:', JSON.stringify(data))
+
+      // Success
+      const tweetId = data?.data?.tweet_id || data?.data?.id || data?.tweet_id || data?.id || null
+      if (response.ok && tweetId) {
+        await setRotationIndex((keyIndex + 1) % apiKeys.length)
+        return {
+          success: true,
+          tweetId: String(tweetId),
+          method: 'fallback_cookie',
+          apiKeyUsed: apiKey.slice(0, 8) + '...',
+        }
+      }
+
+      // Error handling
+      const errorMsg = data?.message || data?.msg || data?.detail || (typeof data?.error === 'string' ? data.error : null) || JSON.stringify(data)
+      debug('[cookie-api] create_tweet_v2 failed:', errorMsg)
+
+      // login_cookies invalid — don't retry other keys (same cookies)
+      // This signals the caller to try Layer 3 if available
+      if (
+        errorMsg.includes('login_cookies is not valid') ||
+        errorMsg.includes('login_cookies is required') ||
+        errorMsg.includes('login_cookie is not valid') ||
+        errorMsg.includes('login_cookie is required')
+      ) {
+        return {
+          success: false,
+          error: `Cookie API: login_cookies rejected — ${errorMsg}`,
+          method: 'fallback_cookie',
+        }
+      }
+
+      // Invalid API key — try next key
+      if (
+        response.status === 401 ||
+        errorMsg.includes('API key is invalid') ||
+        errorMsg.includes('Unauthorized')
+      ) {
+        continue
+      }
+
+      // Rate limit or credit exhaustion — try next key
+      if (
+        response.status === 429 ||
+        errorMsg.includes('rate limit') ||
+        errorMsg.includes('credits') ||
+        errorMsg.includes('quota')
+      ) {
+        continue
+      }
+
+      // Other errors — don't retry (proxy issue, etc.)
+      return {
+        success: false,
+        error: `Cookie API: ${errorMsg}`,
+        method: 'fallback_cookie',
+      }
+    } catch (error) {
+      debug('[cookie-api] Network error:', error instanceof Error ? error.message : String(error))
+      // Network error — try next key
+      continue
+    }
+  }
+
+  return {
+    success: false,
+    error: 'Cookie API: All API keys exhausted or failed. Add more keys in Admin → API Settings.',
+    method: 'fallback_cookie',
+  }
+}
+
+/**
+ * Check if V2 login fallback is enabled.
+ * Reads v2_login_enabled from settings (default: false).
+ */
+export async function isV2LoginEnabled(): Promise<boolean> {
+  const settings = await getApiSettings()
+  return settings.v2_login_enabled === 'true'
+}
+
+/**
+ * Layer 3: Post a tweet via twitterapi.io using V2 login flow.
  *
  * Flow:
  * 1. Read cached login_cookie from DB
  * 2. If no login_cookie → auto-login via user_login_v2
  * 3. Call create_tweet_v2 with login_cookie + proxy
  * 4. If login_cookie is invalid → auto re-login → retry
+ *
+ * Cost: 800 credits/tweet ($0.008) — 500 login + 300 post.
+ * Only used when v2_login_enabled is true.
  */
 export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
   const settings = await getApiSettings()
@@ -254,8 +468,8 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
   if (apiKeys.length === 0) {
     return {
       success: false,
-      error: 'TwitterAPI.io fallback not configured. Add API keys in Admin → API Settings.',
-      method: 'fallback',
+      error: 'V2 Login API: No API keys configured. Add keys in Admin → API Settings.',
+      method: 'fallback_login',
     }
   }
 
@@ -268,7 +482,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
       return {
         success: false,
         error: `No cached login_cookie and auto-login failed: ${loginResult.error}`,
-        method: 'fallback',
+        method: 'fallback_login',
       }
     }
     loginCookie = loginResult.loginCookie!
@@ -319,7 +533,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
         return {
           success: true,
           tweetId: String(tweetId),
-          method: 'fallback',
+          method: 'fallback_login',
           apiKeyUsed: apiKey.slice(0, 8) + '...',
         }
       }
@@ -370,7 +584,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
             return {
               success: true,
               tweetId: String(retryTweetId),
-              method: 'fallback',
+              method: 'fallback_login',
               apiKeyUsed: apiKey.slice(0, 8) + '...',
             }
           }
@@ -381,7 +595,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
           return {
             success: false,
             error: `API fallback failed after re-login: ${retryError}`,
-            method: 'fallback',
+            method: 'fallback_login',
           }
         }
 
@@ -389,7 +603,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
         return {
           success: false,
           error: `API fallback: login_cookie expired and re-login failed: ${loginResult.error}`,
-          method: 'fallback',
+          method: 'fallback_login',
         }
       }
 
@@ -426,7 +640,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
     error: lastApiError
       ? `API fallback gagal (${apiKeys.length} key): ${lastApiError}`
       : `API fallback: semua ${apiKeys.length} key gagal atau habis credits. Tambahkan key baru di Admin → API Settings.`,
-    method: 'fallback',
+    method: 'fallback_login',
   }
 }
 
@@ -543,13 +757,17 @@ export function invalidateCreditsCache(): void {
 
 /**
  * Get API login status for the admin dashboard.
- * Returns whether a login_cookie is cached and whether all credentials are present.
+ * Returns whether a login_cookie is cached, whether all V2 credentials are present,
+ * and whether the cookie-based API is ready.
  */
 export async function getApiLoginStatus(): Promise<{
   hasLoginCookie: boolean
   lastLoginAt: Date | null
   hasCredentials: boolean
   missingCredentials: string[]
+  v2LoginEnabled: boolean
+  cookieApiReady: boolean
+  cookieApiMissing: string[]
 }> {
   const settings = await getApiSettings()
 
@@ -571,6 +789,25 @@ export async function getApiLoginStatus(): Promise<{
   if (!settings.twitterapi_proxy) missingCredentials.push('twitterapi_proxy')
   if (!settings.twitterapi_keys) missingCredentials.push('twitterapi_keys')
 
+  // Cookie API readiness (Layer 2)
+  const hasCookieString = !!settings.x_cookie_string
+  const hasProxy = !!settings.twitterapi_proxy
+  let hasApiKeys = false
+  try {
+    const parsed = JSON.parse(settings.twitterapi_keys || '[]')
+    if (Array.isArray(parsed)) hasApiKeys = parsed.length > 0
+  } catch {
+    // invalid JSON
+  }
+  const cookieApiReady = hasCookieString && hasProxy && hasApiKeys
+  const cookieApiMissing: string[] = []
+  if (!hasCookieString) cookieApiMissing.push('x_cookie_string')
+  if (!hasProxy) cookieApiMissing.push('twitterapi_proxy')
+  if (!hasApiKeys) cookieApiMissing.push('twitterapi_keys')
+
+  // V2 login toggle
+  const v2LoginEnabled = settings.v2_login_enabled === 'true'
+
   // Get last login time from the setting's updatedAt
   let lastLoginAt: Date | null = null
   if (hasLoginCookie) {
@@ -581,5 +818,5 @@ export async function getApiLoginStatus(): Promise<{
     lastLoginAt = setting?.updatedAt ?? null
   }
 
-  return { hasLoginCookie, lastLoginAt, hasCredentials, missingCredentials }
+  return { hasLoginCookie, lastLoginAt, hasCredentials, missingCredentials, v2LoginEnabled, cookieApiReady, cookieApiMissing }
 }

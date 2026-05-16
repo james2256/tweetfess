@@ -48,6 +48,9 @@ export interface ApiLoginStatus {
   lastLoginAt: string | null
   hasCredentials: boolean
   missingCredentials: string[]
+  v2LoginEnabled: boolean
+  cookieApiReady: boolean
+  cookieApiMissing: string[]
 }
 
 export interface PostMethodStats {

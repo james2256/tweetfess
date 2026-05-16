@@ -72,15 +72,19 @@ export function SubmissionCard({
                     className={`text-[8px] px-1 py-0 ${
                       sub.postMethod === 'retry'
                         ? 'bg-amber-50 text-amber-600 border-amber-200'
-                        : sub.postMethod === 'fallback'
+                        : sub.postMethod === 'fallback' || sub.postMethod === 'fallback_cookie'
                         ? 'bg-purple-50 text-purple-600 border-purple-200'
+                        : sub.postMethod === 'fallback_login'
+                        ? 'bg-orange-50 text-orange-600 border-orange-200'
                         : 'bg-[#F7F9F9] text-[#536471] border-[#EFF3F4]'
                     }`}
                   >
                     {sub.postMethod === 'retry'
                       ? 'retry'
-                      : sub.postMethod === 'fallback'
-                      ? 'API'
+                      : sub.postMethod === 'fallback' || sub.postMethod === 'fallback_cookie'
+                      ? 'Cookie API'
+                      : sub.postMethod === 'fallback_login'
+                      ? 'V2 Login'
                       : sub.postMethod}
                   </Badge>
                 )}

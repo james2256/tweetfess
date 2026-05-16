@@ -140,8 +140,10 @@ export async function PATCH(
             description = 'Pesan otomatis diposting ke X.'
           } else if (tweetResult.method === 'retry') {
             description = `Pesan diposting setelah retry (${tweetResult.retriesUsed}x).`
-          } else if (tweetResult.method === 'fallback') {
-            description = 'Pesan diposting via fallback API.'
+          } else if (tweetResult.method === 'fallback_cookie') {
+            description = 'Pesan diposting via Cookie API (twitterapi.io).'
+          } else if (tweetResult.method === 'fallback_login') {
+            description = 'Pesan diposting via V2 Login API (twitterapi.io).'
           }
 
           return NextResponse.json({

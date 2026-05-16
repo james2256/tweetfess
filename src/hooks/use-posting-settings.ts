@@ -21,6 +21,7 @@ const SETTING_LABELS: Record<string, string> = {
   x_email: 'X Email',
   x_password: 'X Password',
   x_totp_secret: '2FA Secret',
+  v2_login_enabled: 'V2 Login Fallback',
 }
 
 export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSettingsParams) {
@@ -39,6 +40,9 @@ export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSet
   const [xEmail, setXEmail] = useState('')
   const [xPassword, setXPassword] = useState('')
   const [xTotpSecret, setXTotpSecret] = useState('')
+
+  // V2 Login toggle
+  const [v2LoginEnabled, setV2LoginEnabled] = useState(false)
 
   // Visibility toggles
   const [showCookieValue, setShowCookieValue] = useState(false)
@@ -64,7 +68,7 @@ export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSet
       const data = await apiClient.saveSetting(key, value)
       // Cookie string gets parsed confirmation toast
       if (key === 'x_cookie_string' && data.parsed) {
-        const parsedInfo = `auth_token: ${data.parsed.auth_token}, ct0: ${data.parsed.ct0}`
+        const parsedInfo = `auth_token: ${data.parsed.auth_token}, ct0: ${data.parsed.ct0}, twid: ${data.parsed.twid}`
         toast({ title: 'Cookie disimpan!', description: parsedInfo })
       } else {
         const desc = data.autoLogin?.attempted
@@ -157,6 +161,7 @@ export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSet
     setXEmail('')
     setXPassword('')
     setXTotpSecret('')
+    setV2LoginEnabled(false)
   }, [])
 
   return {
@@ -183,6 +188,9 @@ export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSet
     setXPassword,
     xTotpSecret,
     setXTotpSecret,
+    // V2 Login toggle
+    v2LoginEnabled,
+    setV2LoginEnabled,
     // Visibility toggles
     showCookieValue,
     setShowCookieValue,

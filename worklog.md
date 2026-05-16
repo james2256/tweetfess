@@ -233,3 +233,52 @@ Stage Summary:
 - Ghost tweet risk is warned in the postError field
 - No recordPostFailure() called on recovery (would incorrectly penalize circuit breaker)
 - No new endpoints, no cron jobs, no UI changes needed
+
+---
+Task ID: 13
+Agent: main
+Task: Implement 3-Layer Posting Architecture with V2 Login Toggle (Option A)
+
+Work Log:
+- Added `cookieStringToLoginCookies()` to src/lib/twitter-api-fallback.ts — converts semicolon-separated cookie string → base64(JSON) for twitterapi.io login_cookies parameter
+- Added `postViaCookieApi()` (Layer 2) — posts via twitterapi.io using browser cookies as login_cookies, no login step needed, 300 credits/tweet
+- Added `isV2LoginEnabled()` — reads v2_login_enabled setting from DB (default: false)
+- Updated `postViaTwitterApi()` (Layer 3) — method changed from 'fallback' to 'fallback_login', all internal method values updated
+- Updated `getApiLoginStatus()` — added v2LoginEnabled, cookieApiReady, cookieApiMissing fields
+- Updated `getApiSettings()` — added 'v2_login_enabled' and 'x_cookie_string' to DB query keys
+- Updated module header comments to reflect 3-layer architecture with verified facts from live test
+- Modified src/lib/twitter-post-cookie.ts:
+  - Import changed from `postViaTwitterApi` to `postViaCookieApi, postViaTwitterApi, isV2LoginEnabled`
+  - Added `tryApiFallback()` helper — tries Layer 2 (cookie API) then Layer 3 (V2 login if enabled)
+  - Rewrote `fallbackOrFail()` — now delegates to tryApiFallback()
+  - API-only mode now uses tryApiFallback() instead of direct postViaTwitterApi()
+  - Updated return type: method now includes 'fallback_cookie' | 'fallback_login' instead of 'fallback'
+- Added 'v2_login_enabled' to settings API VALID_KEYS in src/app/api/admin/settings/route.ts
+- Added boolean validation for v2_login_enabled (must be 'true' or 'false')
+- Added v2_login_enabled to non-encrypted keys list (alongside post_method)
+- Added v2_login_enabled display in GET settings (not sensitive, shown as-is)
+- Updated src/types/index.ts: ApiLoginStatus now includes v2LoginEnabled, cookieApiReady, cookieApiMissing
+- Updated src/hooks/use-posting-settings.ts: added v2LoginEnabled state, setter, label, resetState
+- Updated src/app/admin/settings/page.tsx: syncs v2LoginEnabled from apiLoginStatus on initial load, passes v2LoginEnabled/setV2LoginEnabled to ApiFallbackCard
+- Rewrote src/components/settings/api-fallback-card.tsx:
+  - Added V2 Login Fallback toggle section (ON/OFF button with explanation)
+  - X Login Credentials section now conditional (only shown when V2 toggle is ON)
+  - Dual API status display: Cookie API status + V2 Login status rows
+  - Updated post method descriptions for 3-layer architecture
+  - Added Cookie icon for Cookie API status
+- Updated src/components/dashboard/connection-banner.tsx: shows Cookie API status + V2 Login status separately
+- Updated src/app/api/admin/stats/route.ts: postMethodStats counts fallback_cookie and fallback_login as 'fallback'
+- Updated src/app/api/submissions/[id]/route.ts: handles fallback_cookie and fallback_login method names in description
+- Updated src/hooks/use-submissions.ts: handles fallback_cookie and fallback_login in approve toast
+- Updated src/components/dashboard/submission-card.tsx: shows "Cookie API" (purple) and "V2 Login" (orange) badges
+- Lint passes clean with zero errors
+- Dev server compiles and returns 200 for both / and /admin/settings
+
+Stage Summary:
+- 3-layer posting architecture fully implemented: Direct ($0) → Cookie API (300 credits) → V2 Login (800 credits if enabled)
+- v2_login_enabled toggle added (OFF by default) — admin can enable V2 login as last-resort fallback
+- Cookie API uses existing x_cookie_string — no duplicate data entry
+- Cookie API is stateless (no cached login_cookies) — always reads fresh from DB
+- Post method names changed: 'fallback' → 'fallback_cookie' (Layer 2) and 'fallback_login' (Layer 3)
+- All existing 'fallback' method references updated to handle both new method names
+- Backward compatible: legacy 'fallback' entries in DB still counted correctly in stats

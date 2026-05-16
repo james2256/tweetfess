@@ -101,7 +101,7 @@ export function DirectPostingCard({
                 <div className="flex-1 relative">
                   <Input
                     type={showCookieValue ? 'text' : 'password'}
-                    placeholder="auth_token=...; ct0=...; ..."
+                    placeholder="auth_token=...; ct0=...; twid=...; ..."
                     value={cookieString}
                     onChange={(e) => setCookieString(e.target.value)}
                     className="pr-10 border-[#EFF3F4]"
@@ -144,8 +144,8 @@ export function DirectPostingCard({
                     <li>Klik <strong>Cookies</strong> → <strong>https://x.com</strong></li>
                     <li>Temukan baris <code className="bg-[#EFF3F4] px-1 rounded">auth_token</code> → copy value-nya</li>
                     <li>Temukan baris <code className="bg-[#EFF3F4] px-1 rounded">ct0</code> → copy value-nya</li>
-                    <li>Temukan baris <code className="bg-[#EFF3F4] px-1 rounded">guest_id</code> → copy value-nya</li>
-                    <li>Gabungkan: <code className="bg-[#EFF3F4] px-1 rounded">auth_token=...; ct0=...; guest_id=...</code></li>
+                    <li>Temukan baris <code className="bg-[#EFF3F4] px-1 rounded">twid</code> → copy value-nya</li>
+                    <li>Gabungkan: <code className="bg-[#EFF3F4] px-1 rounded">auth_token=...; ct0=...; twid=...</code></li>
                     <li>Paste di atas, lalu klik <strong>Simpan</strong></li>
                   </ol>
                   <div className="flex items-start gap-1.5 text-amber-600 pt-1">

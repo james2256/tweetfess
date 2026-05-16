@@ -104,7 +104,7 @@ async function getPostMethodStats(): Promise<{
     const count = Number(row.count)
     if (row.postMethod === 'direct') direct = count
     else if (row.postMethod === 'retry') retry = count
-    else if (row.postMethod === 'fallback') fallback = count
+    else if (row.postMethod === 'fallback' || row.postMethod === 'fallback_cookie' || row.postMethod === 'fallback_login') fallback = count
     else unknown += count // Legacy posts (no postMethod) count as direct
   }
 

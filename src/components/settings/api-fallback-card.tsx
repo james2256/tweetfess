@@ -13,6 +13,8 @@ import {
   CircleDot,
   RefreshCw,
   BarChart3,
+  Info,
+  Cookie,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -24,6 +26,8 @@ import type { PostMethod, ApiLoginStatus, KeyCredits } from '@/types'
 interface ApiFallbackCardProps {
   postMethodSetting: PostMethod
   setPostMethodSetting: (v: PostMethod) => void
+  v2LoginEnabled: boolean
+  setV2LoginEnabled: (v: boolean) => void
   xUsername: string
   setXUsername: (v: string) => void
   xEmail: string
@@ -50,6 +54,8 @@ interface ApiFallbackCardProps {
 export function ApiFallbackCard({
   postMethodSetting,
   setPostMethodSetting,
+  v2LoginEnabled,
+  setV2LoginEnabled,
   xUsername,
   setXUsername,
   xEmail,
@@ -78,9 +84,17 @@ export function ApiFallbackCard({
 
   const postMethodOptions = [
     { value: 'direct' as PostMethod, label: 'Direct', desc: 'Cookie only' },
-    { value: 'auto' as PostMethod, label: 'Auto', desc: 'Cookie → Retry → API' },
+    { value: 'auto' as PostMethod, label: 'Auto', desc: 'Cookie → API' },
     { value: 'api' as PostMethod, label: 'API Only', desc: 'TwitterAPI.io only' },
   ]
+
+  const handleV2Toggle = () => {
+    const newValue = !v2LoginEnabled
+    setV2LoginEnabled(newValue) // optimistic update
+    saveSetting('v2_login_enabled', newValue ? 'true' : 'false', undefined, () => {
+      setV2LoginEnabled(!newValue) // revert on failure
+    })
+  }
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -89,15 +103,15 @@ export function ApiFallbackCard({
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
             <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <Key className="w-4 h-4 text-purple-500 shrink-0" /> <span>API Fallback (twitterapi.io)</span>
-              {apiLoginStatus?.hasLoginCookie ? (
+              {apiLoginStatus?.cookieApiReady ? (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-green-50 text-green-700 border-green-300">
-                  <CircleDot className="w-2.5 h-2.5 mr-1 fill-green-500 text-green-500" />
-                  Logged in
+                  <Cookie className="w-2.5 h-2.5 mr-1" />
+                  Cookie API Ready
                 </Badge>
               ) : apiLoginStatus?.hasCredentials ? (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-amber-50 text-amber-700 border-amber-300">
                   <CircleDot className="w-2.5 h-2.5 mr-1 fill-amber-500 text-amber-500" />
-                  Need login
+                  Need config
                 </Badge>
               ) : (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-[#F7F9F9] text-[#536471] border-[#EFF3F4]">
@@ -137,89 +151,118 @@ export function ApiFallbackCard({
               </div>
               <p className="text-[10px] text-[#71767B]">
                 {postMethodSetting === 'direct' && 'Hanya cookie-based posting, tanpa fallback.'}
-                {postMethodSetting === 'auto' && 'Coba direct → retry 226/empty → fallback ke API jika gagal.'}
-                {postMethodSetting === 'api' && 'Selalu gunakan twitterapi.io (untuk testing).'}
+                {postMethodSetting === 'auto' && 'Direct → Cookie API (300 credits) → V2 Login (800 credits jika ON).'}
+                {postMethodSetting === 'api' && 'Selalu gunakan twitterapi.io API (cookie-based → V2 login jika ON).'}
               </p>
             </div>
 
-            {/* X Login Credentials — Single Save */}
-            <div className="space-y-3 p-4 bg-amber-50/50 rounded-lg border border-amber-100">
-              <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
-                <User className="w-3 h-3" /> X Login Credentials
-                <span className="text-[10px] text-amber-600 font-normal">(required for API fallback)</span>
-              </label>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* X Username */}
-                <Input
-                  placeholder="X username"
-                  value={xUsername}
-                  onChange={(e) => setXUsername(e.target.value)}
-                  className="border-[#EFF3F4] text-xs"
-                />
-
-                {/* X Email */}
-                <Input
-                  placeholder="X email"
-                  type="email"
-                  value={xEmail}
-                  onChange={(e) => setXEmail(e.target.value)}
-                  className="border-[#EFF3F4] text-xs"
-                />
-
-                {/* X Password */}
-                <div className="relative">
-                  <Input
-                    placeholder="X password"
-                    type={showPassword ? 'text' : 'password'}
-                    value={xPassword}
-                    onChange={(e) => setXPassword(e.target.value)}
-                    className="border-[#EFF3F4] text-xs pr-8"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 p-0"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                  </Button>
+            {/* V2 Login Fallback Toggle */}
+            <div className="space-y-3 p-4 bg-[#F7F9F9] rounded-lg border border-[#EFF3F4]">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Shield className="w-3.5 h-3.5 text-[#536471]" />
+                  <label className="text-xs font-medium text-[#536471]">V2 Login Fallback</label>
                 </div>
-
-                {/* 2FA Secret (TOTP) */}
-                <div className="relative">
-                  <Input
-                    placeholder="2FA secret (TOTP base32 seed)"
-                    type={showTotpSecret ? 'text' : 'password'}
-                    value={xTotpSecret}
-                    onChange={(e) => setXTotpSecret(e.target.value)}
-                    className="border-[#EFF3F4] text-xs pr-8"
-                  />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 p-0"
-                    onClick={() => setShowTotpSecret(!showTotpSecret)}
-                  >
-                    {showTotpSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                  </Button>
-                </div>
+                <Button
+                  size="sm"
+                  variant={v2LoginEnabled ? 'default' : 'outline'}
+                  onClick={handleV2Toggle}
+                  disabled={isSavingAnySetting}
+                  className={`text-xs h-7 px-3 ${v2LoginEnabled ? 'bg-amber-500 hover:bg-amber-600' : 'border-[#EFF3F4]'}`}
+                >
+                  {v2LoginEnabled ? 'ON' : 'OFF'}
+                </Button>
               </div>
-
-              {/* Single Save All Button */}
-              <Button
-                onClick={saveAllCredentials}
-                disabled={isSavingAllCredentials || !!isSavingSetting || (!xUsername.trim() && !xEmail.trim() && !xPassword.trim() && !xTotpSecret.trim())}
-                className="w-full bg-amber-500 hover:bg-amber-600 text-white"
-              >
-                {isSavingAllCredentials ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Key className="w-4 h-4 mr-2" />}
-                {isSavingAllCredentials ? 'Menyimpan...' : 'Save All Credentials'}
-              </Button>
-
-              <p className="text-[10px] text-[#71767B]">
-                Semua field disimpan terenkripsi. Untuk mendapatkan TOTP secret: X → Settings → Security → 2FA → Authentication App → &quot;Can&apos;t scan the QR code?&quot; → copy the base32 string.
-              </p>
+              <div className="flex items-start gap-1.5">
+                <Info className="w-3 h-3 text-[#71767B] mt-0.5 shrink-0" />
+                <p className="text-[10px] text-[#71767B]">
+                  {v2LoginEnabled
+                    ? 'Jika Cookie API gagal, sistem akan login dengan username/password sebagai fallback terakhir. Biaya: 800 credits/tweet.'
+                    : 'Jika Cookie API gagal, tweet tidak akan diposting. Aktifkan untuk fallback ke username/password login (800 credits/tweet vs 300 credits/tweet untuk Cookie API).'}
+                </p>
+              </div>
             </div>
+
+            {/* X Login Credentials — only shown when V2 toggle is ON */}
+            {v2LoginEnabled && (
+              <div className="space-y-3 p-4 bg-amber-50/50 rounded-lg border border-amber-100">
+                <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                  <User className="w-3 h-3" /> X Login Credentials
+                  <span className="text-[10px] text-amber-600 font-normal">(untuk V2 login fallback)</span>
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* X Username */}
+                  <Input
+                    placeholder="X username"
+                    value={xUsername}
+                    onChange={(e) => setXUsername(e.target.value)}
+                    className="border-[#EFF3F4] text-xs"
+                  />
+
+                  {/* X Email */}
+                  <Input
+                    placeholder="X email"
+                    type="email"
+                    value={xEmail}
+                    onChange={(e) => setXEmail(e.target.value)}
+                    className="border-[#EFF3F4] text-xs"
+                  />
+
+                  {/* X Password */}
+                  <div className="relative">
+                    <Input
+                      placeholder="X password"
+                      type={showPassword ? 'text' : 'password'}
+                      value={xPassword}
+                      onChange={(e) => setXPassword(e.target.value)}
+                      className="border-[#EFF3F4] text-xs pr-8"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 p-0"
+                      onClick={() => setShowPassword(!showPassword)}
+                    >
+                      {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </Button>
+                  </div>
+
+                  {/* 2FA Secret (TOTP) */}
+                  <div className="relative">
+                    <Input
+                      placeholder="2FA secret (TOTP base32 seed)"
+                      type={showTotpSecret ? 'text' : 'password'}
+                      value={xTotpSecret}
+                      onChange={(e) => setXTotpSecret(e.target.value)}
+                      className="border-[#EFF3F4] text-xs pr-8"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 p-0"
+                      onClick={() => setShowTotpSecret(!showTotpSecret)}
+                    >
+                      {showTotpSecret ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Single Save All Button */}
+                <Button
+                  onClick={saveAllCredentials}
+                  disabled={isSavingAllCredentials || !!isSavingSetting || (!xUsername.trim() && !xEmail.trim() && !xPassword.trim() && !xTotpSecret.trim())}
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-white"
+                >
+                  {isSavingAllCredentials ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Key className="w-4 h-4 mr-2" />}
+                  {isSavingAllCredentials ? 'Menyimpan...' : 'Save All Credentials'}
+                </Button>
+
+                <p className="text-[10px] text-[#71767B]">
+                  Semua field disimpan terenkripsi. Untuk mendapatkan TOTP secret: X → Settings → Security → 2FA → Authentication App → &quot;Can&apos;t scan the QR code?&quot; → copy the base32 string.
+                </p>
+              </div>
+            )}
 
             {/* API Keys */}
             <div className="space-y-2">
@@ -268,43 +311,69 @@ export function ApiFallbackCard({
                 </Button>
               </div>
               <p className="text-[10px] text-[#71767B]">
-                Wajib untuk user_login_v2. Gunakan residential proxy (contoh: Webshare). Proxy digunakan oleh twitterapi.io saat login ke X.
+                Wajib untuk Cookie API dan V2 Login. Gunakan residential proxy (contoh: Webshare). Proxy digunakan oleh twitterapi.io saat mengakses X.
               </p>
             </div>
 
-            {/* Login Cookie Status */}
+            {/* API Status — dual status display */}
             {apiLoginStatus && (
               <div className="space-y-2">
                 <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
-                  <Shield className="w-3 h-3" /> API Login Status
+                  <Shield className="w-3 h-3" /> API Status
                 </label>
-                <div className="flex items-center gap-2 bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
-                  {apiLoginStatus.hasLoginCookie ? (
-                    <>
+                <div className="space-y-1.5">
+                  {/* Cookie API Status */}
+                  <div className="flex items-center gap-2 bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
+                    <Cookie className="w-3 h-3 text-[#536471]" />
+                    <span className="text-[10px] text-[#536471] w-16 shrink-0">Cookie API:</span>
+                    {apiLoginStatus.cookieApiReady ? (
                       <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-300">
-                        ✅ Active
+                        ✅ Ready
                       </Badge>
-                      {apiLoginStatus.lastLoginAt && (
-                        <span className="text-[10px] text-[#71767B]">
-                          Last login: {new Date(apiLoginStatus.lastLoginAt).toLocaleString('id-ID')}
-                        </span>
-                      )}
-                    </>
-                  ) : apiLoginStatus.hasCredentials ? (
-                    <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-300">
-                      ⚠️ Not logged in — will auto-login on first post
-                    </Badge>
-                  ) : (
-                    <span className="text-[10px] text-[#71767B]">
-                      Enter X credentials above to enable API login
-                    </span>
-                  )}
+                    ) : (
+                      <>
+                        <Badge variant="outline" className="text-[10px] bg-red-50 text-red-600 border-red-200">
+                          ❌ Not ready
+                        </Badge>
+                        {apiLoginStatus.cookieApiMissing.length > 0 && (
+                          <span className="text-[10px] text-amber-600">
+                            Missing: {apiLoginStatus.cookieApiMissing.join(', ')}
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* V2 Login Status */}
+                  <div className="flex items-center gap-2 bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
+                    <Shield className="w-3 h-3 text-[#536471]" />
+                    <span className="text-[10px] text-[#536471] w-16 shrink-0">V2 Login:</span>
+                    {!v2LoginEnabled ? (
+                      <Badge variant="outline" className="text-[10px] bg-[#F7F9F9] text-[#71767B] border-[#EFF3F4]">
+                        Off
+                      </Badge>
+                    ) : apiLoginStatus.hasLoginCookie ? (
+                      <>
+                        <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-300">
+                          ✅ Active
+                        </Badge>
+                        {apiLoginStatus.lastLoginAt && (
+                          <span className="text-[10px] text-[#71767B]">
+                            Last: {new Date(apiLoginStatus.lastLoginAt).toLocaleString('id-ID')}
+                          </span>
+                        )}
+                      </>
+                    ) : apiLoginStatus.hasCredentials ? (
+                      <Badge variant="outline" className="text-[10px] bg-amber-50 text-amber-700 border-amber-300">
+                        ⚠️ Will auto-login
+                      </Badge>
+                    ) : (
+                      <span className="text-[10px] text-[#71767B]">
+                        Enter credentials above
+                      </span>
+                    )}
+                  </div>
                 </div>
-                {apiLoginStatus.missingCredentials.length > 0 && (
-                  <p className="text-[10px] text-amber-600">
-                    Missing: {apiLoginStatus.missingCredentials.join(', ')}
-                  </p>
-                )}
               </div>
             )}
 

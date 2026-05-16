@@ -121,7 +121,8 @@ export function useSubmissions({ isAdmin, adminToken, onStatsRefresh }: UseSubmi
       if (data.autoPosted) {
         let desc = 'Pesan otomatis diposting ke X.'
         if (data.postMethod === 'retry') desc = data.description || 'Pesan diposting setelah retry.'
-        else if (data.postMethod === 'fallback') desc = data.description || 'Pesan diposting via fallback API.'
+        else if (data.postMethod === 'fallback' || data.postMethod === 'fallback_cookie') desc = data.description || 'Pesan diposting via Cookie API (twitterapi.io).'
+        else if (data.postMethod === 'fallback_login') desc = data.description || 'Pesan diposting via V2 Login API (twitterapi.io).'
         toast({ title: 'Disetujui & diposting!', description: desc })
       } else if (data.warning) {
         toast({ title: 'Disetujui', description: data.warning })

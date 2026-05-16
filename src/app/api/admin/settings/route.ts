@@ -17,9 +17,11 @@ const VALID_KEYS = [
   'x_password',
   'x_totp_secret',
   'twitterapi_login_cookie',
+  'v2_login_enabled',
 ]
 const MAX_VALUE_LENGTH = 50000 // Larger for twitterapi_keys (JSON array)
 const VALID_POST_METHODS = ['direct', 'api', 'auto']
+const VALID_BOOLEAN_SETTINGS = ['v2_login_enabled']
 
 // Keys that should trigger an auto-login attempt when saved
 const LOGIN_TRIGGER_KEYS = [
@@ -66,6 +68,8 @@ export async function GET(req: NextRequest) {
         }
       } else if (s.key === 'post_method') {
         displayValue = decrypted // post_method is not sensitive
+      } else if (s.key === 'v2_login_enabled') {
+        displayValue = decrypted // toggle is not sensitive
       } else if (s.key === 'x_username') {
         displayValue = decrypted // username is public anyway
       } else if (s.key === 'x_email') {
@@ -126,11 +130,14 @@ export async function POST(req: NextRequest) {
 
   // Validate cookie string has required fields
   if (key === 'x_cookie_string') {
-    if (!value.includes('auth_token=') || !value.includes('ct0=')) {
+    const missing = []
+    if (!value.includes('auth_token=')) missing.push('auth_token')
+    if (!value.includes('ct0=')) missing.push('ct0')
+    if (!value.includes('twid=')) missing.push('twid')
+    if (missing.length > 0) {
       return NextResponse.json(
         {
-          error:
-            'Cookie string must contain both auth_token and ct0. Copy the full cookie string from your browser.',
+          error: `Cookie string must contain ${missing.join(', ')}. Copy the full cookie string from your browser.`,
         },
         { status: 400 }
       )
@@ -173,6 +180,16 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Validate boolean settings
+  if (VALID_BOOLEAN_SETTINGS.includes(key)) {
+    if (value !== 'true' && value !== 'false') {
+      return NextResponse.json(
+        { error: `${key} must be 'true' or 'false'` },
+        { status: 400 }
+      )
+    }
+  }
+
   // Validate proxy URL format (basic)
   if (key === 'twitterapi_proxy' && value.trim()) {
     if (!value.match(/^https?:\/\/.+/)) {
@@ -183,8 +200,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Encrypt value before storing (post_method is not encrypted — it's not sensitive)
-  const encryptedValue = key === 'post_method' ? value : encrypt(value)
+  // Encrypt value before storing (non-sensitive settings are not encrypted)
+  const nonEncryptedKeys = ['post_method', 'v2_login_enabled']
+  const encryptedValue = nonEncryptedKeys.includes(key) ? value : encrypt(value)
 
   const setting = await db.setting.upsert({
     where: { key },
@@ -227,6 +245,7 @@ export async function POST(req: NextRequest) {
       parsed: {
         auth_token: parsed.auth_token ? parsed.auth_token.slice(0, 8) + '****' : 'NOT FOUND',
         ct0: parsed.ct0 ? parsed.ct0.slice(0, 8) + '****' : 'NOT FOUND',
+        twid: parsed.twid ? parsed.twid.slice(0, 8) + '****' : 'NOT FOUND',
       },
       autoLogin: autoLoginResult,
     })
