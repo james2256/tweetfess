@@ -9,34 +9,55 @@ import { NextResponse } from 'next/server'
  * a clear error message instead of silently accepting 'admin123'.
  *
  * The admin password is NEVER exposed to the client. Instead, on
- * login, we derive an HMAC token from the password and return that.
- * Subsequent requests authenticate with this derived token, which
- * cannot be reversed back to the raw password.
+ * login, we derive an HMAC token from the password + an expiry
+ * timestamp and return that. Subsequent requests authenticate with
+ * this derived token, which cannot be reversed back to the raw
+ * password. The embedded expiry ensures stolen or old tokens
+ * become useless after the TTL elapses.
  */
 
 // Domain label for HMAC derivation — decoupled from NEXTAUTH_SECRET
 // so admin token rotation is independent of user session signing.
 const ADMIN_TOKEN_LABEL = 'tweetfess:admin:v1'
 
+/** Token lifetime in seconds — 7 days */
+export const ADMIN_TOKEN_TTL = 7 * 24 * 60 * 60
+
 /**
- * Derive a token from the admin password using HMAC-SHA256.
- * This token is safe to send to the client — it cannot be reversed
- * back to the raw password. Rotating ADMIN_PASSWORD invalidates all
- * existing tokens (same behavior as before).
+ * Derive an HMAC from the admin password + expiry timestamp.
+ * The expiry is included in the HMAC input so the token cannot
+ * be replayed with a different (or missing) expiry — changing
+ * the expiry produces a completely different HMAC.
  */
-export function deriveAdminToken(password: string): string {
+function deriveAdminToken(password: string, expiresAt: number): string {
   return crypto
     .createHmac('sha256', password)
-    .update(ADMIN_TOKEN_LABEL)
+    .update(`${ADMIN_TOKEN_LABEL}:${expiresAt}`)
     .digest('hex')
 }
 
 /**
- * Verify an Authorization header against the admin password.
- * Returns { authorized: true } if valid, or a NextResponse error if not.
+ * Generate an admin token with embedded expiry.
  *
- * Compares the submitted Bearer token against the HMAC-derived token
- * using crypto.timingSafeEqual to prevent timing side-channel attacks.
+ * Format: <hmac_hex>.<expiresAt_hex>
+ *
+ * The hex-encoded expiry is appended after a dot separator so
+ * verifyAdmin() can extract it without parsing the HMAC itself.
+ */
+export function generateAdminToken(password: string): string {
+  const expiresAt = Math.floor(Date.now() / 1000) + ADMIN_TOKEN_TTL
+  const hmac = deriveAdminToken(password, expiresAt)
+  return `${hmac}.${expiresAt.toString(16)}`
+}
+
+/**
+ * Verify an Authorization header against the admin password.
+ * Returns { authorized: true } if valid and not expired,
+ * or a NextResponse error if not.
+ *
+ * Compares the submitted HMAC against the expected HMAC using
+ * crypto.timingSafeEqual to prevent timing side-channel attacks.
+ * Also checks that the embedded expiry timestamp has not passed.
  */
 export function verifyAdmin(authHeader: string | null):
   | { authorized: true }
@@ -64,12 +85,41 @@ export function verifyAdmin(authHeader: string | null):
     ? authHeader.slice(7)
     : authHeader
 
-  // Derive the expected token from the password (same as login route)
-  const expectedToken = deriveAdminToken(password)
+  // Parse token format: <hmac_hex>.<expiresAt_hex>
+  const dotIndex = submitted.lastIndexOf('.')
+  if (dotIndex === -1) {
+    return {
+      authorized: false,
+      response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
+    }
+  }
+
+  const submittedHmac = submitted.slice(0, dotIndex)
+  const expiresAtHex = submitted.slice(dotIndex + 1)
+
+  const expiresAt = parseInt(expiresAtHex, 16)
+  if (isNaN(expiresAt)) {
+    return {
+      authorized: false,
+      response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
+    }
+  }
+
+  // Check expiry
+  const now = Math.floor(Date.now() / 1000)
+  if (now > expiresAt) {
+    return {
+      authorized: false,
+      response: NextResponse.json({ error: 'Session expired' }, { status: 401 }),
+    }
+  }
+
+  // Derive the expected HMAC for this expiry timestamp
+  const expectedHmac = deriveAdminToken(password, expiresAt)
 
   // Timing-safe comparison to prevent leaking token via response time
-  const submittedBuf = Buffer.from(submitted)
-  const expectedBuf = Buffer.from(expectedToken)
+  const submittedBuf = Buffer.from(submittedHmac)
+  const expectedBuf = Buffer.from(expectedHmac)
   const isMatch = submittedBuf.length === expectedBuf.length
     && crypto.timingSafeEqual(submittedBuf, expectedBuf)
 
@@ -79,5 +129,6 @@ export function verifyAdmin(authHeader: string | null):
       response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
     }
   }
+
   return { authorized: true }
 }

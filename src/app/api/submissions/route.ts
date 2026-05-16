@@ -4,7 +4,7 @@ import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { getStartOfTodayWIB } from '@/lib/constants'
 import { debug } from '@/lib/debug'
-import { runContentFilter, checkDuplicate24h, normalizeText, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
+import { runContentFilter, checkDuplicate24h, normalizeText, sanitizeHtml, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { isCircuitBreakerPaused, recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
@@ -93,7 +93,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Kategori maksimal 30 karakter' }, { status: 400 })
     }
 
-    const trimmedMessage = message.trim()
+    const trimmedMessage = sanitizeHtml(message.trim())
+    const sanitizedCategory = category && typeof category === 'string' ? sanitizeHtml(category.trim()) : null
 
     if (trimmedMessage.length === 0) {
       return NextResponse.json({ error: 'Pesan tidak boleh kosong' }, { status: 400 })
@@ -321,7 +322,7 @@ export async function POST(req: NextRequest) {
         data: {
           message: trimmedMessage,
           normalizedMessage: normalizeText(trimmedMessage),
-          category: category?.trim() || null,
+          category: sanitizedCategory,
           submitterId: submitter.id,
           filterReasons: allFilterReasons.length > 0 ? JSON.stringify(allFilterReasons) : null,
         },
@@ -337,7 +338,7 @@ export async function POST(req: NextRequest) {
         data: {
           message: trimmedMessage,
           normalizedMessage: normalizeText(trimmedMessage),
-          category: category?.trim() || null,
+          category: sanitizedCategory,
           submitterId: submitter.id,
           filterReasons: allFilterReasons.length > 0 ? JSON.stringify(allFilterReasons) : null,
         },
@@ -380,7 +381,7 @@ export async function POST(req: NextRequest) {
             data: {
               message: trimmedMessage,
               normalizedMessage: normalizeText(trimmedMessage),
-              category: category?.trim() || null,
+              category: sanitizedCategory,
               submitterId: submitter.id,
               filterReasons: null,
             },
@@ -410,7 +411,7 @@ export async function POST(req: NextRequest) {
           data: {
             message: trimmedMessage,
             normalizedMessage: normalizeText(trimmedMessage),
-            category: category?.trim() || null,
+            category: sanitizedCategory,
             submitterId: submitter.id,
             filterReasons: null,
           },
@@ -443,7 +444,7 @@ export async function POST(req: NextRequest) {
           data: {
             message: trimmedMessage,
             normalizedMessage: normalizeText(trimmedMessage),
-            category: category?.trim() || null,
+            category: sanitizedCategory,
             submitterId: submitter.id,
             filterReasons: null,
           },
@@ -463,7 +464,7 @@ export async function POST(req: NextRequest) {
       data: {
         message: trimmedMessage,
         normalizedMessage: normalizeText(trimmedMessage),
-        category: category?.trim() || null,
+        category: sanitizedCategory,
         submitterId: submitter.id,
         filterReasons: null,
       },

@@ -185,3 +185,18 @@ Stage Summary:
 - 2 new edits: submission-filters.tsx (placeholder text), auth-gate.tsx (Cek Ulang button)
 - Codebase is clean — lint passes, dev server responds 200
 - Ready for deployment
+---
+Task ID: 3
+Agent: main
+Task: Fix Phase 3 bugs (Bug #3, #4, #7, #8)
+
+Work Log:
+- Bug #4 (Token expiry): Added embedded expiry timestamp to admin token derivation. Token format changed from `<hmac_hex>` to `<hmac_hex>.<expiresAt_hex>`. `deriveAdminToken()` now takes `expiresAt` parameter. `generateAdminToken()` creates token with 7-day TTL. `verifyAdmin()` parses expiry, checks `now > expiresAt`, returns 401 "Session expired" if expired. Old-format tokens (no dot) are rejected.
+- Bug #3 (Brute-force protection): Created `src/lib/login-rate-limit.ts` with IP-based rate limiter. 5 attempts per 15 min per IP, 30 min lockout. Uses `x-forwarded-for` / `x-real-ip` headers. In-memory Map with TTL + periodic cleanup. Applied to login route: checks BEFORE password, records failures AFTER, clears on success. Returns 429 with Retry-After header.
+- Bug #7 (Security headers): Added 7 security headers in `next.config.ts` via `headers()` config. X-Content-Type-Options: nosniff, X-Frame-Options: DENY, X-XSS-Protection: 0, Referrer-Policy: strict-origin-when-cross-origin, Strict-Transport-Security (2yr+preload), Permissions-Policy (camera/mic/geo denied), Content-Security-Policy (comprehensive).
+- Bug #8 (XSS defense-in-depth): Added `sanitizeHtml()` to `content-filter.ts`. Strips null bytes, HTML tags, and encodes dangerous characters (&, <, >, ", '). Applied to both `message` and `category` fields in submission POST route before storage.
+
+Stage Summary:
+- All 4 Phase 3 bugs fixed and deployed to dev server
+- Files modified: admin-auth.ts, login route, content-filter.ts, submissions route, next.config.ts, login-rate-limit.ts (new)
+- Lint passes clean, dev server running, security headers verified in response

@@ -154,6 +154,35 @@ const HOMOGLYPH_MAP: Record<string, string> = {
   '\u03C7': 'x', // χ → x
 }
 
+/**
+ * Strip HTML tags and encode dangerous characters from user input.
+ * Defense-in-depth: even though React auto-escapes JSX text nodes,
+ * this ensures stored data is clean if any rendering path ever uses
+ * dangerouslySetInnerHTML or if content leaks into non-HTML contexts
+ * (e.g. email templates, meta tags, plain-text logs).
+ *
+ * Handles:
+ * - HTML tags: <script>, <img onerror=...>, <a href=javascript:...>, etc.
+ * - Event handlers in "hrefless" tags: <b onclick=...>
+ * - HTML entities that decode to tags: &lt;script&gt;
+ * - Null bytes that can truncate strings in some parsers
+ */
+export function sanitizeHtml(input: string): string {
+  return input
+    // Null bytes — can truncate strings in some C-derived parsers
+    .replace(/\0/g, '')
+    // HTML tags — strip anything between < and >
+    // This catches <script>, <img onerror=...>, <svg/onload=...>, etc.
+    .replace(/<[^>]*>/g, '')
+    // Re-encode angle brackets and quotes that could form new tags
+    // if the stripped result is later placed into an HTML attribute or template
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+}
+
 export function normalizeText(text: string): string {
   return text
     // 1. Strip ALL invisible/control characters

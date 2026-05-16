@@ -1,13 +1,25 @@
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { deriveAdminToken } from '@/lib/admin-auth'
+import { generateAdminToken } from '@/lib/admin-auth'
+import { getClientIp, checkLoginRateLimit, recordFailedAttempt, clearFailedAttempts } from '@/lib/login-rate-limit'
 
 // POST /api/admin/login - Verify admin password
 // Uses crypto.timingSafeEqual to prevent timing side-channel attacks.
 // Returns an HMAC-derived token instead of the raw password —
 // the raw password never leaves the server.
+// Rate-limited: 5 failed attempts per IP per 15 minutes.
 export async function POST(req: NextRequest) {
   try {
+    // --- Rate limit check (BEFORE password check) ---
+    const ip = getClientIp(req)
+    const rateCheck = checkLoginRateLimit(ip)
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        { error: 'Terlalu banyak percobaan login. Coba lagi nanti.', retryAfterSec: rateCheck.retryAfterSec },
+        { status: 429, headers: { 'Retry-After': String(rateCheck.retryAfterSec) } },
+      )
+    }
+
     const adminPassword = process.env.ADMIN_PASSWORD
     if (!adminPassword) {
       return NextResponse.json(
@@ -20,6 +32,7 @@ export async function POST(req: NextRequest) {
     const { password } = body
 
     if (!password || typeof password !== 'string') {
+      recordFailedAttempt(ip)
       return NextResponse.json({ error: 'Password salah' }, { status: 401 })
     }
 
@@ -36,11 +49,15 @@ export async function POST(req: NextRequest) {
       && passwordBuf.length === expectedBuf.length
 
     if (isMatch) {
-      // Derive a token from the password — raw password is never exposed to the client
-      const token = deriveAdminToken(adminPassword)
+      // Clear rate limit on successful login
+      clearFailedAttempts(ip)
+      // Generate a token with embedded expiry — raw password is never exposed to the client
+      const token = generateAdminToken(adminPassword)
       return NextResponse.json({ success: true, token })
     }
 
+    // Record failed attempt
+    recordFailedAttempt(ip)
     return NextResponse.json({ error: 'Password salah' }, { status: 401 })
   } catch (e) {
     console.error('[admin/login] Error:', e)
