@@ -69,7 +69,11 @@ export function useCircuitBreaker({ adminToken }: UseCircuitBreakerParams) {
       setCircuitBreakerStatus((prev) => prev ? { ...prev, paused: false, failCount: 0, pausedUntil: null } : null)
       toast({ title: 'Circuit breaker direset' })
     } catch {
-      // ignore
+      toast({
+        title: 'Gagal mereset circuit breaker',
+        description: 'Coba lagi atau refresh halaman.',
+        variant: 'destructive',
+      })
     }
   }, [adminToken, toast])
 

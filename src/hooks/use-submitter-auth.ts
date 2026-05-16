@@ -83,7 +83,15 @@ export function useSubmitterAuth() {
     try {
       await apiClient.logout()
     } catch {
-      // ignore
+      // Server-side cookie cleanup failed — session cookie may still be active.
+      // The httpOnly cookie persists for 30 days, so on shared devices the user
+      // should clear browser cookies manually for full session invalidation.
+      toast({
+        title: 'Logout tidak lengkap di server',
+        description: 'Cookie sesi mungkin masih aktif. Jika menggunakan perangkat umum, hapus cookie browser secara manual.',
+        variant: 'default',
+        duration: 7000,
+      })
     }
   }
 
