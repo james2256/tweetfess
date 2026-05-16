@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { getCookieAuthStatus } from '@/lib/twitter-post-cookie'
-import { getCachedApiCredits, getApiLoginStatus } from '@/lib/twitter-api-fallback'
+import { getApiCreditsNonBlocking, getApiLoginStatus } from '@/lib/twitter-api-fallback'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
 import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
@@ -24,13 +24,15 @@ export async function GET(req: NextRequest) {
   if (!auth.authorized) return auth.response
 
   try {
-    const [cookieAuthStatus, apiCredits, apiLoginStatus, filterSettingsData] =
+    const [cookieAuthStatus, apiLoginStatus, filterSettingsData] =
       await Promise.all([
         getCookieAuthStatus(),
-        getCachedApiCredits(),
         getApiLoginStatus(),
         getFilterSettings(),
       ])
+
+    // API credits — non-blocking: returns cached data or null, kicks off background fetch
+    const apiCredits = getApiCreditsNonBlocking()
 
     // Circuit breaker needs filterSettings.rateLimits
     const circuitBreaker = await getCircuitBreakerStatus(filterSettingsData.rateLimits)

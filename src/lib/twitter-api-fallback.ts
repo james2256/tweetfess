@@ -497,6 +497,26 @@ let creditsCacheTime: number = 0
 const CREDITS_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 
 /**
+ * Returns cached credits immediately (or null if cache is empty/stale).
+ * Kicks off a background fetch to populate the cache for the next request.
+ * Use this in hot paths where you don't want to block on external API calls.
+ */
+export function getApiCreditsNonBlocking(): KeyCredits[] | null {
+  const now = Date.now()
+  if (creditsCache && now - creditsCacheTime < CREDITS_CACHE_TTL) {
+    return creditsCache // Cache is fresh — return immediately
+  }
+  // Cache is stale or empty — fire background fetch for next request
+  void getAllKeyCredits().then((fresh) => {
+    creditsCache = fresh
+    creditsCacheTime = Date.now()
+  }).catch(() => {
+    // External API failed — keep whatever cache we have (or null)
+  })
+  return creditsCache // Return stale cache or null — don't block
+}
+
+/**
  * Cached version of getAllKeyCredits().
  * Returns cached results if fresh (<5 min), otherwise fetches new data.
  * This is the function admin stats should use to avoid hammering the external API.

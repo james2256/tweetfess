@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { getCookieAuthStatus } from '@/lib/twitter-post-cookie'
-import { getCachedApiCredits, getApiLoginStatus } from '@/lib/twitter-api-fallback'
+import { getApiCreditsNonBlocking, getApiLoginStatus } from '@/lib/twitter-api-fallback'
 import { verifyAdmin } from '@/lib/admin-auth'
 import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
 import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
@@ -31,17 +31,22 @@ export async function GET(req: NextRequest) {
     total += c
   }
 
-  // 2. Submitter count + post method stats (also a GROUP BY) in parallel with the rest
-  const [submitters, postMethodStats, cookieAuthStatus, apiCredits, apiLoginStatus, postMethodSetting, filterSettingsData] =
+  // 2. All DB-only queries in parallel (fast — <5ms total)
+  const [submitters, postMethodStats, cookieAuthStatus, apiLoginStatus, postMethodSetting, filterSettingsData] =
     await Promise.all([
       db.submitter.count(),
       getPostMethodStats(),
       getCookieAuthStatus(),
-      getCachedApiCredits(),   // Cached — no external API calls on every request
       getApiLoginStatus(),
       getPostMethodSetting(),
       getFilterSettings(),
     ])
+
+  // 3. API credits — non-blocking: returns cached data or null, kicks off background fetch.
+  // On cold start, external calls to twitterapi.io take 2-5s and would block the entire
+  // stats response. Instead, return null on first load; the 15s auto-refresh will pick up
+  // the cached data once the background fetch completes.
+  const apiCredits = getApiCreditsNonBlocking()
 
   // Get circuit breaker status separately (needs filterSettings.rateLimits)
   const circuitBreaker = await getCircuitBreakerStatus(filterSettingsData.rateLimits)
