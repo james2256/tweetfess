@@ -135,7 +135,7 @@ export function useSubmissions({ isAdmin, adminToken, onStatsRefresh }: UseSubmi
   }, [fetchSubmissions, onStatsRefresh, toast])
 
   const deleteSubmission = useCallback(async (id: string) => {
-    setActionLoading(`del-${id}`)
+    setActionLoading(id)
     try {
       await apiClient.deleteSubmission(id)
       toast({ title: 'Dihapus' })
@@ -149,7 +149,7 @@ export function useSubmissions({ isAdmin, adminToken, onStatsRefresh }: UseSubmi
   }, [fetchSubmissions, onStatsRefresh, toast])
 
   const retryPost = useCallback(async (id: string) => {
-    setActionLoading(`post-${id}`)
+    setActionLoading(id)
     try {
       const data = await apiClient.retryPost(id)
       toast({ title: 'Berhasil diposting ke X!', description: data.tweetId ? `Tweet ID: ${data.tweetId}` : undefined })
