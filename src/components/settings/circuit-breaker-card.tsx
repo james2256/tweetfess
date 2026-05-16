@@ -94,8 +94,8 @@ export function CircuitBreakerCard({
               )}
             </div>
 
-            {/* Threshold + Cooldown inputs */}
-            <div className="grid grid-cols-2 gap-2">
+            {/* Threshold + Cooldown + Window inputs */}
+            <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="text-[10px] font-medium text-[#536471] block mb-1">Kegagalan berturut-turut</label>
                 <Input
@@ -109,10 +109,10 @@ export function CircuitBreakerCard({
                   }}
                   className="text-xs h-8"
                 />
-                <p className="text-[9px] text-[#71767B] mt-0.5">Gagal N kali → pause auto-post</p>
+                <p className="text-[9px] text-[#71767B] mt-0.5">Gagal N kali → pause</p>
               </div>
               <div>
-                <label className="text-[10px] font-medium text-[#536471] block mb-1">Jeda circuit breaker (menit)</label>
+                <label className="text-[10px] font-medium text-[#536471] block mb-1">Jeda pause (menit)</label>
                 <Input
                   type="number"
                   min={1}
@@ -124,7 +124,22 @@ export function CircuitBreakerCard({
                   }}
                   className="text-xs h-8"
                 />
-                <p className="text-[9px] text-[#71767B] mt-0.5">Durasi pause auto-post</p>
+                <p className="text-[9px] text-[#71767B] mt-0.5">Durasi pause</p>
+              </div>
+              <div>
+                <label className="text-[10px] font-medium text-[#536471] block mb-1">Window kegagalan (menit)</label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={rateLimits.circuitBreakerFailureWindowMinutes}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10)
+                    setRateLimits(prev => ({ ...prev, circuitBreakerFailureWindowMinutes: isNaN(val) ? 1 : val }))
+                  }}
+                  className="text-xs h-8"
+                />
+                <p className="text-[9px] text-[#71767B] mt-0.5">Max jarak antar gagal</p>
               </div>
             </div>
 
@@ -132,7 +147,8 @@ export function CircuitBreakerCard({
             <div className="bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4] space-y-1">
               <p className="text-[10px] font-medium text-[#536471]">Cara kerja:</p>
               <ul className="text-[10px] text-[#71767B] space-y-0.5 list-disc list-inside">
-                <li>Jika {rateLimits.circuitBreakerThreshold}x gagal posting berturut-turut, auto-post di-pause selama {rateLimits.circuitBreakerCooldownMinutes} menit</li>
+                <li>Jika {rateLimits.circuitBreakerThreshold}x gagal posting berturut-turut dalam window {rateLimits.circuitBreakerFailureWindowMinutes} menit, auto-post di-pause selama {rateLimits.circuitBreakerCooldownMinutes} menit</li>
+                <li>Jika jarak antar kegagalan melebihi window, counter reset — kegagalan lama tidak dihitung</li>
                 <li>Submissions masih bisa di-approve manual oleh admin saat circuit breaker aktif</li>
                 <li>Reset manual untuk melanjutkan auto-post sebelum waktu habis</li>
               </ul>

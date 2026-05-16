@@ -93,6 +93,7 @@ export interface RateLimitSettings {
   globalSubmissionDailyCap: number
   circuitBreakerThreshold: number
   circuitBreakerCooldownMinutes: number
+  circuitBreakerFailureWindowMinutes: number
 }
 
 export interface FilterSettings {
@@ -261,6 +262,7 @@ export const DEFAULT_RATE_LIMITS: RateLimitSettings = {
   globalSubmissionDailyCap: 200,
   circuitBreakerThreshold: 3,
   circuitBreakerCooldownMinutes: 30,
+  circuitBreakerFailureWindowMinutes: 30,
 }
 
 // --- Status Config (for UI rendering) ---

@@ -18,7 +18,7 @@ const FILTER_SETTING_KEYS = [
   'auto_post_window_cap', 'auto_post_window_minutes',
   'user_post_daily_cap', 'user_pending_cap',
   'global_submission_daily_cap',
-  'circuit_breaker_threshold', 'circuit_breaker_cooldown_minutes',
+  'circuit_breaker_threshold', 'circuit_breaker_cooldown_minutes', 'circuit_breaker_failure_window_minutes',
   'whitelist_usernames', 'blocked_usernames',
 ]
 
@@ -61,6 +61,7 @@ export const DEFAULT_RATE_LIMITS = {
   globalSubmissionDailyCap: 200,        // max submissions from ALL users per day
   circuitBreakerThreshold: 3,           // consecutive failures before circuit breaker pauses
   circuitBreakerCooldownMinutes: 30,    // how long circuit breaker pauses auto-post
+  circuitBreakerFailureWindowMinutes: 30, // max gap between consecutive failures (streak breaker)
 }
 
 export interface RateLimitSettings {
@@ -74,6 +75,7 @@ export interface RateLimitSettings {
   globalSubmissionDailyCap: number       // max submissions from ALL users per day
   circuitBreakerThreshold: number        // consecutive failures before pause
   circuitBreakerCooldownMinutes: number  // how long to pause
+  circuitBreakerFailureWindowMinutes: number  // max gap between failures (streak breaker)
 }
 
 export async function getFilterSettings(): Promise<{
@@ -158,6 +160,7 @@ export async function getFilterSettings(): Promise<{
   const globalSubmissionDailyCap = Math.max(0, parseIntSafe(getRaw('global_submission_daily_cap'), DEFAULT_RATE_LIMITS.globalSubmissionDailyCap))
   const circuitBreakerThreshold = Math.max(1, parseIntSafe(getRaw('circuit_breaker_threshold'), DEFAULT_RATE_LIMITS.circuitBreakerThreshold))
   const circuitBreakerCooldownMinutes = Math.max(1, parseIntSafe(getRaw('circuit_breaker_cooldown_minutes'), DEFAULT_RATE_LIMITS.circuitBreakerCooldownMinutes))
+  const circuitBreakerFailureWindowMinutes = Math.max(1, parseIntSafe(getRaw('circuit_breaker_failure_window_minutes'), DEFAULT_RATE_LIMITS.circuitBreakerFailureWindowMinutes))
 
   // Whitelist usernames (bypass rate limits)
   let whitelistUsernames: string[] = []
@@ -198,7 +201,7 @@ export async function getFilterSettings(): Promise<{
     filterRules,
     geminiEnabled,
     geminiApiKeySet,
-    rateLimits: { submissionCooldown, submissionDailyCap, autoPostCooldown, autoPostWindowCap, autoPostWindowMinutes, userPostDailyCap, userPendingCap, globalSubmissionDailyCap, circuitBreakerThreshold, circuitBreakerCooldownMinutes },
+    rateLimits: { submissionCooldown, submissionDailyCap, autoPostCooldown, autoPostWindowCap, autoPostWindowMinutes, userPostDailyCap, userPendingCap, globalSubmissionDailyCap, circuitBreakerThreshold, circuitBreakerCooldownMinutes, circuitBreakerFailureWindowMinutes },
     whitelistUsernames,
     blockedUsernames,
   }
@@ -257,7 +260,7 @@ export async function POST(req: NextRequest) {
       filterRules?: Partial<FilterRules>
       geminiEnabled?: boolean
       geminiApiKey?: string
-      rateLimits?: { submissionCooldown?: number; submissionDailyCap?: number; autoPostCooldown?: number; autoPostWindowCap?: number; autoPostWindowMinutes?: number; userPostDailyCap?: number; userPendingCap?: number; globalSubmissionDailyCap?: number; circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number }
+      rateLimits?: { submissionCooldown?: number; submissionDailyCap?: number; autoPostCooldown?: number; autoPostWindowCap?: number; autoPostWindowMinutes?: number; userPostDailyCap?: number; userPendingCap?: number; globalSubmissionDailyCap?: number; circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }
       whitelistUsernames?: string[]
       blockedUsernames?: string[]
     }
@@ -442,6 +445,15 @@ export async function POST(req: NextRequest) {
           create: { key: 'circuit_breaker_cooldown_minutes', value: val },
         })
         results.push({ key: 'circuit_breaker_cooldown_minutes', updated: true })
+      }
+      if (typeof rateLimits.circuitBreakerFailureWindowMinutes === 'number') {
+        const val = Math.max(1, rateLimits.circuitBreakerFailureWindowMinutes).toString()
+        await db.setting.upsert({
+          where: { key: 'circuit_breaker_failure_window_minutes' },
+          update: { value: val },
+          create: { key: 'circuit_breaker_failure_window_minutes', value: val },
+        })
+        results.push({ key: 'circuit_breaker_failure_window_minutes', updated: true })
       }
     }
 

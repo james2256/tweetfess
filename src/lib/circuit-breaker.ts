@@ -2,27 +2,37 @@ import { db } from '@/lib/db'
 import { debug } from '@/lib/debug'
 
 // Circuit breaker protects against cascading X API failures.
-// After N consecutive post failures, auto-post is paused for M minutes.
+// After N consecutive post failures within a configurable time window,
+// auto-post is paused for M minutes.
+//
 // Manual admin posts are NOT blocked — admin can decide to retry.
 // Circuit breaker state is stored in the Setting table so it persists
 // across Vercel serverless invocations.
+//
+// Failure window: Only failures that happen within N minutes of the
+// PREVIOUS failure count as "consecutive." If the gap between two
+// failures exceeds the window, the counter resets. This prevents
+// stale failures from days ago from triggering a false-positive pause.
 
 const FAIL_COUNT_KEY = 'circuit_breaker_fail_count'
 const PAUSED_UNTIL_KEY = 'circuit_breaker_paused_until'
+const LAST_FAILURE_AT_KEY = 'circuit_breaker_last_failure_at'
 
 interface CircuitBreakerConfig {
-  threshold: number       // consecutive failures before pausing (default: 3)
-  cooldownMinutes: number // how long to pause (default: 30)
+  threshold: number              // consecutive failures before pausing (default: 3)
+  cooldownMinutes: number        // how long to pause (default: 30)
+  failureWindowMinutes: number   // max gap between consecutive failures (default: 30)
 }
 
 /**
  * Get circuit breaker config from rate limit settings (passed in to avoid
  * re-fetching). Falls back to defaults if not available.
  */
-function getConfig(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number }): CircuitBreakerConfig {
+function getConfig(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }): CircuitBreakerConfig {
   return {
     threshold: rateLimits?.circuitBreakerThreshold ?? 3,
     cooldownMinutes: rateLimits?.circuitBreakerCooldownMinutes ?? 30,
+    failureWindowMinutes: rateLimits?.circuitBreakerFailureWindowMinutes ?? 30,
   }
 }
 
@@ -50,7 +60,7 @@ async function setSettingValue(key: string, value: string): Promise<void> {
  * If the pause has expired, auto-resets the state atomically in a single
  * SQL statement to prevent race conditions with concurrent recordPostFailure().
  */
-export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number }): Promise<boolean> {
+export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }): Promise<boolean> {
   const pausedUntilStr = await getSettingValue(PAUSED_UNTIL_KEY)
   if (!pausedUntilStr || pausedUntilStr === '0') return false
 
@@ -68,6 +78,7 @@ export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThresh
   // Only clears paused_until if the stored value still matches what we read
   // (prevents erasing a newer pause), and resets fail_count only if
   // paused_until was successfully cleared (no concurrent failure set a new pause).
+  // Also clears last_failure_at so the next failure starts a fresh streak.
   debug('[circuit-breaker] Pause expired, auto-resetting')
   await db.$executeRaw`
     UPDATE "Setting" SET "value" = '0', "updatedAt" = NOW()
@@ -80,13 +91,17 @@ export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThresh
     UPDATE "Setting" SET "value" = '0', "updatedAt" = NOW()
     WHERE "key" = ${PAUSED_UNTIL_KEY} AND "value" = ${pausedUntilStr}
   `
+  await db.$executeRaw`
+    UPDATE "Setting" SET "value" = '0', "updatedAt" = NOW()
+    WHERE "key" = ${LAST_FAILURE_AT_KEY}
+  `
   return false
 }
 
 /**
  * Get circuit breaker status for admin UI display.
  */
-export async function getCircuitBreakerStatus(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number }): Promise<{
+export async function getCircuitBreakerStatus(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }): Promise<{
   paused: boolean
   failCount: number
   pausedUntil: number | null
@@ -116,8 +131,12 @@ export async function getCircuitBreakerStatus(rateLimits?: { circuitBreakerThres
 /**
  * Record a successful post — resets the fail count and clears any pause.
  * Called after ANY successful post to X (auto-post, manual, test).
+ *
  * Uses a conditional clear to avoid erasing a new legitimate pause set
  * by a concurrent recordPostFailure() between our two writes.
+ *
+ * IMPORTANT: We also clear last_failure_at so that the next failure
+ * starts a fresh streak instead of inheriting a stale timestamp.
  */
 export async function recordPostSuccess(): Promise<void> {
   // Atomically set fail count to 0 using UPSERT
@@ -133,6 +152,14 @@ export async function recordPostSuccess(): Promise<void> {
     UPDATE "Setting"
     SET "value" = '0', "updatedAt" = NOW()
     WHERE "key" = ${PAUSED_UNTIL_KEY}
+      AND (SELECT "value" FROM "Setting" WHERE "key" = ${FAIL_COUNT_KEY}) = '0'
+  `
+
+  // Clear last_failure_at so next failure starts fresh (no stale timestamp)
+  await db.$executeRaw`
+    UPDATE "Setting"
+    SET "value" = '0', "updatedAt" = NOW()
+    WHERE "key" = ${LAST_FAILURE_AT_KEY}
       AND (SELECT "value" FROM "Setting" WHERE "key" = ${FAIL_COUNT_KEY}) = '0'
   `
 
@@ -152,12 +179,38 @@ export async function recordPostSuccess(): Promise<void> {
  * Uses atomic SQL increment to prevent race conditions when multiple
  * failures happen concurrently.
  *
+ * Failure window: If the gap between THIS failure and the PREVIOUS failure
+ * exceeds the configured window (default 30 min), the counter resets to 1
+ * before incrementing. This prevents stale failures from days ago from
+ * counting toward the threshold.
+ *
  * Bug fix: Only sets pausedUntil at the exact threshold crossing (===),
  * not on every failure past the threshold. This prevents resetting the
  * cooldown timer when failures occur while the circuit is already paused.
  */
-export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number }): Promise<void> {
+export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }): Promise<void> {
   const config = getConfig(rateLimits)
+  const now = Date.now()
+  const windowMs = config.failureWindowMinutes * 60 * 1000
+
+  // Check if the streak is broken (gap between this failure and the previous exceeds window)
+  const lastFailureStr = await getSettingValue(LAST_FAILURE_AT_KEY)
+  const lastFailure = lastFailureStr ? parseInt(lastFailureStr, 10) : 0
+
+  if (lastFailure > 0 && (now - lastFailure) > windowMs) {
+    // Streak broken — reset counter before this new failure
+    debug('[circuit-breaker] Stale streak — gap', Math.round((now - lastFailure) / 60000), 'min exceeds window', config.failureWindowMinutes, 'min. Resetting count.')
+    await db.$executeRaw`
+      INSERT INTO "Setting" (id, key, value, "updatedAt")
+      VALUES (${FAIL_COUNT_KEY}, ${FAIL_COUNT_KEY}, '0', NOW())
+      ON CONFLICT (key) DO UPDATE
+      SET "value" = '0', "updatedAt" = NOW()
+    `
+  }
+
+  // Update last_failure_at BEFORE incrementing, so concurrent failures
+  // can see the fresh timestamp and won't also reset
+  await setSettingValue(LAST_FAILURE_AT_KEY, String(now))
 
   // Atomically increment the fail count — no read-modify-write race
   await db.$executeRaw`
@@ -171,12 +224,12 @@ export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?:
   const newCountStr = await getSettingValue(FAIL_COUNT_KEY)
   const newCount = parseInt(newCountStr ?? '0', 10) || 0
 
-  debug('[circuit-breaker] Post failed, fail count now:', newCount, '(threshold:', config.threshold, ')')
+  debug('[circuit-breaker] Post failed, fail count now:', newCount, '(threshold:', config.threshold, ', window:', config.failureWindowMinutes, 'min)')
 
   // Only set pause at the exact threshold crossing — prevents resetting
   // the cooldown timer when failures occur while already paused
   if (newCount === config.threshold) {
-    const pausedUntil = Date.now() + config.cooldownMinutes * 60 * 1000
+    const pausedUntil = now + config.cooldownMinutes * 60 * 1000
     debug('[circuit-breaker] Threshold reached! Pausing auto-post until', new Date(pausedUntil).toISOString())
     await setSettingValue(PAUSED_UNTIL_KEY, String(pausedUntil))
   }
@@ -189,4 +242,5 @@ export async function resetCircuitBreaker(): Promise<void> {
   debug('[circuit-breaker] Manual reset')
   await setSettingValue(FAIL_COUNT_KEY, '0')
   await setSettingValue(PAUSED_UNTIL_KEY, '0')
+  await setSettingValue(LAST_FAILURE_AT_KEY, '0')
 }
