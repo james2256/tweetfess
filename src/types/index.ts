@@ -220,8 +220,13 @@ export interface SaveFilterSettingsRequest {
   geminiEnabled?: boolean
   geminiApiKey?: string
   rateLimits?: RateLimitSettings
-  whitelistUsernames?: string[]
-  blockedUsernames?: string[]
+  // whitelistUsernames and blockedUsernames are NOT included here.
+  // They are managed exclusively through atomic API routes:
+  //   POST/DELETE /api/admin/submitters/whitelist
+  //   POST /api/admin/submitters/block and /unblock
+  // This prevents the read-merge-write race condition where saving
+  // filter settings with stale form data would re-add users that
+  // were removed by concurrent block/unblock operations.
 }
 
 // --- Auth Response ---

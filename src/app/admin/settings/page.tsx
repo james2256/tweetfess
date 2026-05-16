@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { Send, Shield, Clock } from 'lucide-react'
+import { Send, Shield, Clock, Users } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { usePostingSettings } from '@/hooks/use-posting-settings'
 import { useFilterSettings } from '@/hooks/use-filter-settings'
@@ -16,6 +16,7 @@ import { GeminiCard } from '@/components/settings/gemini-card'
 import { RateLimitCard } from '@/components/settings/rate-limit-card'
 import { CircuitBreakerCard } from '@/components/settings/circuit-breaker-card'
 import { WhitelistCard } from '@/components/settings/whitelist-card'
+import { BlocklistCard } from '@/components/settings/blocklist-card'
 import { LimitHealthCard } from '@/components/settings/limit-health-card'
 import { DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS } from '@/lib/content-filter'
 
@@ -126,6 +127,13 @@ export default function AdminSettingsPage() {
             Filter
           </TabsTrigger>
           <TabsTrigger
+            value="users"
+            className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-4 py-2 text-sm font-medium gap-2"
+          >
+            <Users className="size-4" />
+            Users
+          </TabsTrigger>
+          <TabsTrigger
             value="limits"
             className="rounded-lg data-[state=active]:bg-[#0F1419] data-[state=active]:text-[#F7F9F9] text-[#536471] data-[state=active]:shadow-sm px-4 py-2 text-sm font-medium gap-2"
           >
@@ -230,10 +238,25 @@ export default function AdminSettingsPage() {
               setShowGeminiKey={filterSettings.setShowGeminiKey}
               saveGeminiKey={filterSaveGeminiKey}
             />
+          </motion.div>
+        </TabsContent>
 
+        {/* ── Users Tab ── */}
+        <TabsContent value="users">
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="space-y-4 mt-4"
+          >
             <WhitelistCard
               whitelistUsernames={filterSettings.whitelistUsernames}
               onWhitelistChange={() => stats.refetch()}
+            />
+
+            <BlocklistCard
+              blockedUsernames={filterSettings.blockedUsernames}
+              onBlocklistChange={() => stats.refetch()}
             />
           </motion.div>
         </TabsContent>

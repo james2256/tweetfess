@@ -184,9 +184,10 @@ export async function recordPostSuccess(): Promise<void> {
  * before incrementing. This prevents stale failures from days ago from
  * counting toward the threshold.
  *
- * Bug fix: Only sets pausedUntil at the exact threshold crossing (===),
- * not on every failure past the threshold. This prevents resetting the
- * cooldown timer when failures occur while the circuit is already paused.
+ * Bug fix: Uses >= instead of === to handle concurrent failures that may
+ * skip past the exact threshold. Only sets pausedUntil if not already paused
+ * (conditional write), which prevents resetting the cooldown timer when
+ * failures occur while the circuit is already paused.
  */
 export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }): Promise<void> {
   const config = getConfig(rateLimits)
@@ -226,12 +227,22 @@ export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?:
 
   debug('[circuit-breaker] Post failed, fail count now:', newCount, '(threshold:', config.threshold, ', window:', config.failureWindowMinutes, 'min)')
 
-  // Only set pause at the exact threshold crossing — prevents resetting
-  // the cooldown timer when failures occur while already paused
-  if (newCount === config.threshold) {
+  // Set pause when threshold is reached or exceeded — handles concurrent failures
+  // that may skip past the exact threshold count. Conditional write prevents
+  // resetting the cooldown timer when failures occur while already paused.
+  if (newCount >= config.threshold) {
     const pausedUntil = now + config.cooldownMinutes * 60 * 1000
     debug('[circuit-breaker] Threshold reached! Pausing auto-post until', new Date(pausedUntil).toISOString())
-    await setSettingValue(PAUSED_UNTIL_KEY, String(pausedUntil))
+    // Atomic conditional set: INSERT if row missing, UPDATE only if not already
+    // paused (value='0' or expired). Skips update when already paused, preventing
+    // concurrent failures from resetting the cooldown timer.
+    await db.$executeRaw`
+      INSERT INTO "Setting" (id, key, value, "updatedAt")
+      VALUES (${PAUSED_UNTIL_KEY}, ${PAUSED_UNTIL_KEY}, ${String(pausedUntil)}, NOW())
+      ON CONFLICT (key) DO UPDATE
+      SET "value" = ${String(pausedUntil)}, "updatedAt" = NOW()
+      WHERE "Setting"."value" = '0' OR ("Setting"."value")::BIGINT < ${now}
+    `
   }
 }
 

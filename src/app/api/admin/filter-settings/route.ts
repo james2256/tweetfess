@@ -253,7 +253,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { autoApprove, blockedWords, nsfwWords, filterRules, geminiEnabled, geminiApiKey, rateLimits, whitelistUsernames, blockedUsernames } = body as {
+    const { autoApprove, blockedWords, nsfwWords, filterRules, geminiEnabled, geminiApiKey, rateLimits } = body as {
       autoApprove?: boolean
       blockedWords?: string[]
       nsfwWords?: string[]
@@ -261,8 +261,6 @@ export async function POST(req: NextRequest) {
       geminiEnabled?: boolean
       geminiApiKey?: string
       rateLimits?: { submissionCooldown?: number; submissionDailyCap?: number; autoPostCooldown?: number; autoPostWindowCap?: number; autoPostWindowMinutes?: number; userPostDailyCap?: number; userPendingCap?: number; globalSubmissionDailyCap?: number; circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }
-      whitelistUsernames?: string[]
-      blockedUsernames?: string[]
     }
 
     const results: { key: string; updated: boolean }[] = []
@@ -457,46 +455,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Save whitelist usernames (atomic merge — doesn't overwrite concurrent block/unblock changes)
-    if (Array.isArray(whitelistUsernames)) {
-      const valid = whitelistUsernames
-        .filter((u: unknown) => typeof u === 'string' && u.trim())
-        .map((u: string) => u.toLowerCase().trim())
-      const unique = [...new Set(valid)]
-      // Read current value, merge with admin's list, then write back.
-      // This ensures that if a concurrent block/unblock route modified the
-      // array while admin was editing, those changes are preserved.
-      const currentWhitelist = await db.setting.findUnique({ where: { key: 'whitelist_usernames' } })
-      const currentList: string[] = currentWhitelist
-        ? (() => { try { const parsed = JSON.parse(decryptValue(currentWhitelist.value)); return Array.isArray(parsed) ? parsed : [] } catch { return [] } })()
-        : []
-      const merged = [...new Set([...currentList.filter((u: string) => typeof u === 'string' && u.trim()).map((u: string) => u.toLowerCase().trim()), ...unique])]
-      await db.setting.upsert({
-        where: { key: 'whitelist_usernames' },
-        update: { value: JSON.stringify(merged) },
-        create: { key: 'whitelist_usernames', value: JSON.stringify(merged) },
-      })
-      results.push({ key: 'whitelist_usernames', updated: true })
-    }
-
-    // Save blocked usernames (atomic merge — doesn't overwrite concurrent block/unblock changes)
-    if (Array.isArray(blockedUsernames)) {
-      const valid = blockedUsernames
-        .filter((u: unknown) => typeof u === 'string' && u.trim())
-        .map((u: string) => u.toLowerCase().trim())
-      const unique = [...new Set(valid)]
-      const currentBlocked = await db.setting.findUnique({ where: { key: 'blocked_usernames' } })
-      const currentList: string[] = currentBlocked
-        ? (() => { try { const parsed = JSON.parse(decryptValue(currentBlocked.value)); return Array.isArray(parsed) ? parsed : [] } catch { return [] } })()
-        : []
-      const merged = [...new Set([...currentList.filter((u: string) => typeof u === 'string' && u.trim()).map((u: string) => u.toLowerCase().trim()), ...unique])]
-      await db.setting.upsert({
-        where: { key: 'blocked_usernames' },
-        update: { value: JSON.stringify(merged) },
-        create: { key: 'blocked_usernames', value: JSON.stringify(merged) },
-      })
-      results.push({ key: 'blocked_usernames', updated: true })
-    }
+    // NOTE: whitelist_usernames and blocked_usernames are NO LONGER saved here.
+    // They are managed exclusively through the dedicated atomic API routes:
+    //   POST   /api/admin/submitters/whitelist  (add to whitelist + remove from blocked)
+    //   DELETE /api/admin/submitters/whitelist  (remove from whitelist)
+    //   POST   /api/admin/submitters/block      (add to blocked + remove from whitelist)
+    //   POST   /api/admin/submitters/unblock    (remove from blocked)
+    //
+    // Previous implementation used a non-atomic read-merge-write (union) that could
+    // re-add usernames removed by concurrent block/unblock operations when the admin
+    // saved filter settings with stale form data. The dedicated routes use atomic
+    // PostgreSQL jsonb operations that prevent this race condition entirely.
 
     return NextResponse.json({ success: true, results })
   } catch (e) {

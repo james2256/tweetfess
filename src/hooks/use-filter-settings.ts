@@ -24,6 +24,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
   const [showGeminiKey, setShowGeminiKey] = useState(false)
   const [rateLimits, setRateLimits] = useState<RateLimitSettings>({ ...DEFAULT_RATE_LIMITS })
   const [whitelistUsernames, setWhitelistUsernames] = useState<string[]>([])
+  const [blockedUsernames, setBlockedUsernames] = useState<string[]>([])
   const { toast } = useToast()
 
   // Load filter settings from stats response
@@ -36,6 +37,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     setGeminiApiKeySet(settings.geminiApiKeySet)
     if (settings.rateLimits) setRateLimits(settings.rateLimits)
     if (settings.whitelistUsernames) setWhitelistUsernames(settings.whitelistUsernames)
+    if (settings.blockedUsernames) setBlockedUsernames(settings.blockedUsernames)
   }, [])
 
   const toggleAutoApprove = useCallback(() => {
@@ -120,6 +122,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     setGeminiApiKeySet(false)
     setRateLimits({ ...DEFAULT_RATE_LIMITS })
     setWhitelistUsernames([])
+    setBlockedUsernames([])
   }, [])
 
   return {
@@ -134,6 +137,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     showGeminiKey,
     rateLimits,
     whitelistUsernames,
+    blockedUsernames,
     DEFAULT_BLOCKED_WORDS,
     DEFAULT_NSFW_WORDS,
     toggleAutoApprove,
@@ -146,6 +150,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     setShowGeminiKey,
     setRateLimits,
     setWhitelistUsernames,
+    setBlockedUsernames,
     saveGeminiKey,
     saveFilterSettings,
     loadFromFilterSettings,

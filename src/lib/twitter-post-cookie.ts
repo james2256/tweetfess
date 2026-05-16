@@ -261,16 +261,47 @@ export async function postTweetViaCookie(
     has_api_keys: !!settings.twitterapi_keys,
   })
 
+  // Helper: try twitterapi.io fallback if in auto mode, otherwise return direct failure.
+  // Ensures auto-mode degrades gracefully — if cookie-based posting fails for any
+  // reason (expired cookie, auth errors, network errors), the paid API takes over.
+  async function fallbackOrFail(
+    error: string,
+    method: 'direct' | 'retry',
+    retriesUsed: number = 0,
+  ): Promise<{
+    success: boolean
+    tweetId?: string
+    error?: string
+    method: 'direct' | 'retry' | 'fallback'
+    retriesUsed?: number
+  }> {
+    if (postMethod !== 'auto') {
+      return { success: false, error, method, retriesUsed }
+    }
+    debug('[direct] Direct posting failed, trying twitterapi.io fallback:', error.slice(0, 100))
+    const fallbackResult = await postViaTwitterApi(text)
+    if (fallbackResult.success) {
+      return {
+        success: true,
+        tweetId: fallbackResult.tweetId,
+        method: 'fallback',
+        retriesUsed,
+      }
+    }
+    return {
+      success: false,
+      error: `Direct gagal: ${error.slice(0, 200)}. Fallback juga gagal: ${fallbackResult.error || 'Unknown error'}`,
+      method: 'fallback',
+      retriesUsed,
+    }
+  }
+
   // 2. Resolve cookie string: DB → env var → null
   const envCookie = process.env.X_COOKIE_STRING?.trim() || null
   const cookieString = settings.x_cookie_string || envCookie || null
 
   if (!cookieString) {
-    return {
-      success: false,
-      error: 'Cookie string not configured. Go to Admin → X Settings to set it up.',
-      method: 'direct',
-    }
+    return fallbackOrFail('Cookie string not configured. Go to Admin → X Settings to set it up.', 'direct')
   }
 
   // 3. Parse cookies
@@ -281,22 +312,13 @@ export async function postTweetViaCookie(
     cookie_length: cookies.raw.length,
   })
   if (!cookies.auth_token || !cookies.ct0) {
-    return {
-      success: false,
-      error:
-        'Cookie string is missing auth_token or ct0. Copy the full cookie string from your browser.',
-      method: 'direct',
-    }
+    return fallbackOrFail('Cookie string is missing auth_token or ct0. Copy the full cookie string from your browser.', 'direct')
   }
 
   // 4. Resolve bearer token (required — no default)
   const bearerToken = settings.x_bearer_token || null
   if (!bearerToken) {
-    return {
-      success: false,
-      error: 'x_bearer_token not set. Update in Admin → X Settings.',
-      method: 'direct',
-    }
+    return fallbackOrFail('x_bearer_token not set. Update in Admin → X Settings.', 'direct')
   }
 
   // 5-7. Resolve queryId + make request + parse response
@@ -343,11 +365,7 @@ export async function postTweetViaCookie(
 
     queryId = queryId || settings.x_query_id || null
     if (!queryId) {
-      return {
-        success: false,
-        error: 'x_query_id not set and live fetch failed. Check network or set manually in Admin → X Settings.',
-        method: 'direct',
-      }
+      return fallbackOrFail('x_query_id not set and live fetch failed. Check network or set manually in Admin → X Settings.', 'direct')
     }
 
     // Make the request
@@ -489,13 +507,8 @@ export async function postTweetViaCookie(
           continue
         }
 
-        // Other HTTP errors — don't retry (auth, rate limit, etc.)
-        return {
-          success: false,
-          error: lastError,
-          method: attempt > 0 ? 'retry' : 'direct',
-          retriesUsed: attempt,
-        }
+        // Other HTTP errors — don't retry (auth, rate limit, etc.), try fallback in auto mode
+        return fallbackOrFail(lastError, attempt > 0 ? 'retry' : 'direct', attempt)
       }
 
       const body = await response.json()
@@ -519,12 +532,8 @@ export async function postTweetViaCookie(
           continue
         }
 
-        return {
-          success: false,
-          error: lastError,
-          method: attempt > 0 ? 'retry' : 'direct',
-          retriesUsed: attempt,
-        }
+        // Non-retryable GraphQL error — try fallback in auto mode
+        return fallbackOrFail(lastError, attempt > 0 ? 'retry' : 'direct', attempt)
       }
 
       // Layer 3: Missing data / empty tweet_results
@@ -539,12 +548,7 @@ export async function postTweetViaCookie(
           }
         }
 
-        return {
-          success: false,
-          error: `Tweet was not created. Response: ${JSON.stringify(body).slice(0, 300)}`,
-          method: attempt > 0 ? 'retry' : 'direct',
-          retriesUsed: attempt,
-        }
+        return fallbackOrFail(`Tweet was not created. Response: ${JSON.stringify(body).slice(0, 300)}`, attempt > 0 ? 'retry' : 'direct', attempt)
       }
 
       // Success!
@@ -563,12 +567,8 @@ export async function postTweetViaCookie(
         continue
       }
 
-      return {
-        success: false,
-        error: lastError,
-        method: attempt > 0 ? 'retry' : 'direct',
-        retriesUsed: attempt,
-      }
+      // All retries exhausted on network errors — try fallback in auto mode
+      return fallbackOrFail(lastError, attempt > 0 ? 'retry' : 'direct', attempt)
     }
   }
 
