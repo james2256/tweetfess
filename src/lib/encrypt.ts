@@ -94,8 +94,14 @@ const BASE64_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
 /**
  * Returns true if the value matches the "iv:authTag:ciphertext" pattern
  * (3 colon-separated segments, each valid base64).
+ * Includes a minimum length check: valid AES-256-GCM ciphertext is
+ * "iv(16 b64):authTag(24 b64):ciphertext(≥4 b64)" → minimum ~46 chars.
+ * Any value shorter than 40 chars cannot possibly be valid ciphertext,
+ * so we early-return false to avoid false positives on strings that
+ * happen to contain 3 colon-separated base64-like segments.
  */
 export function isEncrypted(value: string): boolean {
+  if (value.length < 40) return false;
   const parts = value.split(":");
   if (parts.length !== 3) return false;
   return parts.every((segment) => segment.length > 0 && BASE64_REGEX.test(segment));

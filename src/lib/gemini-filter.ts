@@ -71,9 +71,12 @@ export async function runGeminiFilter(
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
-    const response = await fetch(`${GEMINI_API_URL}?key=${apiKey.trim()}`, {
+    const response = await fetch(GEMINI_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey.trim(),
+      },
       signal: controller.signal,
       body: JSON.stringify({
         system_instruction: {
