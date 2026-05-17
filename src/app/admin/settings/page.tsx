@@ -246,6 +246,7 @@ export default function AdminSettingsPage() {
 
             <GeminiCard
               geminiEnabled={filterSettings.geminiEnabled}
+              geminiSaving={filterSettings.geminiSaving}
               setGeminiEnabled={filterSettings.setGeminiEnabled}
               geminiApiKeyInput={filterSettings.geminiApiKeyInput}
               setGeminiApiKeyInput={filterSettings.setGeminiApiKeyInput}

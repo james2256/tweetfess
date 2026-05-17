@@ -48,9 +48,30 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     setFilterRules((prev) => ({ ...prev, [key]: !prev[key] }))
   }, [])
 
-  const setGeminiEnabledState = useCallback((val: boolean) => {
+  const [geminiSaving, setGeminiSaving] = useState(false)
+
+  const setGeminiEnabledState = useCallback(async (val: boolean) => {
+    if (!adminToken) return
+    // Optimistic update
     setGeminiEnabled(val)
-  }, [])
+    setGeminiSaving(true)
+    try {
+      const data = await apiClient.saveFilterSettings({ geminiEnabled: val })
+      if (!data.error) {
+        toast({ title: `Gemini AI Filter: ${val ? 'ON' : 'OFF'}` })
+        onStatsRefresh?.()
+      } else {
+        // Revert on failure
+        setGeminiEnabled(!val)
+        toast({ title: 'Failed to update Gemini', description: data.error, variant: 'destructive' })
+      }
+    } catch {
+      setGeminiEnabled(!val)
+      toast({ title: 'Error', description: 'Failed to update Gemini setting', variant: 'destructive' })
+    } finally {
+      setGeminiSaving(false)
+    }
+  }, [adminToken, onStatsRefresh, toast])
 
   const saveGeminiKey = useCallback(async (key: string) => {
     if (!adminToken) return
@@ -132,6 +153,7 @@ export function useFilterSettings({ adminToken, onStatsRefresh }: UseFilterSetti
     filterRules,
     isSaving,
     geminiEnabled,
+    geminiSaving,
     geminiApiKeyInput,
     geminiApiKeySet,
     showGeminiKey,

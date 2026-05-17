@@ -8,6 +8,7 @@ import {
   ChevronDown,
   AlertTriangle,
   ShieldCheck,
+  Loader2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -18,6 +19,7 @@ import { Separator } from '@/components/ui/separator'
 
 interface GeminiCardProps {
   geminiEnabled: boolean
+  geminiSaving: boolean
   setGeminiEnabled: (v: boolean) => void
   geminiApiKeyInput: string
   setGeminiApiKeyInput: (v: string) => void
@@ -29,6 +31,7 @@ interface GeminiCardProps {
 
 export function GeminiCard({
   geminiEnabled,
+  geminiSaving,
   setGeminiEnabled,
   geminiApiKeyInput,
   setGeminiApiKeyInput,
@@ -46,17 +49,19 @@ export function GeminiCard({
           <CardHeader className="pb-3 cursor-pointer hover:bg-[#F7F9F9]/50 rounded-t-lg transition-colors">
             <CardTitle className="text-sm sm:text-base flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <Sparkles className="w-4 h-4 text-purple-500 shrink-0" /> <span>Gemini AI Filter</span>
-              {geminiEnabled && geminiApiKeySet && (
+              {geminiSaving ? (
+                <Badge variant="outline" className="text-[10px] px-1.5 bg-blue-50 text-blue-700 border-blue-300">
+                  <Loader2 className="w-2.5 h-2.5 mr-0.5 animate-spin" /> Saving...
+                </Badge>
+              ) : geminiEnabled && geminiApiKeySet ? (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-green-50 text-green-700 border-green-300">
                   Active
                 </Badge>
-              )}
-              {geminiEnabled && !geminiApiKeySet && (
+              ) : geminiEnabled && !geminiApiKeySet ? (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-amber-50 text-amber-700 border-amber-300">
                   No API Key
                 </Badge>
-              )}
-              {!geminiEnabled && (
+              ) : (
                 <Badge variant="outline" className="text-[10px] px-1.5 bg-[#F7F9F9] text-[#536471] border-[#EFF3F4]">
                   Off
                 </Badge>
@@ -71,21 +76,23 @@ export function GeminiCard({
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" /> Gemini AI Filter
-                {geminiEnabled && geminiApiKeySet && (
+                {geminiSaving ? (
+                  <Loader2 className="w-3 h-3 animate-spin text-[#536471]" />
+                ) : geminiEnabled && geminiApiKeySet ? (
                   <Badge variant="outline" className="text-[8px] px-1 py-0 bg-green-50 text-green-700 border-green-300">
                     Active
                   </Badge>
-                )}
-                {geminiEnabled && !geminiApiKeySet && (
+                ) : geminiEnabled && !geminiApiKeySet ? (
                   <Badge variant="outline" className="text-[8px] px-1 py-0 bg-amber-50 text-amber-700 border-amber-300">
                     No API Key
                   </Badge>
-                )}
+                ) : null}
               </label>
               <button
                 type="button"
+                disabled={geminiSaving}
                 onClick={() => setGeminiEnabled(!geminiEnabled)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${geminiEnabled ? 'bg-green-500' : 'bg-[#EFF3F4]'}`}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${geminiEnabled ? 'bg-green-500' : 'bg-[#EFF3F4]'} ${geminiSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${geminiEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
