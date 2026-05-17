@@ -20,13 +20,13 @@ import { apiClient } from '@/lib/api-client'
 import { APP_VERSION } from '@/lib/constants'
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { isAdmin, isChecking, adminToken, login, logout, loginPassword, setLoginPassword, loginOpen, setLoginOpen } = useAdminAuth()
+  const { isAdmin, isChecking, login, logout, loginPassword, setLoginPassword, loginOpen, setLoginOpen } = useAdminAuth()
   const [isLoggingIn, setIsLoggingIn] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
 
-  // Fetch pending count for the header badge
+  // Fetch pending count for the header badge (initial load only)
   useEffect(() => {
-    if (!isAdmin || !adminToken) return
+    if (!isAdmin) return
     const fetchPending = async () => {
       try {
         const stats = await apiClient.getStats()
@@ -36,9 +36,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       }
     }
     void fetchPending()
-    const interval = setInterval(() => { void fetchPending() }, 30000)
-    return () => clearInterval(interval)
-  }, [isAdmin, adminToken])
+  }, [isAdmin])
+
+  // Listen for stats updates dispatched by the dashboard page
+  useEffect(() => {
+    if (!isAdmin) return
+    const handleStatsUpdate = (e: CustomEvent) => {
+      setPendingCount(e.detail.pending ?? 0)
+    }
+    window.addEventListener('stats-update', handleStatsUpdate as EventListener)
+    return () => window.removeEventListener('stats-update', handleStatsUpdate as EventListener)
+  }, [isAdmin])
 
   const handleLogin = async () => {
     setIsLoggingIn(true)
@@ -115,7 +123,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F7F9F9]">
-      <AdminHeader adminToken={adminToken} onLogout={logout} pendingCount={pendingCount} />
+      <AdminHeader onLogout={logout} pendingCount={pendingCount} />
       <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
         {children}
       </main>

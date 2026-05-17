@@ -115,6 +115,7 @@ export interface FilterSettings {
 
 export interface Stats {
   pending: number
+  posting: number
   postFailed: number
   rejected: number
   posted: number
@@ -127,6 +128,7 @@ export interface Stats {
   filterSettings: FilterSettings | null
   postMethodSetting?: PostMethod
   circuitBreaker?: CircuitBreakerStatus | null
+  encryptionEnabled?: boolean
 }
 
 // --- Circuit Breaker ---
@@ -182,6 +184,7 @@ export interface SubmissionLimitsData {
   postUsed: number
   cooldownSeconds: number
   isCustom: boolean
+  autoApprove?: boolean
 }
 
 // --- Pagination ---
@@ -259,19 +262,8 @@ export const DEFAULT_FILTER_RULES: FilterRules = {
   duplicate24h: true,
 }
 
-export const DEFAULT_RATE_LIMITS: RateLimitSettings = {
-  submissionCooldown: 2,
-  submissionDailyCap: 20,
-  autoPostCooldown: 10,
-  autoPostWindowCap: 25,
-  autoPostWindowMinutes: 30,
-  userPostDailyCap: 5,
-  userPendingCap: 5,
-  globalSubmissionDailyCap: 200,
-  circuitBreakerThreshold: 3,
-  circuitBreakerCooldownMinutes: 30,
-  circuitBreakerFailureWindowMinutes: 30,
-}
+// Re-exported from @/lib/filter-settings for backward compatibility
+export { DEFAULT_RATE_LIMITS } from '@/lib/filter-settings'
 
 // --- Status Config (for UI rendering) ---
 
@@ -344,21 +336,5 @@ export function formatDate(dateStr: string): string {
   })
 }
 
-// --- Admin Cookie Helpers ---
-
-const ADMIN_COOKIE = 'tweetfess_admin'
-
-export function setAdminCookie(token: string): void {
-  const secure = window.location.protocol === 'https:' ? ';Secure' : ''
-  document.cookie = `${ADMIN_COOKIE}=${encodeURIComponent(token)};path=/;max-age=${7 * 24 * 60 * 60};samesite=strict${secure}`
-}
-
-export function getAdminCookie(): string {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${ADMIN_COOKIE}=([^;]*)`))
-  return match ? decodeURIComponent(match[1]) : ''
-}
-
-export function clearAdminCookie(): void {
-  const secure = window.location.protocol === 'https:' ? ';Secure' : ''
-  document.cookie = `${ADMIN_COOKIE}=;path=/;max-age=0;samesite=strict${secure}`
-}
+// Admin cookie helpers removed — auth is now handled via HttpOnly cookies
+// set by the server on login. See src/lib/admin-auth.ts getAdminTokenFromRequest().

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
-import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
+import { getFilterSettings } from '@/lib/filter-settings'
 
 // GET /api/auth/me - Check if user is logged in via Twitter OAuth
 export async function GET(req: NextRequest) {

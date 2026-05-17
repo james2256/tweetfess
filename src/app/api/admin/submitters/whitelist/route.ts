@@ -1,11 +1,16 @@
+// NOTE: blocked_usernames / whitelist_usernames are intentionally stored as plaintext JSON.
+// These are public X handles with no security sensitivity — encrypting them would provide
+// no practical benefit. The PostgreSQL ::jsonb cast used for atomic add/remove operations
+// requires plaintext values. Do NOT apply encrypt() to these settings.
+
 import { db } from '@/lib/db'
-import { verifyAdmin } from '@/lib/admin-auth'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
 // POST /api/admin/submitters/whitelist — Add a user to the whitelist
 // Uses atomic PostgreSQL jsonb append to prevent race conditions.
 export async function POST(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {
@@ -60,7 +65,7 @@ export async function POST(req: NextRequest) {
 // DELETE /api/admin/submitters/whitelist — Remove a user from the whitelist
 // Uses atomic PostgreSQL jsonb removal to prevent race conditions.
 export async function DELETE(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {

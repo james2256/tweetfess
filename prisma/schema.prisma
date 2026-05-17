@@ -17,15 +17,14 @@ model Submitter {
   username          String       @unique
   displayName       String?
   profileImage      String?
-  oauth2AccessToken String?      // OAuth 2.0 access token (for user identity)
-  oauth2RefreshToken String?     // OAuth 2.0 refresh token
+  oauth2AccessToken String?      // OAuth 2.0 access token (encrypted at rest)
+  oauth2RefreshToken String?     // OAuth 2.0 refresh token (encrypted at rest)
   customLimits      Json?        // Per-user limit overrides, e.g. {"submissionDailyCap": 50}
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
   submissions       Submission[]
 
   @@index([createdAt])            // admin list ordering
-  @@index([oauth2AccessToken])    // anon OAuth lookup
 }
 
 model Submission {

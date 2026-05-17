@@ -9,6 +9,9 @@ import {
   AlertTriangle,
   ShieldCheck,
   Loader2,
+  Activity,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -16,6 +19,13 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
+
+interface HealthStatus {
+  healthy: boolean
+  model: string
+  error: string | null
+}
 
 interface GeminiCardProps {
   geminiEnabled: boolean
@@ -41,6 +51,22 @@ export function GeminiCard({
   saveGeminiKey,
 }: GeminiCardProps) {
   const [open, setOpen] = useState(true)
+  const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null)
+  const [isTesting, setIsTesting] = useState(false)
+
+  const testHealth = async () => {
+    setIsTesting(true)
+    setHealthStatus(null)
+    try {
+      const res = await fetch('/api/admin/gemini-status')
+      const data = await res.json()
+      setHealthStatus({ healthy: data.healthy, model: data.model, error: data.error })
+    } catch {
+      setHealthStatus({ healthy: false, model: '', error: 'Network error' })
+    } finally {
+      setIsTesting(false)
+    }
+  }
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -76,26 +102,16 @@ export function GeminiCard({
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" /> Gemini AI Filter
-                {geminiSaving ? (
+                {geminiSaving && (
                   <Loader2 className="w-3 h-3 animate-spin text-[#536471]" />
-                ) : geminiEnabled && geminiApiKeySet ? (
-                  <Badge variant="outline" className="text-[8px] px-1 py-0 bg-green-50 text-green-700 border-green-300">
-                    Active
-                  </Badge>
-                ) : geminiEnabled && !geminiApiKeySet ? (
-                  <Badge variant="outline" className="text-[8px] px-1 py-0 bg-amber-50 text-amber-700 border-amber-300">
-                    No API Key
-                  </Badge>
-                ) : null}
+                )}
               </label>
-              <button
-                type="button"
+              <Switch
+                checked={geminiEnabled}
+                onCheckedChange={() => setGeminiEnabled(!geminiEnabled)}
                 disabled={geminiSaving}
-                onClick={() => setGeminiEnabled(!geminiEnabled)}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${geminiEnabled ? 'bg-green-500' : 'bg-[#EFF3F4]'} ${geminiSaving ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${geminiEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
-              </button>
+                aria-label="Toggle Gemini AI Filter"
+              />
             </div>
             <p className="text-[10px] text-[#71767B]">
               Uses Gemini AI for nuanced content moderation — catches coded language, subtle harassment, and context-dependent hate speech that word filters miss.
@@ -145,6 +161,53 @@ export function GeminiCard({
                 <p className="text-[10px] text-green-600 flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3" /> API key is configured
                 </p>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Health Check */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5" /> Health Check
+                </label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-xs border-[#EFF3F4] h-7"
+                  disabled={!geminiApiKeySet || isTesting}
+                  onClick={testHealth}
+                >
+                  {isTesting ? (
+                    <>
+                      <Loader2 className="w-3 h-3 mr-1 animate-spin" /> Testing...
+                    </>
+                  ) : (
+                    'Test'
+                  )}
+                </Button>
+              </div>
+              {healthStatus && (
+                <div className={`rounded-lg p-2 text-[10px] flex items-start gap-1.5 ${
+                  healthStatus.healthy
+                    ? 'bg-green-50 border border-green-200 text-green-700'
+                    : 'bg-red-50 border border-red-200 text-red-700'
+                }`}>
+                  {healthStatus.healthy ? (
+                    <CheckCircle2 className="w-3 h-3 shrink-0 mt-0.5" />
+                  ) : (
+                    <XCircle className="w-3 h-3 shrink-0 mt-0.5" />
+                  )}
+                  <span>
+                    {healthStatus.healthy
+                      ? `Connected — model: ${healthStatus.model}`
+                      : `Unhealthy — ${healthStatus.error || 'unknown error'}${healthStatus.model ? ` (model: ${healthStatus.model})` : ''}`}
+                  </span>
+                </div>
+              )}
+              {!geminiApiKeySet && (
+                <p className="text-[10px] text-[#71767B]">Save an API key first to test connectivity.</p>
               )}
             </div>
 

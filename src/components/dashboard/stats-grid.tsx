@@ -1,6 +1,6 @@
 'use client'
 
-import { BarChart3, Clock, AlertCircle, Ban, CheckCircle, Users } from 'lucide-react'
+import { BarChart3, Clock, AlertCircle, Ban, CheckCircle, Users, Loader2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import type { Stats } from '@/types'
 
@@ -13,6 +13,7 @@ export function StatsGrid({ stats, onPenggunaClick }: StatsGridProps) {
   const statCards = [
     { label: 'Total', value: stats.total, icon: BarChart3, color: 'bg-[#F7F9F9] text-[#3D4145]' },
     { label: 'Menunggu', value: stats.pending, icon: Clock, color: stats.pending > 0 ? 'bg-yellow-50 text-yellow-700 ring-2 ring-yellow-300' : 'bg-yellow-50 text-yellow-700' },
+    { label: 'Posting', value: stats.posting, icon: Loader2, color: 'bg-blue-50 text-blue-700' },
     { label: 'Gagal Posting', value: stats.postFailed, icon: AlertCircle, color: stats.postFailed > 0 ? 'bg-red-50 text-red-700 ring-2 ring-red-300' : 'bg-red-50 text-red-700' },
     { label: 'Ditolak', value: stats.rejected, icon: Ban, color: 'bg-red-50 text-red-700' },
     { label: 'Diposting', value: stats.posted, icon: CheckCircle, color: 'bg-[#F7F9F9] text-[#536471]' },

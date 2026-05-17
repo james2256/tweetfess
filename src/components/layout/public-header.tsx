@@ -69,7 +69,7 @@ export function PublicHeader({ submitter, isChecking, isAnonUser, onLogin, onLog
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
                     <p className="text-sm font-medium leading-none">{submitter?.displayName || submitterUsername}</p>
-                    <p className="text-xs leading-none text-mutedforeground">@{submitterUsername}</p>
+                    <p className="text-xs leading-none text-muted-foreground">@{submitterUsername}</p>
                     {isAnonUser && (
                       <p className="text-xs text-amber-600 flex items-center gap-1 mt-1">
                         <AlertTriangle className="w-3 h-3" /> Profil X gagal dimuat

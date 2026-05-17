@@ -1,5 +1,5 @@
 import { db } from '@/lib/db'
-import { verifyAdmin } from '@/lib/admin-auth'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { getStartOfTodayWIB } from '@/lib/constants'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -13,7 +13,7 @@ const LIMIT_TYPE_LABELS: Record<string, string> = {
 
 // GET /api/admin/limit-hits — Limit health stats for today (calendar day WIB)
 export async function GET(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   const startOfToday = getStartOfTodayWIB()

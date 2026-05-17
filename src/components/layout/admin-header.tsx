@@ -8,12 +8,11 @@ import { Button } from '@/components/ui/button'
 import { XLogo } from '@/components/shared/x-logo'
 
 interface AdminHeaderProps {
-  adminToken: string
   onLogout: () => void
   pendingCount?: number
 }
 
-export function AdminHeader({ adminToken, onLogout, pendingCount = 0 }: AdminHeaderProps) {
+export function AdminHeader({ onLogout, pendingCount = 0 }: AdminHeaderProps) {
   const pathname = usePathname()
 
   const navLinks = [

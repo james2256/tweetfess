@@ -4,6 +4,28 @@ const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
+// Track whether encryption key is available (set once at module load)
+const _encryptionKeyAvailable = !!process.env.ENCRYPTION_KEY;
+
+// Warn once at startup if ENCRYPTION_KEY is not configured
+if (!_encryptionKeyAvailable) {
+  console.error(
+    '[ENCRYPTION] ⚠️  ENCRYPTION_KEY is not set. Sensitive data (API keys, cookies, passwords) will be stored in PLAINTEXT. ' +
+    'Generate a key with: openssl rand -hex 32  —  Then set ENCRYPTION_KEY in your environment variables.'
+  );
+}
+
+// Throttled warning: log at most once per 60 seconds when encrypt() is called without a key
+let _lastEncryptWarnTime = 0;
+
+/**
+ * Returns true if ENCRYPTION_KEY is configured and encryption is active.
+ * Useful for admin UI to show a warning banner when encryption is disabled.
+ */
+export function isEncryptionEnabled(): boolean {
+  return _encryptionKeyAvailable;
+}
+
 function getKey(): Buffer | null {
   const hexKey = process.env.ENCRYPTION_KEY;
   if (!hexKey) return null;
@@ -23,7 +45,18 @@ function getKey(): Buffer | null {
  */
 export function encrypt(plaintext: string): string {
   const key = getKey();
-  if (!key) return plaintext;
+  if (!key) {
+    // Throttled warning — don't spam logs on every call
+    const now = Date.now();
+    if (now - _lastEncryptWarnTime > 60_000) {
+      _lastEncryptWarnTime = now;
+      console.warn(
+        `[ENCRYPTION] encrypt() called without ENCRYPTION_KEY — value stored in plaintext. ` +
+        `Set ENCRYPTION_KEY to enable encryption. (This warning is throttled to once per minute)`
+      );
+    }
+    return plaintext;
+  }
 
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv, {

@@ -18,6 +18,7 @@ import { CircuitBreakerCard } from '@/components/settings/circuit-breaker-card'
 import { WhitelistCard } from '@/components/settings/whitelist-card'
 import { BlocklistCard } from '@/components/settings/blocklist-card'
 import { LimitHealthCard } from '@/components/settings/limit-health-card'
+import { EncryptionBanner } from '@/components/dashboard/encryption-banner'
 import { DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS } from '@/lib/content-filter'
 
 export default function AdminSettingsPage() {
@@ -121,6 +122,11 @@ export default function AdminSettingsPage() {
       <div className="mb-6">
         <h2 className="text-lg font-bold text-[#0F1419]">Settings</h2>
         <p className="text-xs text-[#536471]">Manage autobase configuration</p>
+      </div>
+
+      {/* Encryption Warning Banner */}
+      <div className="mb-4">
+        <EncryptionBanner encryptionEnabled={stats.stats?.encryptionEnabled} />
       </div>
 
       {/* Tab-based Settings Layout */}

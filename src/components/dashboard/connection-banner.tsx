@@ -10,6 +10,20 @@ interface ConnectionBannerProps {
 }
 
 export function ConnectionBanner({ cookieStatus, apiLoginStatus }: ConnectionBannerProps) {
+  // Show loading skeleton while data is still being fetched
+  if (cookieStatus === null) {
+    return (
+      <Card className="shadow-sm border-[#EFF3F4]">
+        <CardContent className="p-3">
+          <div className="animate-pulse flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-gray-200" />
+            <div className="h-3 bg-gray-200 rounded w-24" />
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card className="shadow-sm border-[#EFF3F4]">
       <CardContent className="p-3">
@@ -41,55 +55,70 @@ export function ConnectionBanner({ cookieStatus, apiLoginStatus }: ConnectionBan
               </span>
             )}
           </span>
-          <span className="text-[#71767B] hidden sm:inline">|</span>
-          {/* Cookie API Status (Layer 2) */}
-          <span className="flex items-center gap-1.5">
-            <Cookie className="w-3 h-3 text-[#536471]" />
-            <span
-              className={
-                apiLoginStatus?.cookieApiReady
-                  ? 'text-green-700 font-medium'
-                  : 'text-red-600'
-              }
-            >
-              Cookie API: {apiLoginStatus?.cookieApiReady ? 'Ready' : 'Not ready'}
+
+          {/* Cookie API / V2 Login — show skeleton if apiLoginStatus still loading */}
+          {apiLoginStatus === null ? (
+            <span className="flex items-center gap-2">
+              <span className="text-[#71767B] hidden sm:inline">|</span>
+              <div className="animate-pulse flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-gray-200" />
+                <div className="h-3 bg-gray-200 rounded w-20" />
+              </div>
             </span>
-          </span>
-          <span className="text-[#71767B] hidden sm:inline">|</span>
-          {/* V2 Login Status (Layer 3) */}
-          <span className="flex items-center gap-1.5">
-            <Shield className="w-3 h-3 text-[#536471]" />
-            <span
-              className={
-                !apiLoginStatus?.v2LoginEnabled
-                  ? 'text-[#71767B]'
-                  : apiLoginStatus?.hasLoginCookie
-                    ? 'text-green-700 font-medium'
-                    : apiLoginStatus?.hasCredentials
-                      ? 'text-amber-600 font-medium'
+          ) : (
+            <>
+              <span className="text-[#71767B] hidden sm:inline">|</span>
+              {/* Cookie API Status (Layer 2) */}
+              <span className="flex items-center gap-1.5">
+                <Cookie className="w-3 h-3 text-[#536471]" />
+                <span
+                  className={
+                    apiLoginStatus.cookieApiReady
+                      ? 'text-green-700 font-medium'
                       : 'text-red-600'
-              }
-            >
-              V2 Login:{' '}
-              {!apiLoginStatus?.v2LoginEnabled
-                ? 'Off'
-                : apiLoginStatus?.hasLoginCookie
-                  ? 'Active'
-                  : apiLoginStatus?.hasCredentials
-                    ? 'Need login'
-                    : 'Not configured'}
-            </span>
-            {apiLoginStatus?.v2LoginEnabled && apiLoginStatus?.lastLoginAt && (
-              <span className="text-[#71767B]">
-                Last:{' '}
-                {new Date(apiLoginStatus.lastLoginAt).toLocaleDateString('id-ID', {
-                  day: '2-digit',
-                  month: 'numeric',
-                  year: 'numeric',
-                })}
+                  }
+                >
+                  Cookie API: {apiLoginStatus.cookieApiReady ? 'Ready' : 'Not ready'}
+                </span>
               </span>
-            )}
-          </span>
+              <span className="text-[#71767B] hidden sm:inline">|</span>
+              {/* V2 Login Status (Layer 3) */}
+              <span className="flex items-center gap-1.5">
+                <Shield className="w-3 h-3 text-[#536471]" />
+                <span
+                  className={
+                    !apiLoginStatus.v2LoginEnabled
+                      ? 'text-[#71767B]'
+                      : apiLoginStatus.hasLoginCookie
+                        ? 'text-green-700 font-medium'
+                        : apiLoginStatus.hasCredentials
+                          ? 'text-amber-600 font-medium'
+                          : 'text-red-600'
+                  }
+                >
+                  V2 Login:{' '}
+                  {!apiLoginStatus.v2LoginEnabled
+                    ? 'Off'
+                    : apiLoginStatus.hasLoginCookie
+                      ? 'Active'
+                      : apiLoginStatus.hasCredentials
+                        ? 'Need login'
+                        : 'Not configured'}
+                </span>
+                {apiLoginStatus.v2LoginEnabled && apiLoginStatus.lastLoginAt && (
+                  <span className="text-[#71767B]">
+                    Last:{' '}
+                    {new Date(apiLoginStatus.lastLoginAt).toLocaleDateString('id-ID', {
+                      day: '2-digit',
+                      month: 'numeric',
+                      year: 'numeric',
+                    })}
+                  </span>
+                )}
+              </span>
+            </>
+          )}
+
           {/* Missing credentials warning */}
           {cookieStatus?.missing &&
             cookieStatus.missing.length > 0 &&

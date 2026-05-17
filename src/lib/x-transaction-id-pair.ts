@@ -39,8 +39,7 @@ interface PairDict {
 
 // --- Constants ---
 
-const PAIR_URL =
-  'https://raw.githubusercontent.com/fa0311/x-client-transaction-id-pair-dict/refs/heads/main/pair.json'
+const PAIR_URL = process.env.PAIR_JSON_URL || 'https://raw.githubusercontent.com/fa0311/x-client-transaction-id-pair-dict/refs/heads/main/pair.json'
 
 // Same constants as the live approach — shared algorithm
 const EPOCH_OFFSET_MS = 1682924400 * 1000 // 2023-05-01 00:00:00 UTC
@@ -77,9 +76,28 @@ async function fetchPairs(): Promise<PairDict[]> {
     throw new Error('pair.json is empty or invalid')
   }
 
-  cachedPairs = pairs
+  // Validate schema: each entry must have non-empty animationKey and verification strings
+  const validPairs = pairs.filter(p =>
+    typeof p.animationKey === 'string' && p.animationKey.trim() !== '' &&
+    typeof p.verification === 'string' && p.verification.trim() !== ''
+  )
+  if (validPairs.length === 0) {
+    throw new Error('pair.json contains no valid entries')
+  }
+  if (validPairs.length < pairs.length) {
+    console.warn(`[pair-dict] ${pairs.length - validPairs.length} invalid entries filtered out of ${pairs.length} total`)
+  }
+
+  // Drastic-change warning: if cached pairs exist and the new count is < 50% of the cached count,
+  // log a warning and keep the old cache
+  if (cachedPairs && validPairs.length < cachedPairs.length * 0.5) {
+    console.warn(`[pair-dict] Drastic change detected: ${validPairs.length} entries vs previous ${cachedPairs.length}. Keeping old cache.`)
+    return cachedPairs
+  }
+
+  cachedPairs = validPairs
   cachedPairsTime = now
-  debug('[pair-dict] Loaded', pairs.length, 'pairs, cached for 4h')
+  debug('[pair-dict] Loaded', validPairs.length, 'pairs, cached for 4h')
   return cachedPairs
 }
 

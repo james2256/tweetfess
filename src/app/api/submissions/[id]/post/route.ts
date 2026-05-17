@@ -1,11 +1,11 @@
 import { db } from '@/lib/db'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
-import { verifyAdmin } from '@/lib/admin-auth'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
 import { decodeHtmlEntities } from '@/lib/content-filter'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
-import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
+import { getFilterSettings } from '@/lib/filter-settings'
 import { checkStalePosting } from '@/lib/stale-posting'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -18,7 +18,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   // Declare lockValue outside try so outer catch can release it on error

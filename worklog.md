@@ -1,284 +1,133 @@
----
-Task ID: 1-7
-Agent: main
-Task: Modernize tweetfess X integration — all 5 improvements from fa0311 repo analysis
-
-Work Log:
-- Created new `src/lib/x-transaction-id-pair.ts` — pair-dict approach (primary method, 0 x.com fetches)
-- Updated `src/lib/twitter-post-cookie.ts`:
-  - Added `fieldToggles` to CreateTweet request body (8 toggles from TwitterInternalAPIDocument)
-  - Fixed 3 feature flag discrepancies (updated cashtags to true, added downvote, removed enhance_cards)
-  - Updated UA from Chrome/144 Windows → Chrome/148 Linux
-  - Updated sec-ch-ua from `"Not;A=Brand";v="24"` → `"Not/A)Brand";v="99"`
-  - Updated sec-ch-ua-platform from "Windows" → "Linux"
-  - Added headers: accept-encoding, cache-control, pragma
-  - Removed headers: sec-gpc, priority
-  - Transaction ID generation now uses pair-dict primary + live SVG fallback
-  - waitBeforeRetry clears both xactCache and pairCache
-  - clearAllCaches clears pairCache too
-- Updated `src/lib/x-transaction-id.ts`:
-  - Updated header comment to clarify it's now the FALLBACK method
-  - Updated BROWSER_UA to Chrome 148 Linux
-- Lint passes clean, dev server compiles and responds
-
-Stage Summary:
-- All 5 improvements implemented: fieldToggles, pair-dict transaction ID, feature flags, UA/sec-ch-ua, headers
-- New file: src/lib/x-transaction-id-pair.ts (~155 lines) replaces 530-line custom approach as primary
-- Fallback to existing SVG+cubic-bezier approach preserved if pair-dict fails
-- Zero breaking changes — all existing functionality preserved
+# Tweetfess Fix Implementation Worklog
 
 ---
-Task ID: 8
+Task ID: 1.3
 Agent: main
-Task: Comprehensive bug audit and fix all real bugs
+Task: Phase 1.3 — ENCRYPTION_KEY warning on missing key
 
 Work Log:
-- Ran thorough codebase audit (70+ files) via subagent
-- Found 11 real bugs across severity levels
-- Fixed Bug #1 (CRITICAL): Filter settings (blockedWords, nsfwWords, whitelistUsernames) never saved — client sent comma-joined strings but API checked Array.isArray(). Changed use-filter-settings.ts to send arrays directly, updated SaveFilterSettingsRequest type from string to string[]
-- Fixed Bug #2 (CRITICAL): fetchTwitterUser read response body twice (res.json() then res.text()) causing TypeError. Changed to read body once as text, then JSON.parse()
-- Fixed Bug #3 (HIGH): checkJualan produced `jualan:undefined` for LF tag — regex /\bLF\b(?=\s)/ had no capture group. Changed to /\b(LF)\b(?=\s)/
-- Fixed Bug #4 (HIGH): Confession form cleared message on failed submit causing data loss. Changed onSubmit return type to Promise<boolean>, only clear message on success
-- Fixed Bug #5 (MEDIUM): BigInt serialization crash in raw SQL results. Prisma $queryRaw returns bigint for COUNT(*), but JSON.stringify can't serialize bigint. Changed type annotations to bigint and added Number() conversion
-- Fixed Bug #6 (MEDIUM): Duplicate 'anjg' entry in DEFAULT_BLOCKED_WORDS array. Also removed duplicate 'mmk'. Cleaned up list.
-- Fixed Bug #7 (MEDIUM): Duplicate check (checkDuplicate24h) was global — any user submitting same message as another within 24h would be blocked. Added submitterId filter to query
-- Fixed Bug #8 (LOW): useStats callbacks dependency caused excessive re-fetches. Used useRef + useEffect pattern to stabilize callbacks reference
-- Fixed Bug #9 (MEDIUM): Added try/catch error handling to 5 API routes that lacked it (settings GET/POST/DELETE, stats GET, submitters GET)
-- All fixes pass `bun run lint` with zero errors
-- Dev server compiles and runs cleanly
+- Added startup `console.error` in `src/lib/encrypt.ts` when ENCRYPTION_KEY is not set
+- Added throttled warning (once per minute) when `encrypt()` called without key
+- Added `isEncryptionEnabled()` export for admin UI consumption
+- Added `encryptionEnabled` field to `/api/admin/stats` and `/api/admin/summary` responses
+- Added `encryptionEnabled` to `Stats` type in `src/types/index.ts`
+- Created `EncryptionBanner` component (`src/components/dashboard/encryption-banner.tsx`)
+- Added banner to admin dashboard (`src/app/admin/page.tsx`) and settings page (`src/app/admin/settings/page.tsx`)
 
 Stage Summary:
-- 9 bugs fixed (2 CRITICAL, 2 HIGH, 4 MEDIUM, 1 LOW)
-- Files modified: use-filter-settings.ts, types/index.ts, twitter-auth.ts, content-filter.ts, confession-form.tsx, page.tsx, stats/route.ts, submitters/route.ts, use-stats.ts, settings/route.ts
-- Most impactful fix: blockedWords/NSFW/whitelist were silently never saved to DB (all filter configuration was lost on save)
-- BigInt fix prevents admin dashboard crash on serialization
-- Form data loss fix prevents user frustration when submission fails
+- Operators now get clear warnings when encryption is disabled
+- Admin UI shows prominent amber warning banner when ENCRYPTION_KEY is not configured
 
 ---
-Task ID: 9
+Task ID: 1.1
 Agent: main
-Task: Verify and fix Bugs #6-#18 from second bug audit round
+Task: Phase 1.1 — Encrypt OAuth tokens at rest
 
 Work Log:
-- Verified 13 reported bugs (#6-#18) against current source code
-- Confirmed 6 real bugs, 7 not real/feature requests
-- Fixed Bug #6 (MEDIUM): checkMentions false-positive on email addresses — `/@(\w{1,15})/g` matched `@example` in `user@example.com`. Changed to `/(?<!\w)@(\w{1,15})\b/g` with negative lookbehind to exclude email addresses
-- Fixed Bug #7 (LOW): SaveFilterSettingsRequest type missing `blockedUsernames` field — API handler already destructures it, but the shared type didn't declare it. Added `blockedUsernames?: string[]`
-- Fixed Bug #9 (MEDIUM): checkJualan LF pattern `/\b(LF)\b(?=\s)/` didn't match LF at end of message (no trailing space). Changed to `/\b(LF)\b(?=\s|$)/` with end-of-string alternative
-- Fixed Bug #13 (LOW): Admin login route used `===` for password comparison, vulnerable to timing side-channel attacks. Replaced with `crypto.timingSafeEqual()` matching the pattern already used in `admin-auth.ts`
-- Fixed Bug #14 (VERY LOW): Category maxLength mismatch — frontend `maxLength={30}` but backend validated `> 50`. Aligned backend to `> 30` with comment to match frontend
-- Fixed Bug #18 (VERY LOW): `liveRemainingMinutes` showed 0 for first second after component mount — `setInterval(compute, 1000)` didn't call `compute()` immediately. Added `compute()` call before interval starts
-- Skipped Bug #8 (INTEGER vs BIGINT): Fail count never reaches 2.1B, not a real issue
-- Skipped Bug #10 (redundant check): Code quality, not a bug
-- Skipped Bug #11 (punctuation bypass): Normalization already strips punctuation
-- Skipped Bug #12 (no message index): createdAt index narrows search; table is small
-- Skipped Bug #15 (double getFilterSettings): Already verified NOT A BUG
-- Skipped Bug #16 (stale circuitBreakerStatus): Next API call gets correct state
-- Skipped Bug #17 (client-side search): UX limitation, not a bug
-- All fixes pass `bun run lint` with zero errors
-- Dev server compiles and returns 200
+- Added `import { encrypt } from '@/lib/encrypt'` to `src/lib/twitter-auth.ts`
+- Wrapped all 5 `oauth2AccessToken` and `oauth2RefreshToken` write locations with `encrypt()`
+- Updated Prisma schema comments to note tokens are "encrypted at rest"
+- Removed unused `@@index([oauth2AccessToken])` from schema (nothing uses this index)
 
 Stage Summary:
-- 6 bugs fixed (2 MEDIUM, 1 LOW, 2 VERY LOW, 1 type mismatch)
-- Files modified: content-filter.ts, types/index.ts, admin/login/route.ts, submissions/route.ts, use-circuit-breaker.ts
-- Most impactful fix: email false-positive in @mention filter — legitimate messages with email addresses were being incorrectly flagged
-- Timing-safe login aligns with the earlier admin-auth.ts fix for consistent security posture
-- LF end-of-message fix prevents jualan filter bypass by placing LF at end
+- OAuth tokens are now encrypted at rest using AES-256-GCM
+- `decryptSetting()` handles migration from plaintext (already built for this pattern)
+- Index removed since encrypted blobs can't be indexed; `twitterId` serves as lookup key
 
 ---
-Task ID: 10
-Agent: main
-Task: Implement per-user custom limits feature
+Task ID: 2.3+1.2
+Agent: subagent (full-stack-developer)
+Task: Phase 2.3 + 1.2 — Move getFilterSettings to src/lib/ + HttpOnly admin cookie
 
 Work Log:
-- Added `customLimits Json?` field to Submitter model in prisma/schema.prisma
-- Added type system in types/index.ts: `PerUserLimits` (Pick from RateLimitSettings), `PER_USER_LIMIT_KEYS`, `PER_USER_LIMIT_LABELS`, `SubmissionLimitsData`, updated `SubmitterWithStats` with `customLimits` field
-- Created src/lib/limit-resolver.ts with `getEffectiveLimit()`, `resolveEffectiveLimits()`, and `hasCustomLimits()` utility functions
-- Updated src/lib/twitter-auth.ts: added `customLimits: true` to `getSubmitterFromNextRequest()` select + return type
-- Created src/app/api/admin/submitters/limits/route.ts: PATCH endpoint accepting `username` + `customLimits`, with merge logic and `{}` → `null` guard
-- Updated src/app/api/submissions/route.ts: replaced 4 hardcoded global limit reads with `getEffectiveLimit()` calls for `effectiveCooldown`, `effectiveDailyCap`, `effectivePendingCap`, `effectivePostCap`
-- Updated src/app/api/submissions/mine/route.ts: added `limits` object to response with `dailyCap`, `dailyUsed`, `pendingCap`, `pendingUsed`, `postCap`, `postUsed`, `cooldownSeconds`, `isCustom`; uses `resolveEffectiveLimits()` + `hasCustomLimits()`
-- Updated src/app/api/admin/submitters/route.ts: added `customLimits: true` to select + mapping
-- Added `setCustomLimits()` method to src/lib/api-client.ts
-- Updated src/hooks/use-submitters.ts: added `setCustomLimits` callback
-- Rewrote src/components/dashboard/users-dialog.tsx: added custom limits indicator (purple CUSTOM badge), inline limits editor with 4 number inputs, Save/Clear buttons, default value display from globalRateLimits
-- Updated src/app/admin/page.tsx: passed `onSetCustomLimits` and `globalRateLimits` props to UsersDialog
-- Updated src/hooks/use-my-posts.ts: added `limits` state, captured from mine API response
-- Rewrote src/components/submit/confession-form.tsx: added `limits` prop, displays daily usage (e.g. "3/20 hari ini"), cooldown status, remaining warning, custom limit indicator with purple styling and ⚡ icon
-- Updated src/app/page.tsx: passed `limits` prop to ConfessionForm
-- Lint passes clean, both / and /admin compile and return 200
+- Created `src/lib/filter-settings.ts` with extracted `FILTER_SETTING_KEYS`, `parseIntSafe`, `DEFAULT_RATE_LIMITS`, `RateLimitSettings`, `getFilterSettings()`, `getGeminiApiKey()`
+- Updated `src/app/api/admin/filter-settings/route.ts` to import from `@/lib/filter-settings`
+- Updated `src/types/index.ts` to re-export `DEFAULT_RATE_LIMITS` from `@/lib/filter-settings`
+- Updated all 8 files importing `getFilterSettings` from old route path
+- Updated all files importing `DEFAULT_RATE_LIMITS`
+- Added `getAdminTokenFromRequest()` to `src/lib/admin-auth.ts` (cookie first, header fallback)
+- Updated login route to set HttpOnly cookie on response
+- Created `/api/admin/logout` route to clear HttpOnly cookie
+- Updated all 20 `verifyAdmin()` call sites to use `getAdminTokenFromRequest(req)`
+- Updated `use-admin-auth.ts` to use cookie-based auth (no more client-side token storage)
+- Updated `api-client.ts` to remove `setAdminToken`/`getAdminToken` (cookie sent automatically)
+- Removed `setAdminCookie`, `getAdminCookie`, `clearAdminCookie` from `src/types/index.ts`
+- Updated admin layout and header to not depend on adminToken value
 
 Stage Summary:
-- Full per-user custom limits feature implemented
-- 1 new DB field (customLimits Json? on Submitter), 2 new files (limit-resolver.ts, limits/route.ts)
-- 10 modified files across backend and frontend
-- Zero behavior change for existing users (customLimits defaults to null)
-- Admin can set custom limits per user via Users Dialog → Limits button
-- Users see their effective limits on the confession form
+- Business logic properly separated from route file
+- Admin auth now uses HttpOnly cookies (XSS-resistant)
+- Backward compatible: curl/API users can still use Authorization header
+- 20 call sites migrated in single pass
 
 ---
-Task ID: 11
+Task ID: 2.1
 Agent: main
-Task: Change all rate limit counters from rolling 24h window to calendar day reset at 00:00 WIB (GMT+7)
+Task: Phase 2.1 — Fix queued:true lies
 
 Work Log:
-- Added `getStartOfTodayWIB()` to src/lib/constants.ts — returns Date at 00:00:00 Asia/Jakarta using `toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' })` then constructing ISO datetime with +07:00 offset
-- Updated src/app/api/submissions/route.ts:
-  - Replaced all `new Date(Date.now() - MS_24H)` with `getStartOfTodayWIB()` for 4 rate limit checks (global cap, daily cap, pending cap, post cap)
-  - Changed post cap from `updatedAt` to `createdAt` for consistency — all 3 per-user counters now use `createdAt` with the same WIB boundary
-  - Updated comments: "24h window" → "calendar day WIB"
-- Updated src/app/api/submissions/mine/route.ts:
-  - Replaced `twentyFourHoursAgo` with `startOfToday = getStartOfTodayWIB()`
-  - Changed post cap from `updatedAt` to `createdAt` for consistency with enforcement route
-- Updated src/app/api/admin/limit-hits/route.ts:
-  - Replaced `twentyFourHoursAgo` with `startOfToday = getStartOfTodayWIB()`
-  - Changed `windowHours: 24` → `windowLabel: 'hari ini (WIB)'`
-- Updated src/components/settings/limit-health-card.tsx:
-  - Changed `windowHours: number` → `windowLabel: string` in interface
-  - Badge: `hits/24h` → `hits/{windowLabel}`
-  - "User paling sering diblokir (24h)" → "(hari ini)"
-  - "Belum ada limit hit dalam 24 jam terakhir" → "Belum ada limit hit hari ini"
-- Updated src/components/settings/rate-limit-card.tsx:
-  - All field hints: "Pesan/user/24 jam" → "Pesan/user/hari (reset 00:00 WIB)"
-  - Cara kerja: "per 24 jam" → "per hari", added "(semua reset 00:00 WIB)" subtitle
-- Left content-filter.ts checkDuplicate24h as rolling 24h — it's a content quality filter, not a rate limit
-- Lint passes clean, dev server compiles and runs
+- L565: Changed from `queued: true, status: 201` to `status: 409` with appropriate error message
+- L625/L646: Changed from `queued: true` to `postFailed: true` with Indonesian error message
+- Updated `src/app/page.tsx` to handle 409 specifically (shows "Status berubah" toast)
+- Added `postFailed` handling in success path (shows "Gagal auto-post" toast)
 
 Stage Summary:
-- All rate limit counters now reset at 00:00 WIB (GMT+7) instead of rolling 24h window
-- "hari ini" now literally means "since midnight WIB today" — intuitive for Indonesian users
-- Post cap changed from `updatedAt` to `createdAt` for consistency (all 3 counters use createdAt)
-- Duplicate check (content filter) remains rolling 24h — prevents gaming by posting same message at 23:59 then 00:01
-- Key change: simpler mental model — all counters reset at the same time every day
+- L565 now returns 409 Conflict — client knows submission is in unknown state
+- L625/L646 now return `postFailed: true` — client knows auto-post failed but submission exists
+- No more misleading "Pesanmu sudah masuk antrean" when not actually queued
 
 ---
-Task ID: 12
+Task ID: 2.2
 Agent: main
-Task: Fix remaining BUG-16 and BUG-17 from second deep bug scan (18 bugs total)
+Task: Phase 2.2 — Separate posting from pending count
 
 Work Log:
-- Reviewed all 18 bugs (BUG-1 through BUG-18) from the second deep bug scan
-- Verified 16 of 18 were already fixed in previous sessions:
-  - BUG-1 (HIGH): parseInt("0") || DEFAULT → already using parseIntSafe
-  - BUG-2 (HIGH): Broad cookie/session matching → already narrowed to specific login_cookies errors
-  - BUG-3 (HIGH): isLoading stuck forever → already using outstandingLoadingRef pattern
-  - BUG-4 (MED): Manual retry doesn't persist postError → already saves to DB
-  - BUG-5 (MED): Auto-post overwrites admin rejection → already using updateMany with status condition
-  - BUG-6 (MED): Non-atomic pause clearing → already using conditional SQL UPDATE
-  - BUG-7 (MED): Phone number filter bypass via zero-width chars → already using normalizeForFilter
-  - BUG-8 (MED): @mention filter bypass via full-width → already using NFKC normalization
-  - BUG-9 (MED): Post method not reverted on save failure → already using onFailure revert callback
-  - BUG-10 (MED): auth/me reads without decryptValue → already using getFilterSettings()
-  - BUG-11 (MED): Stale filterRules closure → already using toggleRule prop from hook
-  - BUG-12 (MED): Stale rateLimits closure → already using functional setState (prev => ...)
-  - BUG-13 (MED): Fragile 300ms OAuth timing → already using retry with exponential backoff
-  - BUG-14 (LOW): Array index as React key → already using key={credit.apiKey}
-  - BUG-15 (LOW): TOTP secret prefix in debug logs → already removed prefix
-  - BUG-18 (LOW): Untyped limits property → properly typed as SubmissionLimitsData
-- Fixed BUG-16 (LOW): Search placeholder in submission-filters.tsx — changed "Cari pesan..." to "Cari di halaman ini..." to clarify client-side page-only search
-- Fixed BUG-17 (LOW): Blocked screen in auth-gate.tsx — added "Cek Ulang" button alongside "Logout" button so blocked users can re-check if admin has unblocked them without logging out
-- Lint passes clean with zero errors
-- Dev server compiles and returns 200
+- Changed stats route `pending` from `(pending + posting)` to just `pending`
+- Added `posting` field to stats response
+- Added `posting` to `Stats` interface
+- Added "Posting" stat card to StatsGrid (blue, with Loader2 icon)
+- Updated submitters route similarly
+- Updated use-stats.ts lightweight mode to include `posting`
 
 Stage Summary:
-- All 18 bugs from the second deep scan are now fixed
-- 2 new edits: submission-filters.tsx (placeholder text), auth-gate.tsx (Cek Ulang button)
-- Codebase is clean — lint passes, dev server responds 200
-- Ready for deployment
----
-Task ID: 3
-Agent: main
-Task: Fix Phase 3 bugs (Bug #3, #4, #7, #8)
-
-Work Log:
-- Bug #4 (Token expiry): Added embedded expiry timestamp to admin token derivation. Token format changed from `<hmac_hex>` to `<hmac_hex>.<expiresAt_hex>`. `deriveAdminToken()` now takes `expiresAt` parameter. `generateAdminToken()` creates token with 7-day TTL. `verifyAdmin()` parses expiry, checks `now > expiresAt`, returns 401 "Session expired" if expired. Old-format tokens (no dot) are rejected.
-- Bug #3 (Brute-force protection): Created `src/lib/login-rate-limit.ts` with IP-based rate limiter. 5 attempts per 15 min per IP, 30 min lockout. Uses `x-forwarded-for` / `x-real-ip` headers. In-memory Map with TTL + periodic cleanup. Applied to login route: checks BEFORE password, records failures AFTER, clears on success. Returns 429 with Retry-After header.
-- Bug #7 (Security headers): Added 7 security headers in `next.config.ts` via `headers()` config. X-Content-Type-Options: nosniff, X-Frame-Options: DENY, X-XSS-Protection: 0, Referrer-Policy: strict-origin-when-cross-origin, Strict-Transport-Security (2yr+preload), Permissions-Policy (camera/mic/geo denied), Content-Security-Policy (comprehensive).
-- Bug #8 (XSS defense-in-depth): Added `sanitizeHtml()` to `content-filter.ts`. Strips null bytes, HTML tags, and encodes dangerous characters (&, <, >, ", '). Applied to both `message` and `category` fields in submission POST route before storage.
-
-Stage Summary:
-- All 4 Phase 3 bugs fixed and deployed to dev server
-- Files modified: admin-auth.ts, login route, content-filter.ts, submissions route, next.config.ts, login-rate-limit.ts (new)
-- Lint passes clean, dev server running, security headers verified in response
----
-Task ID: L-bugfixes
-Agent: main
-Task: Fix L3, L6, L7 bugs from OW-9 bug report
-
-Work Log:
-- L6: Added X-Frame-Options: DENY, X-Content-Type-Options: nosniff, Content-Security-Policy headers to OAuth callback HTML response in src/app/api/auth/twitter/callback/route.ts
-- L7: Moved Gemini API key from ?key= URL query param to x-goog-api-key header in src/lib/gemini-filter.ts (keeps key out of infra logs)
-- L3: Added minimum length check (40 chars) to isEncrypted() in src/lib/encrypt.ts to prevent false positives on short base64-like strings
-
-Stage Summary:
-- All 3 fixes are trivial, zero-risk, additive-only changes
-- Lint passes clean, dev server compiles successfully
-- Bugs L1, L2, L4, L5, L8, L9 were verified as not real / not worth fixing
----
-Task ID: H3-fix
-Agent: main
-Task: Fix H3 — Stuck "posting" status auto-recovery
-
-Work Log:
-- Created src/lib/stale-posting.ts with POSTING_STALE_MS (2 min) and checkStalePosting() utility
-- Modified PATCH (approve) handler in [id]/route.ts: stale posting auto-recovers to post_failed, then falls through to approve flow
-- Modified POST (retry) handler in [id]/post/route.ts: same stale check pattern
-- Modified DELETE handler in [id]/route.ts: stale posting auto-recovers, then falls through to delete
-- All 3 handlers now show improved error message when posting is active but not yet stale
-- Lint passes clean, dev server compiles successfully
-
-Stage Summary:
-- Stuck "posting" submissions auto-recover after 2 minutes (4x function timeout, 2x lock timeout)
-- After auto-recovery, the admin action (approve/retry/delete) proceeds naturally
-- Ghost tweet risk is warned in the postError field
-- No recordPostFailure() called on recovery (would incorrectly penalize circuit breaker)
-- No new endpoints, no cron jobs, no UI changes needed
+- Admin dashboard now shows separate "Menunggu" (pending) and "Posting" (actively being posted) counts
+- No more inflated pending count from in-flight posts
 
 ---
-Task ID: 13
-Agent: main
-Task: Implement 3-Layer Posting Architecture with V2 Login Toggle (Option A)
+Task ID: 3.1-3.6
+Agent: subagent (full-stack-developer)
+Task: Phase 3 — Robustness & Resilience
 
 Work Log:
-- Added `cookieStringToLoginCookies()` to src/lib/twitter-api-fallback.ts — converts semicolon-separated cookie string → base64(JSON) for twitterapi.io login_cookies parameter
-- Added `postViaCookieApi()` (Layer 2) — posts via twitterapi.io using browser cookies as login_cookies, no login step needed, 300 credits/tweet
-- Added `isV2LoginEnabled()` — reads v2_login_enabled setting from DB (default: false)
-- Updated `postViaTwitterApi()` (Layer 3) — method changed from 'fallback' to 'fallback_login', all internal method values updated
-- Updated `getApiLoginStatus()` — added v2LoginEnabled, cookieApiReady, cookieApiMissing fields
-- Updated `getApiSettings()` — added 'v2_login_enabled' and 'x_cookie_string' to DB query keys
-- Updated module header comments to reflect 3-layer architecture with verified facts from live test
-- Modified src/lib/twitter-post-cookie.ts:
-  - Import changed from `postViaTwitterApi` to `postViaCookieApi, postViaTwitterApi, isV2LoginEnabled`
-  - Added `tryApiFallback()` helper — tries Layer 2 (cookie API) then Layer 3 (V2 login if enabled)
-  - Rewrote `fallbackOrFail()` — now delegates to tryApiFallback()
-  - API-only mode now uses tryApiFallback() instead of direct postViaTwitterApi()
-  - Updated return type: method now includes 'fallback_cookie' | 'fallback_login' instead of 'fallback'
-- Added 'v2_login_enabled' to settings API VALID_KEYS in src/app/api/admin/settings/route.ts
-- Added boolean validation for v2_login_enabled (must be 'true' or 'false')
-- Added v2_login_enabled to non-encrypted keys list (alongside post_method)
-- Added v2_login_enabled display in GET settings (not sensitive, shown as-is)
-- Updated src/types/index.ts: ApiLoginStatus now includes v2LoginEnabled, cookieApiReady, cookieApiMissing
-- Updated src/hooks/use-posting-settings.ts: added v2LoginEnabled state, setter, label, resetState
-- Updated src/app/admin/settings/page.tsx: syncs v2LoginEnabled from apiLoginStatus on initial load, passes v2LoginEnabled/setV2LoginEnabled to ApiFallbackCard
-- Rewrote src/components/settings/api-fallback-card.tsx:
-  - Added V2 Login Fallback toggle section (ON/OFF button with explanation)
-  - X Login Credentials section now conditional (only shown when V2 toggle is ON)
-  - Dual API status display: Cookie API status + V2 Login status rows
-  - Updated post method descriptions for 3-layer architecture
-  - Added Cookie icon for Cookie API status
-- Updated src/components/dashboard/connection-banner.tsx: shows Cookie API status + V2 Login status separately
-- Updated src/app/api/admin/stats/route.ts: postMethodStats counts fallback_cookie and fallback_login as 'fallback'
-- Updated src/app/api/submissions/[id]/route.ts: handles fallback_cookie and fallback_login method names in description
-- Updated src/hooks/use-submissions.ts: handles fallback_cookie and fallback_login in approve toast
-- Updated src/components/dashboard/submission-card.tsx: shows "Cookie API" (purple) and "V2 Login" (orange) badges
-- Lint passes clean with zero errors
-- Dev server compiles and returns 200 for both / and /admin/settings
+- 3.1: Changed `||` to `??` in api-client, added structured data to ApiError
+- 3.2: Added cursor-based pagination to submitters endpoint (limit + cursor + hasMore)
+- 3.3: Added `PAIR_JSON_URL` env var, schema validation, drastic-change detection
+- 3.4: Removed 30s duplicate poll from layout, dashboard dispatches stats-update event
+- 3.5: Added `GEMINI_MODEL` env var, created `/api/admin/gemini-status` health check, added Test button
+- 3.6: Added `data.error` check in retryPost before showing success toast
 
 Stage Summary:
-- 3-layer posting architecture fully implemented: Direct ($0) → Cookie API (300 credits) → V2 Login (800 credits if enabled)
-- v2_login_enabled toggle added (OFF by default) — admin can enable V2 login as last-resort fallback
-- Cookie API uses existing x_cookie_string — no duplicate data entry
-- Cookie API is stateless (no cached login_cookies) — always reads fresh from DB
-- Post method names changed: 'fallback' → 'fallback_cookie' (Layer 2) and 'fallback_login' (Layer 3)
-- All existing 'fallback' method references updated to handle both new method names
-- Backward compatible: legacy 'fallback' entries in DB still counted correctly in stats
+- API errors now preserve structured data for better debugging
+- Submitters list scales with pagination
+- pair.json fetch is validated and configurable
+- Single source of truth for pending count (no duplicate polling)
+- Gemini model is configurable and health-checkable
+- retryPost no longer silently ignores errors
+
+---
+Task ID: 4.1-4.6
+Agent: subagent (full-stack-developer)
+Task: Phase 4 — UI/UX & Accessibility + Documentation
+
+Work Log:
+- 4.1: Fixed `text-mutedforeground` → `text-muted-foreground` typo
+- 4.2: Added `autoApprove` prop to ConfessionForm with conditional text
+- 4.3: Added skeleton loading state to ConnectionBanner when props are null
+- 4.4: Replaced custom toggle buttons with shadcn Switch + proper ARIA labels
+- 4.5: Removed duplicate Gemini status badges from toggle label
+- 4.6: Added "intentionally unencrypted" documentation comments to jsonb route files
+
+Stage Summary:
+- All UI/UX issues addressed
+- Accessibility improved (Switch components have built-in ARIA)
+- Documentation clarifies why blocked/whitelist usernames are not encrypted

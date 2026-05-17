@@ -14,6 +14,7 @@ interface ConfessionFormProps {
   onSubmit: (message: string, category: string) => Promise<boolean>
   isSubmitting: boolean
   limits: SubmissionLimitsData | null
+  autoApprove?: boolean
 }
 
 export function ConfessionForm({
@@ -22,6 +23,7 @@ export function ConfessionForm({
   onSubmit,
   isSubmitting,
   limits,
+  autoApprove = false,
 }: ConfessionFormProps) {
   const [message, setMessage] = useState('')
   const [category, setCategory] = useState('')
@@ -52,7 +54,9 @@ export function ConfessionForm({
             Login sebagai <span className="font-medium text-[#0F1419]">@{submitterUsername || 'user'}</span>
           </span>
           <span className="text-[#71767B]">&middot;</span>
-          <span>Pesan akan diperiksa admin sebelum diposting</span>
+          <span>{autoApprove
+            ? 'Pesan akan otomatis diposting setelah lulus filter'
+            : 'Pesan akan diperiksa admin sebelum diposting'}</span>
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

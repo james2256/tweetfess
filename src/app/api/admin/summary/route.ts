@@ -1,9 +1,10 @@
 import { db } from '@/lib/db'
 import { getCookieAuthStatus } from '@/lib/twitter-post-cookie'
 import { getApiCreditsNonBlocking, getApiLoginStatus } from '@/lib/twitter-api-fallback'
-import { verifyAdmin } from '@/lib/admin-auth'
-import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
+import { getFilterSettings } from '@/lib/filter-settings'
 import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
+import { isEncryptionEnabled } from '@/lib/encrypt'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -20,7 +21,7 @@ import { NextRequest, NextResponse } from 'next/server'
  * No submission counts, no post method stats, no submitter count.
  */
 export async function GET(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {
@@ -50,6 +51,7 @@ export async function GET(req: NextRequest) {
       postMethodSetting,
       filterSettings: filterSettingsData,
       circuitBreaker,
+      encryptionEnabled: isEncryptionEnabled(),
     })
   } catch (error) {
     console.error('Summary GET error:', error)

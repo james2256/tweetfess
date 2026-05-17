@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from 'react'
 import type { FilterRules, RateLimitSettings, FilterSettings } from '@/types'
-import { DEFAULT_FILTER_RULES, DEFAULT_RATE_LIMITS } from '@/types'
+import { DEFAULT_FILTER_RULES } from '@/types'
+import { DEFAULT_RATE_LIMITS } from '@/lib/filter-settings'
 import { DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS } from '@/lib/content-filter'
 import { apiClient } from '@/lib/api-client'
 import { useToast } from '@/hooks/use-toast'

@@ -174,6 +174,10 @@ export function useSubmissions({ isAdmin, adminToken, onStatsRefresh }: UseSubmi
     setActionLoading(id)
     try {
       const data = await apiClient.retryPost(id)
+      if (data.error) {
+        toast({ title: 'Gagal posting', description: data.error, variant: 'destructive' })
+        return
+      }
       toast({ title: 'Berhasil diposting ke X!', description: data.tweetId ? `Tweet ID: ${data.tweetId}` : undefined })
       void fetchSubmissions(true) // silent — don't nuke the list with spinner
       onStatsRefresh?.()

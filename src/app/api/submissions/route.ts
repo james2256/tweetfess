@@ -1,14 +1,14 @@
 import { db } from '@/lib/db'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
 import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
-import { verifyAdmin } from '@/lib/admin-auth'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { getStartOfTodayWIB } from '@/lib/constants'
 import { debug } from '@/lib/debug'
 import { runContentFilter, checkDuplicate24h, normalizeText, sanitizeInput, decodeHtmlEntities, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { isCircuitBreakerPaused, recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
-import { getFilterSettings, getGeminiApiKey, DEFAULT_RATE_LIMITS, type RateLimitSettings } from '@/app/api/admin/filter-settings/route'
+import { getFilterSettings, getGeminiApiKey, DEFAULT_RATE_LIMITS, type RateLimitSettings } from '@/lib/filter-settings'
 import { getEffectiveLimit } from '@/lib/limit-resolver'
 import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
@@ -27,7 +27,7 @@ export const maxDuration = 30
 // Supports pagination via ?page=1&limit=50 (defaults: page=1, limit=50)
 // Supports search via ?search=query (searches message, username, displayName)
 export async function GET(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   const { searchParams } = new URL(req.url)
@@ -560,14 +560,14 @@ export async function POST(req: NextRequest) {
     })
     if (marked.count === 0) {
       // Status was changed by another process (e.g. admin rejected it) — abort
+      // Return 409 Conflict so the client knows to refresh and check submission history
       debug('[submit] Submission status changed before posting, aborting')
       await releasePostingLock(lockValue)
       return NextResponse.json({
         submission,
         autoPosted: false,
-        queued: true,
-        error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
-      }, { status: 201 })
+        error: 'Status pesan berubah sebelum diproses. Cek riwayat submission-mu.',
+      }, { status: 409 })
     }
 
     // Attempt to post to X
@@ -625,8 +625,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           submission: failedSubmission,
           autoPosted: false,
-          queued: true,
-          error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+          postFailed: true,
+          error: 'Gagal auto-post. Pesanmu masuk antrean untuk review admin.',
         }, { status: 201 })
       }
     } catch (postError) {
@@ -646,8 +646,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         submission: failedSubmission,
         autoPosted: false,
-        queued: true,
-        error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+        postFailed: true,
+        error: 'Gagal auto-post. Pesanmu masuk antrean untuk review admin.',
       }, { status: 201 })
     } finally {
       await releasePostingLock(lockValue!)

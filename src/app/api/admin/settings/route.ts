@@ -1,8 +1,8 @@
 import { db } from '@/lib/db'
 import { parseXCookies } from '@/lib/twitter-post-cookie'
-import { encrypt, decryptSetting } from '@/lib/encrypt'
+import { encrypt, decryptSetting, isEncryptionEnabled } from '@/lib/encrypt'
 import { loginViaTwitterApi } from '@/lib/twitter-api-fallback'
-import { verifyAdmin } from '@/lib/admin-auth'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
 const VALID_KEYS = [
@@ -33,7 +33,7 @@ const SENSITIVE_KEYS = ['x_password', 'x_totp_secret', 'twitterapi_login_cookie'
 
 // GET /api/admin/settings — Return all settings (values masked)
 export async function GET(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
     }
   })
 
-  return NextResponse.json({ settings: masked })
+  return NextResponse.json({ settings: masked, encryptionEnabled: isEncryptionEnabled() })
   } catch (error) {
     console.error('Settings GET error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
@@ -89,7 +89,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/admin/settings — Upsert a setting (encrypt + auto-login)
 export async function POST(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {
@@ -261,7 +261,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/admin/settings — Delete a setting
 export async function DELETE(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {

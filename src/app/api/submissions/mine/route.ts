@@ -1,6 +1,6 @@
 import { db } from '@/lib/db'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
-import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
+import { getFilterSettings } from '@/lib/filter-settings'
 import { resolveEffectiveLimits, hasCustomLimits } from '@/lib/limit-resolver'
 import { getStartOfTodayWIB } from '@/lib/constants'
 import { NextRequest, NextResponse } from 'next/server'
@@ -109,6 +109,7 @@ export async function GET(req: NextRequest) {
         postUsed: dailyPostCount,
         cooldownSeconds,
         isCustom,
+        autoApprove: filterSettings.autoApprove,
       }
     } catch {
       // If limits computation fails, return null — don't block the main response

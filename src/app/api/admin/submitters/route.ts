@@ -1,13 +1,17 @@
 import { db } from '@/lib/db'
-import { verifyAdmin } from '@/lib/admin-auth'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { NextRequest, NextResponse } from 'next/server'
 
-// GET /api/admin/submitters — List all submitters with their submission counts
+// GET /api/admin/submitters — List all submitters with their submission counts (cursor-based pagination)
 export async function GET(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {
+    const { searchParams } = new URL(req.url)
+    const cursor = searchParams.get('cursor') || undefined
+    const limit = Math.min(Math.max(Number(searchParams.get('limit') || '50'), 1), 200)
+
   // Single GROUP BY query instead of 4 COUNT × N submitters (N+1 problem)
   const statusCounts = await db.$queryRaw<
     { submitterId: string; status: string; count: bigint }[]
@@ -41,9 +45,16 @@ export async function GET(req: NextRequest) {
       },
     },
     orderBy: { createdAt: 'desc' },
+    take: limit + 1,
+    skip: cursor ? 1 : 0,
+    cursor: cursor ? { id: cursor } : undefined,
   })
 
-  const submittersWithStats = submitters.map((s) => {
+  const hasMore = submitters.length > limit
+  const slicedSubmitters = hasMore ? submitters.slice(0, limit) : submitters
+  const nextCursor = hasMore ? slicedSubmitters[slicedSubmitters.length - 1].id : null
+
+  const submittersWithStats = slicedSubmitters.map((s) => {
     const counts = countMap.get(s.id) || {}
     return {
       id: s.id,
@@ -55,13 +66,14 @@ export async function GET(req: NextRequest) {
       createdAt: s.createdAt,
       totalSubmissions: s._count.submissions,
       posted: counts['posted'] || 0,
-      pending: (counts['pending'] || 0) + (counts['posting'] || 0),
+      pending: counts['pending'] || 0,
+      posting: counts['posting'] || 0,
       rejected: counts['rejected'] || 0,
       postFailed: counts['post_failed'] || 0,
     }
   })
 
-  return NextResponse.json({ submitters: submittersWithStats })
+  return NextResponse.json({ submitters: submittersWithStats, nextCursor, hasMore })
   } catch (error) {
     console.error('Submitters GET error:', error)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })

@@ -1,214 +1,19 @@
 import { db } from '@/lib/db'
-import { encrypt, decryptSetting } from '@/lib/encrypt'
-import { verifyAdmin } from '@/lib/admin-auth'
+import { encrypt } from '@/lib/encrypt'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import {
   DEFAULT_BLOCKED_WORDS,
   DEFAULT_NSFW_WORDS,
   DEFAULT_FILTER_RULES,
   type FilterRules,
 } from '@/lib/content-filter'
+import { getFilterSettings, DEFAULT_RATE_LIMITS } from '@/lib/filter-settings'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
 
-// Settings keys for the filter feature
-const FILTER_SETTING_KEYS = [
-  'auto_approve', 'blocked_words', 'filter_rules', 'nsfw_words',
-  'gemini_enabled', 'gemini_api_key',
-  'submission_cooldown', 'submission_daily_cap', 'auto_post_cooldown',
-  'auto_post_window_cap', 'auto_post_window_minutes',
-  'user_post_daily_cap', 'user_pending_cap',
-  'global_submission_daily_cap',
-  'circuit_breaker_threshold', 'circuit_breaker_cooldown_minutes', 'circuit_breaker_failure_window_minutes',
-  'whitelist_usernames', 'blocked_usernames',
-]
-
-/**
- * Safely parse an integer from a setting value, returning the fallback
- * only when the value is missing/null/empty/NaN. Unlike `parseInt(x) || fallback`,
- * this correctly returns 0 when the admin intentionally sets a value to 0.
- */
-function parseIntSafe(raw: string | null, fallback: number): number {
-  if (raw === null || raw === '') return fallback
-  const parsed = parseInt(raw, 10)
-  if (Number.isNaN(parsed)) return fallback
-  return parsed
-}
-
-/**
- * Get all filter settings as structured objects.
- */
-// Default rate limit settings
-export const DEFAULT_RATE_LIMITS = {
-  submissionCooldown: 2,                // minutes between submissions
-  submissionDailyCap: 20,               // max submissions per user per day
-  autoPostCooldown: 10,                 // seconds between auto-posts to X
-  autoPostWindowCap: 25,                // max auto-posts per time window
-  autoPostWindowMinutes: 30,            // the time window in minutes
-  userPostDailyCap: 5,                  // max posts per user per day on X
-  userPendingCap: 5,                    // max pending submissions per user
-  globalSubmissionDailyCap: 200,        // max submissions from ALL users per day
-  circuitBreakerThreshold: 3,           // consecutive failures before circuit breaker pauses
-  circuitBreakerCooldownMinutes: 30,    // how long circuit breaker pauses auto-post
-  circuitBreakerFailureWindowMinutes: 30, // max gap between consecutive failures (streak breaker)
-}
-
-export interface RateLimitSettings {
-  submissionCooldown: number             // minutes
-  submissionDailyCap: number             // count
-  autoPostCooldown: number               // seconds
-  autoPostWindowCap: number              // max posts per window
-  autoPostWindowMinutes: number          // window size in minutes
-  userPostDailyCap: number               // max posts per user per day on X
-  userPendingCap: number                 // max pending submissions per user
-  globalSubmissionDailyCap: number       // max submissions from ALL users per day
-  circuitBreakerThreshold: number        // consecutive failures before pause
-  circuitBreakerCooldownMinutes: number  // how long to pause
-  circuitBreakerFailureWindowMinutes: number  // max gap between failures (streak breaker)
-}
-
-export async function getFilterSettings(): Promise<{
-  autoApprove: boolean
-  blockedWords: string[]
-  nsfwWords: string[]
-  filterRules: FilterRules
-  geminiEnabled: boolean
-  geminiApiKeySet: boolean  // Only whether a key exists (never expose the key)
-  rateLimits: RateLimitSettings
-  whitelistUsernames: string[]  // Twitter usernames bypassing rate limits
-  blockedUsernames: string[]    // Twitter usernames blocked from submitting
-}> {
-  const settings = await db.setting.findMany({
-    where: { key: { in: FILTER_SETTING_KEYS } },
-  })
-
-  const getRaw = (key: string): string | null => {
-    const s = settings.find((s) => s.key === key)
-    if (!s) return null
-    return decryptSetting(s.value)
-  }
-
-  // Auto-approve: default false
-  const autoApprove = getRaw('auto_approve') === 'true'
-
-  // Blocked words: default list
-  let blockedWords = DEFAULT_BLOCKED_WORDS
-  const blockedWordsRaw = getRaw('blocked_words')
-  if (blockedWordsRaw) {
-    try {
-      const parsed = JSON.parse(blockedWordsRaw)
-      if (Array.isArray(parsed)) {
-        blockedWords = parsed.filter((w: unknown) => typeof w === 'string' && w.trim())
-      }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse blocked_words:', e)
-    }
-  }
-
-  // NSFW words: default list
-  let nsfwWords = DEFAULT_NSFW_WORDS
-  const nsfwWordsRaw = getRaw('nsfw_words')
-  if (nsfwWordsRaw) {
-    try {
-      const parsed = JSON.parse(nsfwWordsRaw)
-      if (Array.isArray(parsed)) {
-        nsfwWords = parsed.filter((w: unknown) => typeof w === 'string' && w.trim())
-      }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse nsfw_words:', e)
-    }
-  }
-
-  // Filter rules: defaults
-  let filterRules = { ...DEFAULT_FILTER_RULES }
-  const filterRulesRaw = getRaw('filter_rules')
-  if (filterRulesRaw) {
-    try {
-      const parsed = JSON.parse(filterRulesRaw) as Partial<FilterRules>
-      // Merge with defaults so new rules are added automatically
-      filterRules = { ...DEFAULT_FILTER_RULES, ...parsed }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse filter_rules:', e)
-    }
-  }
-
-  // Gemini AI filter
-  const geminiEnabled = getRaw('gemini_enabled') === 'true'
-  const geminiApiKey = getRaw('gemini_api_key')
-  const geminiApiKeySet = !!geminiApiKey && geminiApiKey.trim().length > 0
-
-  // Rate limit settings — using parseIntSafe to correctly handle 0 values
-  // (parseInt("0") || default would treat 0 as falsy and revert to default)
-  const submissionCooldown = Math.max(0, parseIntSafe(getRaw('submission_cooldown'), DEFAULT_RATE_LIMITS.submissionCooldown))
-  const submissionDailyCap = Math.max(0, parseIntSafe(getRaw('submission_daily_cap'), DEFAULT_RATE_LIMITS.submissionDailyCap))
-  const autoPostCooldown = Math.max(0, parseIntSafe(getRaw('auto_post_cooldown'), DEFAULT_RATE_LIMITS.autoPostCooldown))
-  const autoPostWindowCap = Math.max(0, parseIntSafe(getRaw('auto_post_window_cap'), DEFAULT_RATE_LIMITS.autoPostWindowCap))
-  const autoPostWindowMinutes = Math.max(1, parseIntSafe(getRaw('auto_post_window_minutes'), DEFAULT_RATE_LIMITS.autoPostWindowMinutes))
-  const userPostDailyCap = Math.max(0, parseIntSafe(getRaw('user_post_daily_cap'), DEFAULT_RATE_LIMITS.userPostDailyCap))
-  const userPendingCap = Math.max(1, parseIntSafe(getRaw('user_pending_cap'), DEFAULT_RATE_LIMITS.userPendingCap))
-  const globalSubmissionDailyCap = Math.max(0, parseIntSafe(getRaw('global_submission_daily_cap'), DEFAULT_RATE_LIMITS.globalSubmissionDailyCap))
-  const circuitBreakerThreshold = Math.max(1, parseIntSafe(getRaw('circuit_breaker_threshold'), DEFAULT_RATE_LIMITS.circuitBreakerThreshold))
-  const circuitBreakerCooldownMinutes = Math.max(1, parseIntSafe(getRaw('circuit_breaker_cooldown_minutes'), DEFAULT_RATE_LIMITS.circuitBreakerCooldownMinutes))
-  const circuitBreakerFailureWindowMinutes = Math.max(1, parseIntSafe(getRaw('circuit_breaker_failure_window_minutes'), DEFAULT_RATE_LIMITS.circuitBreakerFailureWindowMinutes))
-
-  // Whitelist usernames (bypass rate limits)
-  let whitelistUsernames: string[] = []
-  const whitelistRaw = getRaw('whitelist_usernames')
-  if (whitelistRaw) {
-    try {
-      const parsed = JSON.parse(whitelistRaw)
-      if (Array.isArray(parsed)) {
-        whitelistUsernames = parsed
-          .filter((u: unknown) => typeof u === 'string' && u.trim())
-          .map((u: string) => u.toLowerCase().trim())
-      }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse whitelist_usernames:', e)
-    }
-  }
-
-  // Blocked usernames (cannot submit at all)
-  let blockedUsernames: string[] = []
-  const blockedRaw = getRaw('blocked_usernames')
-  if (blockedRaw) {
-    try {
-      const parsed = JSON.parse(blockedRaw)
-      if (Array.isArray(parsed)) {
-        blockedUsernames = parsed
-          .filter((u: unknown) => typeof u === 'string' && u.trim())
-          .map((u: string) => u.toLowerCase().trim())
-      }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse blocked_usernames:', e)
-    }
-  }
-
-  return {
-    autoApprove,
-    blockedWords,
-    nsfwWords,
-    filterRules,
-    geminiEnabled,
-    geminiApiKeySet,
-    rateLimits: { submissionCooldown, submissionDailyCap, autoPostCooldown, autoPostWindowCap, autoPostWindowMinutes, userPostDailyCap, userPendingCap, globalSubmissionDailyCap, circuitBreakerThreshold, circuitBreakerCooldownMinutes, circuitBreakerFailureWindowMinutes },
-    whitelistUsernames,
-    blockedUsernames,
-  }
-}
-
-/**
- * Get the actual Gemini API key (for server-side use only).
- * Returns null if not configured.
- */
-export async function getGeminiApiKey(): Promise<string | null> {
-  const setting = await db.setting.findUnique({ where: { key: 'gemini_api_key' } })
-  if (!setting) return null
-  const decrypted = decryptSetting(setting.value)
-  return decrypted?.trim() || null
-}
-
 // GET /api/admin/filter-settings — Return filter settings
 export async function GET(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   const settings = await getFilterSettings()
@@ -236,7 +41,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/admin/filter-settings — Save filter settings
 export async function POST(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {

@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { postTweetViaCookie, getCookieAuthStatus } from '@/lib/twitter-post-cookie'
-import { verifyAdmin } from '@/lib/admin-auth'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
-import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
+import { getFilterSettings } from '@/lib/filter-settings'
 
 // Vercel serverless function timeout — test posting with retries can take time
 export const maxDuration = 30
 
 // GET /api/test-x - Check X auth configuration status
 export async function GET(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   // Check OAuth 2.0 (login) credentials — still needed for user authentication
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
 // POST /api/test-x - Test posting a tweet via cookie auth
 export async function POST(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   // Get optional custom text from body

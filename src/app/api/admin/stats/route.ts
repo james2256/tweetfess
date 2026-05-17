@@ -1,9 +1,10 @@
 import { db } from '@/lib/db'
 import { getCookieAuthStatus } from '@/lib/twitter-post-cookie'
 import { getApiCreditsNonBlocking, getApiLoginStatus } from '@/lib/twitter-api-fallback'
-import { verifyAdmin } from '@/lib/admin-auth'
-import { getFilterSettings } from '@/app/api/admin/filter-settings/route'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
+import { getFilterSettings } from '@/lib/filter-settings'
 import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
+import { isEncryptionEnabled } from '@/lib/encrypt'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Vercel serverless function timeout — multiple DB queries + external API calls
@@ -11,7 +12,7 @@ export const maxDuration = 30
 
 // GET /api/admin/stats - Get dashboard stats + post method ratio + API credits + login status
 export async function GET(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {
@@ -52,7 +53,8 @@ export async function GET(req: NextRequest) {
   const circuitBreaker = await getCircuitBreakerStatus(filterSettingsData.rateLimits)
 
   return NextResponse.json({
-    pending: (counts['pending'] || 0) + (counts['posting'] || 0),
+    pending: counts['pending'] || 0,
+    posting: counts['posting'] || 0,
     postFailed: counts['post_failed'] || 0,
     rejected: counts['rejected'] || 0,
     posted: counts['posted'] || 0,
@@ -65,6 +67,7 @@ export async function GET(req: NextRequest) {
     postMethodSetting,
     filterSettings: filterSettingsData,
     circuitBreaker,
+    encryptionEnabled: isEncryptionEnabled(),
   })
   } catch (error) {
     console.error('Stats GET error:', error)

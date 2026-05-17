@@ -16,34 +16,23 @@ import type {
   SubmissionLimitsData,
 } from '@/types'
 
-class ApiError extends Error {
-  status: number
-  constructor(status: number, message: string) {
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public data?: Record<string, unknown>,
+  ) {
     super(message)
     this.name = 'ApiError'
-    this.status = status
   }
 }
 
 class ApiClient {
-  private adminToken: string | null = null
-
-  setAdminToken(token: string | null) {
-    this.adminToken = token
-  }
-
-  getAdminToken(): string | null {
-    return this.adminToken
-  }
-
   private async request<T>(
     path: string,
     options?: RequestInit & { silent?: boolean }
   ): Promise<T> {
     const headers: Record<string, string> = {}
-    if (this.adminToken) {
-      headers['Authorization'] = `Bearer ${this.adminToken}`
-    }
     if (options?.body && typeof options.body === 'string') {
       headers['Content-Type'] = 'application/json'
     }
@@ -55,13 +44,16 @@ class ApiClient {
 
     if (!res.ok) {
       let message = `Request failed (${res.status})`
+      let data: Record<string, unknown> | undefined
       try {
-        const data = await res.json()
-        message = data.error || data.message || message
+        data = await res.json()
+        const errVal = typeof data?.error === 'string' ? data.error : undefined
+        const msgVal = typeof data?.message === 'string' ? data.message : undefined
+        message = errVal ?? msgVal ?? message
       } catch {
         // ignore parse error
       }
-      throw new ApiError(res.status, message)
+      throw new ApiError(res.status, message, data)
     }
 
     return res.json()
@@ -79,7 +71,7 @@ class ApiClient {
 
   // --- Submissions ---
 
-  async submitMessage(data: SubmitMessageRequest): Promise<Submission & { autoPosted?: boolean; queued?: boolean; postCapped?: boolean; filtered?: boolean; message?: string; error?: string }> {
+  async submitMessage(data: SubmitMessageRequest): Promise<Submission & { autoPosted?: boolean; queued?: boolean; postFailed?: boolean; postCapped?: boolean; filtered?: boolean; message?: string; error?: string }> {
     return this.request('/api/submissions', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -142,6 +134,10 @@ class ApiClient {
     })
   }
 
+  async adminLogout(): Promise<void> {
+    await this.request('/api/admin/logout', { method: 'POST' })
+  }
+
   async getStats(): Promise<Stats> {
     return this.request<Stats>('/api/admin/stats')
   }
@@ -184,8 +180,12 @@ class ApiClient {
     return this.request('/api/admin/circuit-breaker/reset', { method: 'POST' })
   }
 
-  async getSubmitters(): Promise<{ submitters: SubmitterWithStats[] }> {
-    return this.request('/api/admin/submitters')
+  async getSubmitters(params?: { cursor?: string; limit?: number }): Promise<{ submitters: SubmitterWithStats[]; nextCursor: string | null; hasMore: boolean }> {
+    const searchParams = new URLSearchParams()
+    if (params?.cursor) searchParams.set('cursor', params.cursor)
+    if (params?.limit) searchParams.set('limit', String(params.limit))
+    const query = searchParams.toString()
+    return this.request(`/api/admin/submitters${query ? `?${query}` : ''}`)
   }
 
   async blockUser(username: string): Promise<{ error?: string }> {
@@ -238,4 +238,3 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient()
-export { ApiError }

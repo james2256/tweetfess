@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
+import { encrypt } from '@/lib/encrypt'
 
 // Twitter OAuth 2.0 with PKCE implementation
 
@@ -182,8 +183,8 @@ export async function upsertSubmitterFromTwitter(twitterUser: {
           twitterId,
           displayName: displayName || placeholder.displayName,
           profileImage: profile_image_url || placeholder.profileImage,
-          ...(tokens?.accessToken && { oauth2AccessToken: tokens.accessToken }),
-          ...(tokens?.refreshToken && { oauth2RefreshToken: tokens.refreshToken }),
+          ...(tokens?.accessToken && { oauth2AccessToken: encrypt(tokens.accessToken) }),
+          ...(tokens?.refreshToken && { oauth2RefreshToken: encrypt(tokens.refreshToken) }),
         },
       })
     }
@@ -194,16 +195,16 @@ export async function upsertSubmitterFromTwitter(twitterUser: {
         username,
         displayName: displayName || null,
         profileImage: profile_image_url || null,
-        ...(tokens?.accessToken && { oauth2AccessToken: tokens.accessToken }),
-        ...(tokens?.refreshToken && { oauth2RefreshToken: tokens.refreshToken }),
+        ...(tokens?.accessToken && { oauth2AccessToken: encrypt(tokens.accessToken) }),
+        ...(tokens?.refreshToken && { oauth2RefreshToken: encrypt(tokens.refreshToken) }),
       },
       create: {
         twitterId,
         username,
         displayName: displayName || null,
         profileImage: profile_image_url || null,
-        ...(tokens?.accessToken && { oauth2AccessToken: tokens.accessToken }),
-        ...(tokens?.refreshToken && { oauth2RefreshToken: tokens.refreshToken }),
+        ...(tokens?.accessToken && { oauth2AccessToken: encrypt(tokens.accessToken) }),
+        ...(tokens?.refreshToken && { oauth2RefreshToken: encrypt(tokens.refreshToken) }),
       },
     })
   } catch (error: unknown) {
@@ -218,16 +219,16 @@ export async function upsertSubmitterFromTwitter(twitterUser: {
           username,
           displayName: displayName || null,
           profileImage: profile_image_url || null,
-          ...(tokens?.accessToken && { oauth2AccessToken: tokens.accessToken }),
-          ...(tokens?.refreshToken && { oauth2RefreshToken: tokens.refreshToken }),
+          ...(tokens?.accessToken && { oauth2AccessToken: encrypt(tokens.accessToken) }),
+          ...(tokens?.refreshToken && { oauth2RefreshToken: encrypt(tokens.refreshToken) }),
         },
         create: {
           twitterId,
           username: suffixedUsername,
           displayName: displayName || null,
           profileImage: profile_image_url || null,
-          ...(tokens?.accessToken && { oauth2AccessToken: tokens.accessToken }),
-          ...(tokens?.refreshToken && { oauth2RefreshToken: tokens.refreshToken }),
+          ...(tokens?.accessToken && { oauth2AccessToken: encrypt(tokens.accessToken) }),
+          ...(tokens?.refreshToken && { oauth2RefreshToken: encrypt(tokens.refreshToken) }),
         },
       })
     }

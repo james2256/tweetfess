@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
-import { generateAdminToken } from '@/lib/admin-auth'
+import { generateAdminToken, ADMIN_TOKEN_TTL } from '@/lib/admin-auth'
 import { getClientIp, checkLoginRateLimit, recordFailedAttempt, clearFailedAttempts } from '@/lib/login-rate-limit'
 
 // POST /api/admin/login - Verify admin password
@@ -8,6 +8,7 @@ import { getClientIp, checkLoginRateLimit, recordFailedAttempt, clearFailedAttem
 // Returns an HMAC-derived token instead of the raw password —
 // the raw password never leaves the server.
 // Rate-limited: 5 failed attempts per IP per 15 minutes.
+// Sets an HttpOnly cookie for browser-based admin sessions.
 export async function POST(req: NextRequest) {
   try {
     // --- Rate limit check (BEFORE password check) ---
@@ -53,7 +54,17 @@ export async function POST(req: NextRequest) {
       clearFailedAttempts(ip)
       // Generate a token with embedded expiry — raw password is never exposed to the client
       const token = generateAdminToken(adminPassword)
-      return NextResponse.json({ success: true, token })
+
+      // Set HttpOnly cookie for browser-based sessions (sent automatically with requests)
+      const response = NextResponse.json({ success: true, token })
+      response.cookies.set('admin_token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        path: '/',
+        maxAge: ADMIN_TOKEN_TTL,
+      })
+      return response
     }
 
     // Record failed attempt

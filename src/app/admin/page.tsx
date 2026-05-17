@@ -13,6 +13,7 @@ import { ApiCredits } from '@/components/dashboard/api-credits'
 import { SubmissionFilters } from '@/components/dashboard/submission-filters'
 import { SubmissionList } from '@/components/dashboard/submission-list'
 import { UsersDialog } from '@/components/dashboard/users-dialog'
+import { EncryptionBanner } from '@/components/dashboard/encryption-banner'
 
 export default function AdminDashboardPage() {
   const { isAdmin, adminToken } = useAdminAuth()
@@ -70,6 +71,13 @@ export default function AdminDashboardPage() {
     }
   }, [stats?.filterSettings?.blockedUsernames, setBlockedUsernames])
 
+  // Dispatch stats-update event so the layout header badge stays in sync
+  useEffect(() => {
+    if (stats) {
+      window.dispatchEvent(new CustomEvent('stats-update', { detail: { pending: stats.pending } }))
+    }
+  }, [stats])
+
   // Auto-refresh stats every 15s
   useEffect(() => {
     if (isAdmin) {
@@ -110,6 +118,9 @@ export default function AdminDashboardPage() {
           }}
         />
       )}
+
+      {/* Encryption Warning Banner */}
+      <EncryptionBanner encryptionEnabled={stats?.encryptionEnabled} />
 
       {/* Users Dialog */}
       <UsersDialog

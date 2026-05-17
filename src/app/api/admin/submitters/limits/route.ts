@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { verifyAdmin } from '@/lib/admin-auth'
+import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { db } from '@/lib/db'
 import { PER_USER_LIMIT_KEYS } from '@/types'
 import { Prisma } from '@prisma/client'
@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client'
 // customLimits values: number = set override, null = remove that key.
 // customLimits: null = clear ALL overrides.
 export async function PATCH(req: NextRequest) {
-  const auth = verifyAdmin(req.headers.get('authorization'))
+  const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
   try {

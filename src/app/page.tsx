@@ -38,6 +38,8 @@ export default function HomePage() {
         toast({ title: 'Terkirim & diposting!', description: 'Pesanmu langsung diposting ke X.' })
       } else if (data.postCapped) {
         toast({ title: 'Batas post harian tercapai', description: data.error })
+      } else if (data.postFailed) {
+        toast({ title: 'Gagal auto-post', description: data.error || 'Gagal auto-post. Pesanmu masuk antrean untuk review admin.' })
       } else if (data.queued) {
         toast({ title: 'Masuk antrean', description: data.error || 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.' })
       } else if (data.filtered) {
@@ -50,8 +52,13 @@ export default function HomePage() {
     } catch (err: unknown) {
       const status = (err as { status?: number }).status
       if (status === 403) setBlocked(true)
-      const errMsg = (err as { message?: string }).message || 'Gagal mengirim pesan'
-      toast({ title: 'Gagal', description: errMsg, variant: 'destructive' })
+      if (status === 409) {
+        // Status changed by another process — tell user to check their submission list
+        toast({ title: 'Status berubah', description: (err as { message?: string }).message || 'Status pesan berubah sebelum diproses. Cek riwayat submission-mu.', variant: 'destructive' })
+      } else {
+        const errMsg = (err as { message?: string }).message || 'Gagal mengirim pesan'
+        toast({ title: 'Gagal', description: errMsg, variant: 'destructive' })
+      }
       return false
     } finally {
       setIsSubmitting(false)
@@ -93,6 +100,7 @@ export default function HomePage() {
               onSubmit={handleSubmit}
               isSubmitting={isSubmitting}
               limits={limits}
+              autoApprove={limits?.autoApprove ?? false}
             />
           </AuthGate>
 

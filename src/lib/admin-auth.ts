@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 /**
  * Admin authentication helper.
@@ -22,6 +22,22 @@ const ADMIN_TOKEN_LABEL = 'tweetfess:admin:v1'
 
 /** Token lifetime in seconds — 7 days */
 export const ADMIN_TOKEN_TTL = 7 * 24 * 60 * 60
+
+/**
+ * Extract admin token from request — cookie first, Authorization header second.
+ * Cookie is HttpOnly (browser requests), Authorization is for API/curl usage.
+ */
+export function getAdminTokenFromRequest(req: NextRequest): string | null {
+  // 1. Cookie first (browser requests — HttpOnly, secure)
+  const cookieToken = req.cookies.get('admin_token')?.value
+  if (cookieToken) return cookieToken
+
+  // 2. Authorization header second (API/curl — Bearer token fallback)
+  const authHeader = req.headers.get('authorization')
+  if (authHeader?.startsWith('Bearer ')) return authHeader.slice(7)
+
+  return null
+}
 
 /**
  * Derive an HMAC from the admin password + expiry timestamp.

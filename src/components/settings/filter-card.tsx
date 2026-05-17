@@ -16,6 +16,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
+import { Switch } from '@/components/ui/switch'
 import type { FilterRules } from '@/types'
 
 interface FilterCardProps {
@@ -103,12 +104,11 @@ export function FilterCard({
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-medium text-[#536471]">Auto-Approve</label>
-                <button
-                  onClick={toggleAutoApprove}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${autoApprove ? 'bg-green-500' : 'bg-[#EFF3F4]'}`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${autoApprove ? 'translate-x-6' : 'translate-x-1'}`} />
-                </button>
+                <Switch
+                  checked={autoApprove}
+                  onCheckedChange={toggleAutoApprove}
+                  aria-label="Auto-approve submissions"
+                />
               </div>
               {autoApprove && (
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 text-xs text-amber-700 flex items-start gap-1.5">
@@ -183,12 +183,11 @@ export function FilterCard({
                       <span className="text-xs font-medium text-[#0F1419]">{rule.label}</span>
                       <p className="text-[10px] text-[#71767B]">{rule.desc}</p>
                     </div>
-                    <button
-                      onClick={() => toggleRule(rule.key)}
-                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors shrink-0 ml-2 ${filterRules[rule.key] ? 'bg-green-500' : 'bg-[#EFF3F4]'}`}
-                    >
-                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${filterRules[rule.key] ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                    </button>
+                    <Switch
+                      checked={filterRules[rule.key]}
+                      onCheckedChange={() => toggleRule(rule.key)}
+                      aria-label={`Toggle ${rule.label}`}
+                    />
                   </div>
                 ))}
 
