@@ -154,7 +154,7 @@ export function DirectPostingCard({
                   </div>
                   <div className="flex items-start gap-1.5 text-[#536471] pt-1">
                     <Zap className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                    <span>Sertikan semua cookie dari browser untuk hasil terbaik. Cookie yang lengkap membuat request lebih mirip browser asli.</span>
+                    <span>Sertakan semua cookie dari browser untuk hasil terbaik. Cookie yang lengkap membuat request lebih mirip browser asli.</span>
                   </div>
                 </motion.div>
               )}

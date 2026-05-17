@@ -157,7 +157,8 @@ export function cookieStringToLoginCookies(cookieString: string): string | null 
     }
   }
 
-  // Must have auth_token as the absolute minimum. Downstream (postTweetViaCookie) validates auth_token + ct0 + twid before posting.
+  // Minimum auth_token required for base64 conversion. Caller (postViaCookieApi)
+  // validates all 3 cookies (auth_token, ct0, twid) before calling this function.
   if (!cookies.auth_token) return null
 
   return Buffer.from(JSON.stringify(cookies)).toString('base64')
@@ -292,12 +293,26 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
 export async function postViaCookieApi(text: string): Promise<FallbackResult> {
   const settings = await getApiSettings()
 
-  // 1. Convert stored cookie string to login_cookies format
-  const loginCookies = cookieStringToLoginCookies(settings.x_cookie_string || '')
+  // 1. Validate required cookies before converting (specific error messages)
+  // Uses inline .test() checks instead of importing parseXCookies to avoid
+  // circular dependency (twitter-post-cookie.ts imports from this file).
+  const cookieStr = settings.x_cookie_string || ''
+  const missingCookies: string[] = []
+  if (!/auth_token=([^;]+)/.test(cookieStr)) missingCookies.push('auth_token')
+  if (!/ct0=([^;]+)/.test(cookieStr)) missingCookies.push('ct0')
+  if (!/twid=([^;]+)/.test(cookieStr)) missingCookies.push('twid')
+  if (missingCookies.length > 0) {
+    return {
+      success: false,
+      error: `Cookie API: Missing ${missingCookies.join(', ')}. Paste full cookie string from browser in X Settings.`,
+      method: 'fallback_cookie',
+    }
+  }
+  const loginCookies = cookieStringToLoginCookies(cookieStr)
   if (!loginCookies) {
     return {
       success: false,
-      error: 'Cookie API: No browser cookies configured or missing required cookies (auth_token, ct0, twid). Paste cookies in X Settings.',
+      error: 'Cookie API: No browser cookies configured. Paste cookies in X Settings.',
       method: 'fallback_cookie',
     }
   }

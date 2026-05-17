@@ -57,8 +57,8 @@ async function setSettingValue(key: string, value: string): Promise<void> {
 
 /**
  * Check if the circuit breaker is currently paused.
- * If the pause has expired, auto-resets the state atomically in a single
- * SQL statement to prevent race conditions with concurrent recordPostFailure().
+ * If the pause has expired, auto-resets the state with conditional
+ * multi-statement SQL to prevent race conditions with concurrent recordPostFailure().
  */
 export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }): Promise<boolean> {
   const pausedUntilStr = await getSettingValue(PAUSED_UNTIL_KEY)
@@ -74,11 +74,13 @@ export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThresh
     return true
   }
 
-  // Pause expired — atomic single-statement reset:
+  // Pause expired — conditional multi-statement reset:
   // Only clears paused_until if the stored value still matches what we read
   // (prevents erasing a newer pause), and resets fail_count only if
   // paused_until was successfully cleared (no concurrent failure set a new pause).
-  // Also clears last_failure_at so the next failure starts a fresh streak.
+  // Also conditionally clears last_failure_at so the next failure starts a fresh streak.
+  // Statement 3 is conditional on fail_count='0' to prevent erasing a concurrent
+  // recordPostFailure's timestamp (matches recordPostSuccess pattern).
   debug('[circuit-breaker] Pause expired, auto-resetting')
   await db.$executeRaw`
     UPDATE "Setting" SET "value" = '0', "updatedAt" = NOW()
@@ -94,6 +96,7 @@ export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThresh
   await db.$executeRaw`
     UPDATE "Setting" SET "value" = '0', "updatedAt" = NOW()
     WHERE "key" = ${LAST_FAILURE_AT_KEY}
+      AND (SELECT "value" FROM "Setting" WHERE "key" = ${FAIL_COUNT_KEY}) = '0'
   `
   return false
 }

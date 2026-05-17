@@ -500,6 +500,57 @@ export async function POST(req: NextRequest) {
       }, { status: 201 })
     }
 
+    // Re-check cooldown and window cap under lock (authoritative — no race).
+    // The early checks above are fast-path optimizations that may be stale
+    // if another process posted between the check and lock acquisition.
+    // Under the lock, no other process can change the "posted" count.
+
+    // Re-check auto-post cooldown (authoritative under lock)
+    if (filterSettings.rateLimits.autoPostCooldown > 0) {
+      const lastPosted = await db.submission.findFirst({
+        where: { status: 'posted' },
+        orderBy: { updatedAt: 'desc' },
+        select: { updatedAt: true },
+      })
+      if (lastPosted) {
+        const elapsedMs = Date.now() - lastPosted.updatedAt.getTime()
+        const cooldownMs = filterSettings.rateLimits.autoPostCooldown * 1000
+        if (elapsedMs < cooldownMs) {
+          debug('[submit] Auto-post cooldown active (confirmed under lock), queuing instead')
+          await releasePostingLock(lockValue)
+          lockValue = null
+          return NextResponse.json({
+            submission,
+            autoPosted: false,
+            queued: true,
+            error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+          }, { status: 201 })
+        }
+      }
+    }
+
+    // Re-check auto-post window cap (authoritative under lock)
+    if (filterSettings.rateLimits.autoPostWindowCap > 0 && filterSettings.rateLimits.autoPostWindowMinutes > 0) {
+      const windowStart = new Date(Date.now() - filterSettings.rateLimits.autoPostWindowMinutes * 60 * 1000)
+      const windowPostCount = await db.submission.count({
+        where: {
+          status: 'posted',
+          updatedAt: { gte: windowStart },
+        },
+      })
+      if (windowPostCount >= filterSettings.rateLimits.autoPostWindowCap) {
+        debug('[submit] Auto-post window cap reached (confirmed under lock):', windowPostCount, 'queuing instead')
+        await releasePostingLock(lockValue)
+        lockValue = null
+        return NextResponse.json({
+          submission,
+          autoPosted: false,
+          queued: true,
+          error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+        }, { status: 201 })
+      }
+    }
+
     // Mark as "posting" before calling X API — prevents double-post race condition.
     // If another process checks this submission's status while we're mid-post,
     // it will see "posting" instead of "pending" and won't attempt a duplicate post.

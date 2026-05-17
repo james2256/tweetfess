@@ -201,11 +201,16 @@ export async function PATCH(
       }
     }
 
-    // Reject
-    const updated = await db.submission.update({
-      where: { id },
+    // Reject — conditional update prevents overwriting if status changed
+    // between our fetch and this write (e.g. another admin approved it).
+    const rejectResult = await db.submission.updateMany({
+      where: { id, status: { in: ['pending', 'post_failed'] } },
       data: { status: 'rejected' },
     })
+    if (rejectResult.count === 0) {
+      return NextResponse.json({ error: 'Status berubah — coba refresh halaman.' }, { status: 409 })
+    }
+    const updated = await db.submission.findUnique({ where: { id } })
 
     return NextResponse.json({ submission: updated })
   } catch (e) {
@@ -249,7 +254,15 @@ export async function DELETE(
       // is explicitly choosing to delete, so this is acceptable.
     }
 
-    await db.submission.delete({ where: { id } })
+    // Conditional delete — only succeeds if status is not 'posting'.
+    // Prevents the race where checkStalePosting recovers an old 'posting',
+    // but another process has since set a fresh 'posting' (e.g. admin approved).
+    const deleted = await db.submission.deleteMany({
+      where: { id, status: { not: 'posting' } },
+    })
+    if (deleted.count === 0) {
+      return NextResponse.json({ error: 'Tidak bisa menghapus pesan yang sedang diposting. Coba lagi dalam beberapa menit.' }, { status: 409 })
+    }
 
     return NextResponse.json({ success: true })
   } catch (e) {

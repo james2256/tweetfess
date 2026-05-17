@@ -58,16 +58,27 @@ export async function checkStalePosting(
   // Stale — auto-recover to post_failed so admin can retry or delete.
   // WARNING: The tweet may have been posted to X before the crash.
   // The admin should check the X account before retrying.
+  //
+  // Uses updateMany with BOTH status and updatedAt conditions to prevent
+  // overwriting a legitimate status change by another process:
+  // - status: 'posting' — prevents overwriting if already moved to posted/rejected/etc.
+  // - updatedAt: { lte: staleCutoff } — prevents overwriting a fresh "posting"
+  //   set by another process after we fetched the stale object.
   const minutes = Math.round(timeInPostingMs / 60000)
   debug('[stale-posting] Auto-recovering stuck posting, stuck for', minutes, 'minutes, id:', submission.id)
 
-  await db.submission.update({
-    where: { id: submission.id },
+  const staleCutoff = new Date(Date.now() - POSTING_STALE_MS)
+  const result = await db.submission.updateMany({
+    where: {
+      id: submission.id,
+      status: 'posting',
+      updatedAt: { lte: staleCutoff },
+    },
     data: {
       status: 'post_failed',
       postError: `[Auto-recovered] Posting status stuck for ${minutes} menit. Possible server crash. Check X account before retrying — tweet may have been posted.`,
     },
   })
 
-  return { isStale: true, timeInPostingMs, recovered: true }
+  return { isStale: true, timeInPostingMs, recovered: result.count > 0 }
 }
