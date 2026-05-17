@@ -48,7 +48,7 @@ export default function HomePage() {
           filter: 'Pesanmu ditandai mengandung kata yang dilarang oleh pengaturan filter.',
           both: 'Pesanmu ditandai mengandung kata yang dilarang oleh pengaturan filter & AI.',
         }
-        toast({ title: 'Disensor', description: censoredMessages[data.censoredReason] || censoredMessages.filter })
+        toast({ title: 'Disensor', description: censoredMessages[data.censoredReason ?? 'filter'] || censoredMessages.filter })
       } else {
         toast({ title: 'Berhasil dikirim!', description: 'Pesanmu sedang menunggu moderasi admin.' })
       }
