@@ -161,11 +161,12 @@ export function ApiFallbackCard({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <Shield className="w-3.5 h-3.5 text-[#536471]" />
-                  <label className="text-xs font-medium text-[#536471]">V2 Login Fallback</label>
+                  <label id="v2-login-label" className="text-xs font-medium text-[#536471]">V2 Login Fallback</label>
                 </div>
                 <Button
                   size="sm"
                   variant={v2LoginEnabled ? 'default' : 'outline'}
+                  aria-labelledby="v2-login-label"
                   onClick={handleV2Toggle}
                   disabled={isSavingAnySetting}
                   className={`text-xs h-7 px-3 ${v2LoginEnabled ? 'bg-amber-500 hover:bg-amber-600' : 'border-[#EFF3F4]'}`}
