@@ -91,6 +91,7 @@ export interface RateLimitSettings {
   autoPostCooldown: number
   autoPostWindowCap: number
   autoPostWindowMinutes: number
+  globalPostDailyCap: number
   userPostDailyCap: number
   userPendingCap: number
   globalSubmissionDailyCap: number

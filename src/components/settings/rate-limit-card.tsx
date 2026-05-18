@@ -21,7 +21,7 @@ interface RateField {
   label: string
   hint: string
   min: number
-  max: number
+  max?: number
 }
 
 interface RateGroup {
@@ -80,9 +80,10 @@ const RATE_GROUPS: RateGroup[] = [
     badgeColor: 'bg-rose-100 text-rose-700 border-rose-200',
     description: 'Selalu aktif — melindungi akun X dari suspend/rate limit',
     fields: [
-      { key: 'autoPostCooldown', label: 'Jeda auto-post (detik)', hint: 'Jeda antar tweet ke X', min: 0, max: 120 },
+      { key: 'autoPostCooldown', label: 'Jeda auto-post (detik)', hint: 'Jeda antar tweet ke X', min: 0 },
       { key: 'autoPostWindowCap', label: 'Batas auto-post', hint: 'Maks tweet per window', min: 0, max: 500 },
       { key: 'autoPostWindowMinutes', label: 'Window (menit)', hint: 'Ukuran window waktu', min: 1, max: 1440 },
+      { key: 'globalPostDailyCap', label: 'Batas post harian global', hint: 'Total tweet ke X dari semua user/hari (reset 00:00 WIB)', min: 0, max: 10000 },
     ],
   },
 ]
@@ -134,7 +135,7 @@ export function RateLimitCard({
                         value={rateLimits[field.key]}
                         onChange={(e) => {
                           const val = parseInt(e.target.value, 10)
-                          const clamped = Math.min(field.max, Math.max(field.min, isNaN(val) ? field.min : val))
+                          const clamped = field.max != null ? Math.min(field.max, Math.max(field.min, isNaN(val) ? field.min : val)) : Math.max(field.min, isNaN(val) ? field.min : val)
                           setRateLimits(prev => ({ ...prev, [field.key]: clamped }))
                         }}
                         className="text-xs h-8 bg-white"
@@ -157,6 +158,7 @@ export function RateLimitCard({
                 <li><strong>Batas harian global</strong> — maks {rateLimits.globalSubmissionDailyCap} pesan dari semua user per hari <span className="text-amber-500">(selalu aktif)</span></li>
                 <li><strong>Jeda auto-post</strong> — jika ada pesan baru dalam {rateLimits.autoPostCooldown} detik setelah auto-post terakhir, masuk antrean admin <span className="text-rose-500">(selalu aktif)</span></li>
                 <li><strong>Batas auto-post</strong> — maks {rateLimits.autoPostWindowCap} tweet per {rateLimits.autoPostWindowMinutes} menit, mencegah 226 dari X <span className="text-rose-500">(selalu aktif)</span></li>
+                <li><strong>Batas post harian global</strong> — maks {rateLimits.globalPostDailyCap} tweet ke X dari semua user per hari <span className="text-rose-500">(selalu aktif)</span></li>
               </ul>
             </div>
             <Button

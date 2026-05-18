@@ -166,6 +166,20 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // ── Re-check global post daily cap under lock (authoritative) ──
+    if (filterSettings.rateLimits.globalPostDailyCap > 0) {
+      const startOfToday = getStartOfTodayWIB()
+      const globalPostCount = await db.submission.count({
+        where: { status: 'posted', createdAt: { gte: startOfToday } },
+      })
+      if (globalPostCount >= filterSettings.rateLimits.globalPostDailyCap) {
+        debug('[autopost] Global post daily cap reached under lock, releasing')
+        await releasePostingLock(lockValue)
+        lockValue = null
+        return NextResponse.json({ processed: false, reason: 'global_post_daily_cap_reached' })
+      }
+    }
+
     // ── Mark as "posting" (prevent double-post) ─────────────
     const marked = await db.submission.updateMany({
       where: {

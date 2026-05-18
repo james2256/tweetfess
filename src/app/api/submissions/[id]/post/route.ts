@@ -6,6 +6,7 @@ import { decodeHtmlEntities } from '@/lib/content-filter'
 import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
 import { recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
 import { getFilterSettings } from '@/lib/filter-settings'
+import { getStartOfTodayWIB } from '@/lib/constants'
 import { checkStalePosting } from '@/lib/stale-posting'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -71,6 +72,24 @@ export async function POST(
         { error: 'Sedang ada posting lain yang berjalan. Coba lagi dalam beberapa detik.' },
         { status: 409 }
       )
+    }
+
+    // Check global post daily cap (protects X account even for manual admin retries)
+    const filterSettingsForCap = await getFilterSettings()
+    if (filterSettingsForCap.rateLimits.globalPostDailyCap > 0) {
+      const startOfToday = getStartOfTodayWIB()
+      const globalPostCount = await db.submission.count({
+        where: { status: 'posted', createdAt: { gte: startOfToday } },
+      })
+      if (globalPostCount >= filterSettingsForCap.rateLimits.globalPostDailyCap) {
+        debug('[post route] Global post daily cap reached:', globalPostCount)
+        await releasePostingLock(lockValue)
+        lockValue = null
+        return NextResponse.json(
+          { error: `Batas post harian global tercapai (${globalPostCount}/${filterSettingsForCap.rateLimits.globalPostDailyCap}). Naikkan batas di Rate Limit settings.` },
+          { status: 400 }
+        )
+      }
     }
 
     // Mark as "posting" before calling X API — prevents double-post race condition

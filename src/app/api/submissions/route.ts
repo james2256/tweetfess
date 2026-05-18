@@ -475,9 +475,35 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Check global post daily cap: too many posts from all users today?
+    if (filterSettings.rateLimits.globalPostDailyCap > 0) {
+      const startOfToday = getStartOfTodayWIB()
+      const globalPostCount = await db.submission.count({
+        where: { status: 'posted', createdAt: { gte: startOfToday } },
+      })
+      if (globalPostCount >= filterSettings.rateLimits.globalPostDailyCap) {
+        debug('[submit] Global post daily cap reached:', globalPostCount, 'queuing instead')
+        const submission = await db.submission.create({
+          data: {
+            message: trimmedMessage,
+            normalizedMessage: normalizeText(trimmedMessage),
+            category: sanitizedCategory,
+            submitterId: submitter.id,
+            filterReasons: null,
+          },
+        })
+        return NextResponse.json({
+          submission,
+          autoPosted: false,
+          queued: true,
+          error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+        }, { status: 201 })
+      }
+    }
+
     // Check per-user post daily cap: has this user already had too many posts today?
-    // Whitelisted users bypass this limit
-    // Uses createdAt (submission time) with calendar day WIB boundary for consistency
+    // Whitelisted users bypass this limit.
+    // Uses createdAt (submission time) with calendar day WIB boundary for consistency.
     if (!isWhitelisted && effectivePostCap > 0) {
       const startOfToday = getStartOfTodayWIB()
       const userPostCount = await db.submission.count({
@@ -573,6 +599,25 @@ export async function POST(req: NextRequest) {
       })
       if (windowPostCount >= filterSettings.rateLimits.autoPostWindowCap) {
         debug('[submit] Auto-post window cap reached (confirmed under lock):', windowPostCount, 'queuing instead')
+        await releasePostingLock(lockValue)
+        lockValue = null
+        return NextResponse.json({
+          submission,
+          autoPosted: false,
+          queued: true,
+          error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+        }, { status: 201 })
+      }
+    }
+
+    // Re-check global post daily cap (authoritative under lock)
+    if (filterSettings.rateLimits.globalPostDailyCap > 0) {
+      const startOfToday = getStartOfTodayWIB()
+      const globalPostCount = await db.submission.count({
+        where: { status: 'posted', createdAt: { gte: startOfToday } },
+      })
+      if (globalPostCount >= filterSettings.rateLimits.globalPostDailyCap) {
+        debug('[submit] Global post daily cap reached (confirmed under lock), queuing instead')
         await releasePostingLock(lockValue)
         lockValue = null
         return NextResponse.json({

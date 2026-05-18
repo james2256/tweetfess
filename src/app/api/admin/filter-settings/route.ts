@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       geminiEnabled?: boolean
       geminiApiKey?: string
       geminiModel?: string
-      rateLimits?: { submissionCooldown?: number; submissionDailyCap?: number; autoPostCooldown?: number; autoPostWindowCap?: number; autoPostWindowMinutes?: number; userPostDailyCap?: number; userPendingCap?: number; globalSubmissionDailyCap?: number; circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }
+      rateLimits?: { submissionCooldown?: number; submissionDailyCap?: number; autoPostCooldown?: number; autoPostWindowCap?: number; autoPostWindowMinutes?: number; globalPostDailyCap?: number; userPostDailyCap?: number; userPendingCap?: number; globalSubmissionDailyCap?: number; circuitBreakerThreshold?: number; circuitBreakerCooldownMinutes?: number; circuitBreakerFailureWindowMinutes?: number }
     }
 
     const results: { key: string; updated: boolean }[] = []
@@ -178,7 +178,7 @@ export async function POST(req: NextRequest) {
         results.push({ key: 'submission_daily_cap', updated: true })
       }
       if (typeof rateLimits.autoPostCooldown === 'number') {
-        const val = Math.min(120, Math.max(0, rateLimits.autoPostCooldown)).toString()
+        const val = Math.max(0, rateLimits.autoPostCooldown).toString()
         await db.setting.upsert({
           where: { key: 'auto_post_cooldown' },
           update: { value: val },
@@ -203,6 +203,15 @@ export async function POST(req: NextRequest) {
           create: { key: 'auto_post_window_minutes', value: val },
         })
         results.push({ key: 'auto_post_window_minutes', updated: true })
+      }
+      if (typeof rateLimits.globalPostDailyCap === 'number') {
+        const val = Math.max(0, rateLimits.globalPostDailyCap).toString()
+        await db.setting.upsert({
+          where: { key: 'global_post_daily_cap' },
+          update: { value: val },
+          create: { key: 'global_post_daily_cap', value: val },
+        })
+        results.push({ key: 'global_post_daily_cap', updated: true })
       }
       if (typeof rateLimits.userPostDailyCap === 'number') {
         const val = Math.min(100, Math.max(0, rateLimits.userPostDailyCap)).toString()

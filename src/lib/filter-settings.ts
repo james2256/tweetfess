@@ -13,6 +13,7 @@ export const FILTER_SETTING_KEYS = [
   'gemini_enabled', 'gemini_api_key', 'gemini_model',
   'submission_cooldown', 'submission_daily_cap', 'auto_post_cooldown',
   'auto_post_window_cap', 'auto_post_window_minutes',
+  'global_post_daily_cap',
   'user_post_daily_cap', 'user_pending_cap',
   'global_submission_daily_cap',
   'circuit_breaker_threshold', 'circuit_breaker_cooldown_minutes', 'circuit_breaker_failure_window_minutes',
@@ -38,6 +39,7 @@ export const DEFAULT_RATE_LIMITS = {
   autoPostCooldown: 10,                 // seconds between auto-posts to X
   autoPostWindowCap: 25,                // max auto-posts per time window
   autoPostWindowMinutes: 30,            // the time window in minutes
+  globalPostDailyCap: 100,              // max posts to X from all users per day
   userPostDailyCap: 5,                  // max posts per user per day on X
   userPendingCap: 5,                    // max pending submissions per user
   globalSubmissionDailyCap: 200,        // max submissions from ALL users per day
@@ -52,6 +54,7 @@ export interface RateLimitSettings {
   autoPostCooldown: number               // seconds
   autoPostWindowCap: number              // max posts per window
   autoPostWindowMinutes: number          // window size in minutes
+  globalPostDailyCap: number             // max posts to X from all users per day
   userPostDailyCap: number               // max posts per user per day on X
   userPendingCap: number                 // max pending submissions per user
   globalSubmissionDailyCap: number       // max submissions from ALL users per day
@@ -141,6 +144,7 @@ export async function getFilterSettings(): Promise<{
   const autoPostCooldown = Math.max(0, parseIntSafe(getRaw('auto_post_cooldown'), DEFAULT_RATE_LIMITS.autoPostCooldown))
   const autoPostWindowCap = Math.max(0, parseIntSafe(getRaw('auto_post_window_cap'), DEFAULT_RATE_LIMITS.autoPostWindowCap))
   const autoPostWindowMinutes = Math.max(1, parseIntSafe(getRaw('auto_post_window_minutes'), DEFAULT_RATE_LIMITS.autoPostWindowMinutes))
+  const globalPostDailyCap = Math.max(0, parseIntSafe(getRaw('global_post_daily_cap'), DEFAULT_RATE_LIMITS.globalPostDailyCap))
   const userPostDailyCap = Math.max(0, parseIntSafe(getRaw('user_post_daily_cap'), DEFAULT_RATE_LIMITS.userPostDailyCap))
   const userPendingCap = Math.max(1, parseIntSafe(getRaw('user_pending_cap'), DEFAULT_RATE_LIMITS.userPendingCap))
   const globalSubmissionDailyCap = Math.max(0, parseIntSafe(getRaw('global_submission_daily_cap'), DEFAULT_RATE_LIMITS.globalSubmissionDailyCap))
@@ -188,7 +192,7 @@ export async function getFilterSettings(): Promise<{
     geminiEnabled,
     geminiApiKeySet,
     geminiModel,
-    rateLimits: { submissionCooldown, submissionDailyCap, autoPostCooldown, autoPostWindowCap, autoPostWindowMinutes, userPostDailyCap, userPendingCap, globalSubmissionDailyCap, circuitBreakerThreshold, circuitBreakerCooldownMinutes, circuitBreakerFailureWindowMinutes },
+    rateLimits: { submissionCooldown, submissionDailyCap, autoPostCooldown, autoPostWindowCap, autoPostWindowMinutes, globalPostDailyCap, userPostDailyCap, userPendingCap, globalSubmissionDailyCap, circuitBreakerThreshold, circuitBreakerCooldownMinutes, circuitBreakerFailureWindowMinutes },
     whitelistUsernames,
     blockedUsernames,
   }
