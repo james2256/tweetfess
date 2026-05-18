@@ -1,14 +1,13 @@
 import { db } from '@/lib/db'
 import { getSubmitterFromNextRequest } from '@/lib/twitter-auth'
-import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
+import { executePostAndRecord, createCooldownWindowChecks } from '@/lib/execute-post'
 import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { getStartOfTodayWIB } from '@/lib/constants'
 import { debug } from '@/lib/debug'
-import { runContentFilter, checkDuplicate24h, normalizeText, sanitizeInput, decodeHtmlEntities, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES, type FilterRules } from '@/lib/content-filter'
+import { runContentFilter, checkDuplicate24h, normalizeText, sanitizeInput, decodeHtmlEntities, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
-import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
-import { isCircuitBreakerPaused, recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
-import { getFilterSettings, getGeminiApiKey, getGeminiModel, DEFAULT_RATE_LIMITS, type RateLimitSettings } from '@/lib/filter-settings'
+import { isCircuitBreakerPaused } from '@/lib/circuit-breaker'
+import { getFilterSettings, getGeminiApiKey, getGeminiModel, DEFAULT_RATE_LIMITS, DEFAULT_GEMINI_MODEL } from '@/lib/filter-settings'
 import { getEffectiveLimit } from '@/lib/limit-resolver'
 import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
@@ -85,10 +84,6 @@ export async function GET(req: NextRequest) {
 // POST /api/submissions - Create new submission (requires Twitter login)
 // When auto-approve is ON and both filters pass, submission is auto-posted to X
 export async function POST(req: NextRequest) {
-  // Declare lockValue outside try so outer catch can release it on error
-  // (e.g. if updateMany throws between lock acquisition and inner try/finally)
-  let lockValue: string | null = null
-
   try {
     // Get submitter from session cookie (Twitter OAuth)
     const submitter = await getSubmitterFromNextRequest(req)
@@ -132,17 +127,7 @@ export async function POST(req: NextRequest) {
     }
 
     // --- LOAD FILTER & RATE LIMIT SETTINGS ---
-    let filterSettings: {
-      autoApprove: boolean
-      blockedWords: string[]
-      nsfwWords: string[]
-      filterRules: FilterRules
-      geminiEnabled: boolean
-      geminiApiKeySet: boolean
-      rateLimits: RateLimitSettings
-      whitelistUsernames: string[]
-      blockedUsernames: string[]
-    }
+    let filterSettings: Awaited<ReturnType<typeof getFilterSettings>>
 
     try {
       filterSettings = await getFilterSettings()
@@ -153,9 +138,10 @@ export async function POST(req: NextRequest) {
         autoApprove: false,
         blockedWords: DEFAULT_BLOCKED_WORDS,
         nsfwWords: DEFAULT_NSFW_WORDS,
-        filterRules: DEFAULT_FILTER_RULES,
+        filterRules: { ...DEFAULT_FILTER_RULES },
         geminiEnabled: false,
         geminiApiKeySet: false,
+        geminiModel: DEFAULT_GEMINI_MODEL,
         rateLimits: { ...DEFAULT_RATE_LIMITS },
         whitelistUsernames: [],
         blockedUsernames: [],
@@ -547,9 +533,17 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    // Acquire distributed lock — only one post to X at a time
-    lockValue = await acquirePostingLock()
-    if (!lockValue) {
+    // Delegated: lock → under-lock checks → CAS → post → record → release
+    const postResult = await executePostAndRecord({
+      submissionId: submission.id,
+      message: decodeHtmlEntities(trimmedMessage),
+      rateLimits: filterSettings.rateLimits,
+      casStatuses: ['pending'],
+      extraUnderLockChecks: createCooldownWindowChecks(filterSettings.rateLimits, '[submit]'),
+    })
+
+    // Map result to HTTP response (File 1 returns soft 201 for lock-busy / cap-exceeded)
+    if (postResult.lockBusy) {
       debug('[submit] Posting lock busy, queuing submission')
       return NextResponse.json({
         submission,
@@ -559,88 +553,20 @@ export async function POST(req: NextRequest) {
       }, { status: 201 })
     }
 
-    // Re-check cooldown and window cap under lock (authoritative — no race).
-    // The early checks above are fast-path optimizations that may be stale
-    // if another process posted between the check and lock acquisition.
-    // Under the lock, no other process can change the "posted" count.
-
-    // Re-check auto-post cooldown (authoritative under lock)
-    if (filterSettings.rateLimits.autoPostCooldown > 0) {
-      const lastPosted = await db.submission.findFirst({
-        where: { status: 'posted' },
-        orderBy: { updatedAt: 'desc' },
-        select: { updatedAt: true },
-      })
-      if (lastPosted) {
-        const elapsedMs = Date.now() - lastPosted.updatedAt.getTime()
-        const cooldownMs = filterSettings.rateLimits.autoPostCooldown * 1000
-        if (elapsedMs < cooldownMs) {
-          debug('[submit] Auto-post cooldown active (confirmed under lock), queuing instead')
-          await releasePostingLock(lockValue)
-          lockValue = null
-          return NextResponse.json({
-            submission,
-            autoPosted: false,
-            queued: true,
-            error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
-          }, { status: 201 })
-        }
-      }
+    if (postResult.underLockAbortReason) {
+      // File 1 treats ALL under-lock aborts as "queued" (soft 201)
+      // This includes cooldown_active, window_cap_reached, global_post_daily_cap_reached
+      debug('[submit] Under-lock abort, queuing submission:', postResult.underLockAbortReason)
+      return NextResponse.json({
+        submission,
+        autoPosted: false,
+        queued: true,
+        error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
+      }, { status: 201 })
     }
 
-    // Re-check auto-post window cap (authoritative under lock)
-    if (filterSettings.rateLimits.autoPostWindowCap > 0 && filterSettings.rateLimits.autoPostWindowMinutes > 0) {
-      const windowStart = new Date(Date.now() - filterSettings.rateLimits.autoPostWindowMinutes * 60 * 1000)
-      const windowPostCount = await db.submission.count({
-        where: {
-          status: 'posted',
-          updatedAt: { gte: windowStart },
-        },
-      })
-      if (windowPostCount >= filterSettings.rateLimits.autoPostWindowCap) {
-        debug('[submit] Auto-post window cap reached (confirmed under lock):', windowPostCount, 'queuing instead')
-        await releasePostingLock(lockValue)
-        lockValue = null
-        return NextResponse.json({
-          submission,
-          autoPosted: false,
-          queued: true,
-          error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
-        }, { status: 201 })
-      }
-    }
-
-    // Re-check global post daily cap (authoritative under lock)
-    if (filterSettings.rateLimits.globalPostDailyCap > 0) {
-      const startOfToday = getStartOfTodayWIB()
-      const globalPostCount = await db.submission.count({
-        where: { status: 'posted', createdAt: { gte: startOfToday } },
-      })
-      if (globalPostCount >= filterSettings.rateLimits.globalPostDailyCap) {
-        debug('[submit] Global post daily cap reached (confirmed under lock), queuing instead')
-        await releasePostingLock(lockValue)
-        lockValue = null
-        return NextResponse.json({
-          submission,
-          autoPosted: false,
-          queued: true,
-          error: 'Pesanmu sudah masuk antrean dan akan diposting oleh admin setelahnya.',
-        }, { status: 201 })
-      }
-    }
-
-    // Mark as "posting" before calling X API — prevents double-post race condition.
-    // If another process checks this submission's status while we're mid-post,
-    // it will see "posting" instead of "pending" and won't attempt a duplicate post.
-    const marked = await db.submission.updateMany({
-      where: { id: submission.id, status: 'pending' },
-      data: { status: 'posting' },
-    })
-    if (marked.count === 0) {
-      // Status was changed by another process (e.g. admin rejected it) — abort
-      // Return 409 Conflict so the client knows to refresh and check submission history
+    if (postResult.casAborted) {
       debug('[submit] Submission status changed before posting, aborting')
-      await releasePostingLock(lockValue)
       return NextResponse.json({
         submission,
         autoPosted: false,
@@ -648,95 +574,33 @@ export async function POST(req: NextRequest) {
       }, { status: 409 })
     }
 
-    // Attempt to post to X
-    try {
-      const tweetResult = await postTweetViaCookie(decodeHtmlEntities(trimmedMessage))
-
-      if (tweetResult.success) {
-        debug('[submit] Auto-post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
-        // Only update if still "posting" — don't overwrite admin rejection/deletion
-        const result = await db.submission.updateMany({
-          where: { id: submission.id, status: 'posting' },
-          data: {
-            status: 'posted',
-            tweetId: tweetResult.tweetId || null,
-            postMethod: tweetResult.method,
-            postError: null,
-          },
-        })
-
-        // Reset circuit breaker on success
-        await recordPostSuccess()
-
-        if (result.count === 0) {
-          debug('[submit] Auto-post succeeded but submission status was changed by admin — not overwriting')
-          return NextResponse.json({
-            autoPosted: true,
-            tweetId: tweetResult.tweetId,
-            postMethod: tweetResult.method,
-            warning: 'Tweet posted, but admin changed submission status before post completed.',
-          }, { status: 201 })
-        }
-
-        const updated = await db.submission.findUnique({ where: { id: submission.id } })
-
+    if (postResult.success) {
+      debug('[submit] Auto-post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method)
+      if (postResult.warning) {
         return NextResponse.json({
-          submission: updated,
           autoPosted: true,
-          tweetId: tweetResult.tweetId,
-          postMethod: tweetResult.method,
-        }, { status: 201 })
-      } else {
-        // Post failed — mark as post_failed so admin can see the error and retry
-        // Only update if still "posting" — don't overwrite admin rejection/deletion
-        const errorMsg = tweetResult.error || 'Unknown error'
-        debug('[submit] Auto-post failed, marking as post_failed:', errorMsg)
-        await db.submission.updateMany({
-          where: { id: submission.id, status: 'posting' },
-          data: { status: 'post_failed', postError: errorMsg },
-        })
-        const failedSubmission = await db.submission.findUnique({ where: { id: submission.id } })
-
-        // Record failure for circuit breaker
-        try { await recordPostFailure(filterSettings.rateLimits) } catch { /* best effort */ }
-
-        return NextResponse.json({
-          submission: failedSubmission,
-          autoPosted: false,
-          postFailed: true,
-          error: 'Gagal auto-post. Pesanmu masuk antrean untuk review admin.',
+          tweetId: postResult.tweetId,
+          postMethod: postResult.method,
+          warning: postResult.warning,
         }, { status: 201 })
       }
-    } catch (postError) {
-      // Post threw exception — mark as post_failed so admin can see the error and retry
-      // Only update if still "posting" — don't overwrite admin rejection/deletion
-      const errorMsg = postError instanceof Error ? postError.message : String(postError)
-      debug('[submit] Auto-post exception, marking as post_failed:', errorMsg)
-      await db.submission.updateMany({
-        where: { id: submission.id, status: 'posting' },
-        data: { status: 'post_failed', postError: errorMsg },
-      })
+      const updated = await db.submission.findUnique({ where: { id: submission.id } })
+      return NextResponse.json({
+        submission: updated,
+        autoPosted: true,
+        tweetId: postResult.tweetId,
+        postMethod: postResult.method,
+      }, { status: 201 })
+    } else {
       const failedSubmission = await db.submission.findUnique({ where: { id: submission.id } })
-
-      // Record failure for circuit breaker
-      try { await recordPostFailure(filterSettings.rateLimits) } catch { /* best effort */ }
-
       return NextResponse.json({
         submission: failedSubmission,
         autoPosted: false,
         postFailed: true,
         error: 'Gagal auto-post. Pesanmu masuk antrean untuk review admin.',
       }, { status: 201 })
-    } finally {
-      await releasePostingLock(lockValue!)
-      lockValue = null // Mark as released so outer catch doesn't double-release
     }
   } catch (e) {
-    // Release lock if it was acquired but not yet released by inner finally
-    // (e.g. updateMany threw between lock acquisition and inner try/finally)
-    if (lockValue) {
-      await releasePostingLock(lockValue).catch(() => {})
-    }
     console.error('[submit] Unexpected error:', e)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }

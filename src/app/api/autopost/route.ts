@@ -1,7 +1,6 @@
 import { db } from '@/lib/db'
-import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
-import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
-import { isCircuitBreakerPaused, recordPostSuccess, recordPostFailure, getCircuitBreakerStatus } from '@/lib/circuit-breaker'
+import { executePostAndRecord, createCooldownWindowChecks } from '@/lib/execute-post'
+import { isCircuitBreakerPaused, getCircuitBreakerStatus } from '@/lib/circuit-breaker'
 import { getFilterSettings } from '@/lib/filter-settings'
 import { getEffectiveLimit } from '@/lib/limit-resolver'
 import { decodeHtmlEntities } from '@/lib/content-filter'
@@ -16,8 +15,6 @@ export const maxDuration = 30
 // Processes exactly 1 submission per hit.
 // Requires CRON_SECRET env var for authentication.
 export async function GET(req: NextRequest) {
-  let lockValue: string | null = null
-
   try {
     // ── Authentication ──────────────────────────────────────
     const cronSecret = process.env.CRON_SECRET
@@ -125,150 +122,56 @@ export async function GET(req: NextRequest) {
 
     const submission = selectedSubmission
 
-    // ── Acquire posting lock ────────────────────────────────
-    lockValue = await acquirePostingLock()
-    if (!lockValue) {
+    // ── Delegated: lock → under-lock checks → CAS → post → record → release ──
+    const postResult = await executePostAndRecord({
+      submissionId: submission.id,
+      message: decodeHtmlEntities(submission.message),
+      rateLimits: filterSettings.rateLimits,
+      casStatuses: ['pending', 'post_failed'],
+      extraUnderLockChecks: createCooldownWindowChecks(filterSettings.rateLimits, '[autopost]'),
+    })
+
+    // Map result — File 4 returns 200 with processed:false for soft failures
+    if (postResult.lockBusy) {
       debug('[autopost] Posting lock busy')
       return NextResponse.json({ processed: false, reason: 'posting_lock_busy' })
     }
-
-    // ── Re-check cooldown under lock (authoritative) ────────
-    // autoPostCooldown is in SECONDS → multiply by 1000 for ms
-    if (filterSettings.rateLimits.autoPostCooldown > 0) {
-      const lastPosted = await db.submission.findFirst({
-        where: { status: 'posted' },
-        orderBy: { updatedAt: 'desc' },
-        select: { updatedAt: true },
-      })
-      if (lastPosted) {
-        const elapsedMs = Date.now() - lastPosted.updatedAt.getTime()
-        const cooldownMs = filterSettings.rateLimits.autoPostCooldown * 1000
-        if (elapsedMs < cooldownMs) {
-          debug('[autopost] Cooldown active under lock, releasing')
-          await releasePostingLock(lockValue)
-          lockValue = null
-          return NextResponse.json({ processed: false, reason: 'cooldown_active' })
-        }
-      }
+    if (postResult.underLockAbortReason) {
+      return NextResponse.json({ processed: false, reason: postResult.underLockAbortReason })
     }
-
-    // ── Re-check window cap under lock (authoritative) ──────
-    if (filterSettings.rateLimits.autoPostWindowCap > 0 && filterSettings.rateLimits.autoPostWindowMinutes > 0) {
-      const windowStart = new Date(Date.now() - filterSettings.rateLimits.autoPostWindowMinutes * 60 * 1000)
-      const windowPostCount = await db.submission.count({
-        where: { status: 'posted', updatedAt: { gte: windowStart } },
-      })
-      if (windowPostCount >= filterSettings.rateLimits.autoPostWindowCap) {
-        debug('[autopost] Window cap reached under lock, releasing')
-        await releasePostingLock(lockValue)
-        lockValue = null
-        return NextResponse.json({ processed: false, reason: 'window_cap_reached' })
-      }
-    }
-
-    // ── Re-check global post daily cap under lock (authoritative) ──
-    if (filterSettings.rateLimits.globalPostDailyCap > 0) {
-      const startOfToday = getStartOfTodayWIB()
-      const globalPostCount = await db.submission.count({
-        where: { status: 'posted', createdAt: { gte: startOfToday } },
-      })
-      if (globalPostCount >= filterSettings.rateLimits.globalPostDailyCap) {
-        debug('[autopost] Global post daily cap reached under lock, releasing')
-        await releasePostingLock(lockValue)
-        lockValue = null
-        return NextResponse.json({ processed: false, reason: 'global_post_daily_cap_reached' })
-      }
-    }
-
-    // ── Mark as "posting" (prevent double-post) ─────────────
-    const marked = await db.submission.updateMany({
-      where: {
-        id: submission.id,
-        status: { in: ['pending', 'post_failed'] },
-      },
-      data: { status: 'posting' },
-    })
-    if (marked.count === 0) {
+    if (postResult.casAborted) {
       debug('[autopost] Status changed before posting, aborting')
-      await releasePostingLock(lockValue)
-      lockValue = null
       return NextResponse.json({ processed: false, reason: 'status_changed' })
     }
-
-    // ── Post to X ──────────────────────────────────────────
-    // postTweetViaCookie handles all retries + fallback internally
-    try {
-      const tweetResult = await postTweetViaCookie(
-        decodeHtmlEntities(submission.message)
-      )
-
-      if (tweetResult.success) {
-        debug('[autopost] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
-
-        await db.submission.updateMany({
-          where: { id: submission.id, status: 'posting' },
-          data: {
-            status: 'posted',
-            tweetId: tweetResult.tweetId || null,
-            postMethod: tweetResult.method,
-            postError: null,
-          },
-        })
-
-        await recordPostSuccess()
-
+    if (postResult.success) {
+      debug('[autopost] Post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method)
+      // ★ BUG FIX: warning path now handled (was missing in original)
+      if (postResult.warning) {
         return NextResponse.json({
           processed: true,
           submissionId: submission.id,
-          tweetId: tweetResult.tweetId,
-          postMethod: tweetResult.method,
-        })
-      } else {
-        const errorMsg = tweetResult.error || 'Unknown error'
-        debug('[autopost] Post failed:', errorMsg)
-
-        await db.submission.updateMany({
-          where: { id: submission.id, status: 'posting' },
-          data: { status: 'post_failed', postError: errorMsg },
-        })
-
-        try { await recordPostFailure(filterSettings.rateLimits) } catch { /* best effort */ }
-
-        return NextResponse.json({
-          processed: false,
-          reason: 'post_failed',
-          submissionId: submission.id,
-          error: errorMsg,
+          tweetId: postResult.tweetId,
+          postMethod: postResult.method,
+          warning: postResult.warning,
         })
       }
-    } catch (postError) {
-      const errorMsg = postError instanceof Error ? postError.message : String(postError)
-      debug('[autopost] Post exception:', errorMsg)
-
-      await db.submission.updateMany({
-        where: { id: submission.id, status: 'posting' },
-        data: { status: 'post_failed', postError: errorMsg },
+      return NextResponse.json({
+        processed: true,
+        submissionId: submission.id,
+        tweetId: postResult.tweetId,
+        postMethod: postResult.method,
       })
-
-      try { await recordPostFailure(filterSettings.rateLimits) } catch { /* best effort */ }
-
+    } else {
+      const errorMsg = postResult.error || 'Unknown error'
+      debug('[autopost] Post failed:', errorMsg)
       return NextResponse.json({
         processed: false,
         reason: 'post_failed',
         submissionId: submission.id,
         error: errorMsg,
       })
-    } finally {
-      if (lockValue) {
-        await releasePostingLock(lockValue)
-        lockValue = null
-      }
     }
   } catch (e) {
-    // Safety: release lock if acquired but not yet released by inner finally
-    if (lockValue) {
-      await releasePostingLock(lockValue).catch(() => {})
-    }
     console.error('[autopost] Unexpected error:', e)
     return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
   }

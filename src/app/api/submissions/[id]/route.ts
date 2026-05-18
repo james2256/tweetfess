@@ -1,12 +1,9 @@
 import { db } from '@/lib/db'
-import { postTweetViaCookie } from '@/lib/twitter-post-cookie'
+import { executePostAndRecord, withErrorBoundary } from '@/lib/execute-post'
 import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { debug } from '@/lib/debug'
 import { decodeHtmlEntities } from '@/lib/content-filter'
-import { acquirePostingLock, releasePostingLock } from '@/lib/posting-lock'
-import { recordPostSuccess, recordPostFailure } from '@/lib/circuit-breaker'
 import { getFilterSettings } from '@/lib/filter-settings'
-import { getStartOfTodayWIB } from '@/lib/constants'
 import { checkStalePosting } from '@/lib/stale-posting'
 import { NextRequest, NextResponse } from 'next/server'
 
@@ -21,11 +18,7 @@ export async function PATCH(
   const auth = verifyAdmin(getAdminTokenFromRequest(req))
   if (!auth.authorized) return auth.response
 
-  // Declare lockValue outside try so outer catch can release it on error
-  // (e.g. if updateMany throws between lock acquisition and inner try/finally)
-  let lockValue: string | null = null
-
-  try {
+  return withErrorBoundary(async () => {
     const { id } = await params
     const body = await req.json()
     const { status } = body
@@ -55,7 +48,6 @@ export async function PATCH(
         )
       }
       // Stale posting auto-recovered — re-fetch with updated status and fall through.
-      // The submission is now post_failed, so the pending/post_failed check will pass.
       const refreshed = await db.submission.findUnique({ where: { id } })
       if (!refreshed) {
         return NextResponse.json({ error: 'Submission tidak ditemukan' }, { status: 404 })
@@ -79,162 +71,99 @@ export async function PATCH(
 
     // If approving, auto-post to X via cookie auth (with retry + fallback)
     if (status === 'approved') {
-      // Acquire distributed lock — only one post to X at a time
-      lockValue = await acquirePostingLock()
-      if (!lockValue) {
+      // Load filter settings before executePostAndRecord (which acquires the posting lock internally)
+      const filterSettings = await getFilterSettings()
+
+      // Delegated: lock → CAS → post → record → release
+      const postResult = await executePostAndRecord({
+        submissionId: id,
+        message: decodeHtmlEntities(submission.message),
+        rateLimits: filterSettings.rateLimits,
+        casStatuses: ['pending', 'post_failed', 'censored'],
+      })
+
+      // Map result to HTTP response (caller decides status + shape)
+      if (postResult.lockBusy) {
         debug('[approve route] Posting lock busy')
         return NextResponse.json(
           { error: 'Sedang ada posting lain yang berjalan. Coba lagi dalam beberapa detik.' },
           { status: 409 }
         )
       }
-
-      // Check global post daily cap (protects X account even for manual admin posts)
-      const filterSettingsForCap = await getFilterSettings()
-      if (filterSettingsForCap.rateLimits.globalPostDailyCap > 0) {
-        const startOfToday = getStartOfTodayWIB()
-        const globalPostCount = await db.submission.count({
-          where: { status: 'posted', createdAt: { gte: startOfToday } },
-        })
-        if (globalPostCount >= filterSettingsForCap.rateLimits.globalPostDailyCap) {
-          debug('[approve route] Global post daily cap reached:', globalPostCount)
-          await releasePostingLock(lockValue)
-          lockValue = null
-          return NextResponse.json(
-            { error: `Batas post harian global tercapai (${globalPostCount}/${filterSettingsForCap.rateLimits.globalPostDailyCap}). Naikkan batas di Rate Limit settings.` },
-            { status: 400 }
-          )
-        }
+      if (postResult.underLockAbortReason === 'global_post_daily_cap_reached') {
+        debug('[approve route] Global post daily cap reached:', postResult.error)
+        return NextResponse.json(
+          { error: `Batas post harian global tercapai (${postResult.error}). Naikkan batas di Rate Limit settings.` },
+          { status: 400 }
+        )
       }
-
-      // Mark as "posting" before calling X API — prevents double-post race condition
-      const marked = await db.submission.updateMany({
-        where: { id, status: { in: ['pending', 'post_failed', 'censored'] } },
-        data: { status: 'posting' },
-      })
-      if (marked.count === 0) {
+      if (postResult.casAborted) {
         debug('[approve route] Submission status changed before posting, aborting')
-        await releasePostingLock(lockValue)
         return NextResponse.json(
           { error: 'Submission sedang diproses oleh proses lain.' },
           { status: 409 }
         )
       }
+      if (postResult.success) {
+        debug('[approve route] Post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method)
 
-      try {
-        debug('[approve route] Approving submission:', id, 'message length:', submission.message.length)
-        const tweetResult = await postTweetViaCookie(decodeHtmlEntities(submission.message))
+        // Build descriptive message based on method used
+        let description = ''
+        if (postResult.method === 'direct') {
+          description = 'Pesan otomatis diposting ke X.'
+        } else if (postResult.method === 'retry') {
+          description = `Pesan diposting setelah retry (${postResult.retriesUsed}x).`
+        } else if (postResult.method === 'fallback_cookie') {
+          description = 'Pesan diposting via Cookie API (twitterapi.io).'
+        } else if (postResult.method === 'fallback_login') {
+          description = 'Pesan diposting via V2 Login API (twitterapi.io).'
+        }
 
-        if (tweetResult.success) {
-          debug('[approve route] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
-          // Only update if still "posting" — prevents overwriting concurrent status changes
-          const result = await db.submission.updateMany({
-            where: { id, status: 'posting' },
-            data: {
-              status: 'posted',
-              tweetId: tweetResult.tweetId || null,
-              postMethod: tweetResult.method,
-              postError: null, // Clear any previous error on success
-            },
-          })
-
-          // Reset circuit breaker on success
-          await recordPostSuccess()
-
-          if (result.count === 0) {
-            debug('[approve route] Post succeeded but status was changed by another process')
-            return NextResponse.json({
-              autoPosted: true,
-              tweetId: tweetResult.tweetId,
-              postMethod: tweetResult.method,
-              warning: 'Tweet posted, but submission status was changed by another process.',
-            })
-          }
-
-          const updated = await db.submission.findUnique({ where: { id } })
-
-          // Build descriptive message based on method used
-          let description = ''
-          if (tweetResult.method === 'direct') {
-            description = 'Pesan otomatis diposting ke X.'
-          } else if (tweetResult.method === 'retry') {
-            description = `Pesan diposting setelah retry (${tweetResult.retriesUsed}x).`
-          } else if (tweetResult.method === 'fallback_cookie') {
-            description = 'Pesan diposting via Cookie API (twitterapi.io).'
-          } else if (tweetResult.method === 'fallback_login') {
-            description = 'Pesan diposting via V2 Login API (twitterapi.io).'
-          }
-
+        if (postResult.warning) {
           return NextResponse.json({
-            submission: updated,
             autoPosted: true,
-            tweetId: tweetResult.tweetId,
-            postMethod: tweetResult.method,
-            description,
-          })
-        } else {
-          debug('[approve route] Post failed:', tweetResult.error, 'method:', tweetResult.method)
-          // Cookie + retry + fallback all failed — mark as post_failed with error details
-          // Only update if still "posting" — prevents overwriting concurrent status changes
-          const errorMsg = tweetResult.error || ''
-          await db.submission.updateMany({
-            where: { id, status: 'posting' },
-            data: { status: 'post_failed', postError: errorMsg },
-          })
-          const updated = await db.submission.findUnique({ where: { id } })
-
-          // Record failure for circuit breaker
-          try {
-            const settings = await getFilterSettings()
-            await recordPostFailure(settings.rateLimits)
-          } catch { /* best effort */ }
-
-          // Context-aware hint based on error type
-          let hint = ''
-          if (errorMsg.includes('code: 344') || errorMsg.includes('daily limit')) {
-            hint = 'Batas harian tweet tercapai. Coba lagi besok.'
-          } else if (errorMsg.includes('code: 32') || errorMsg.includes('Could not authenticate')) {
-            hint = 'Cookie expired. Perbarui cookie di X Settings lalu klik "Post to X".'
-          } else if (errorMsg.includes('code: 88') || errorMsg.includes('Rate limit')) {
-            hint = 'Rate limit tercapai. Tunggu beberapa menit lalu coba lagi.'
-          } else if (errorMsg.includes('226') || errorMsg.includes('automated')) {
-            hint = 'X mendeteksi otomatisasi (226). Semua retry gagal. Coba lagi dalam 1-2 menit.'
-          } else if (errorMsg.includes('Empty tweet_results') || errorMsg.includes('silently rejected')) {
-            hint = 'Tweet ditolak X (empty results). Semua retry gagal. Coba lagi dalam 1-2 menit.'
-          } else if (errorMsg.includes('Fallback API') || errorMsg.includes('fallback')) {
-            hint = 'Direct post gagal, fallback API juga gagal. Periksa API keys dan cookie.'
-          } else {
-            hint = 'Cek X Settings lalu klik "Post to X" untuk retry.'
-          }
-
-          return NextResponse.json({
-            submission: updated,
-            autoPosted: false,
-            error: `Disetujui, tapi gagal posting ke X: ${errorMsg}. ${hint}`,
-            postMethod: tweetResult.method,
+            tweetId: postResult.tweetId,
+            postMethod: postResult.method,
+            warning: postResult.warning,
           })
         }
-      } catch (postError) {
-        // postTweetViaCookie threw — mark as post_failed
-        const errorMsg = postError instanceof Error ? postError.message : String(postError)
-        debug('[approve route] Post exception, marking as post_failed:', errorMsg)
-        await db.submission.updateMany({
-          where: { id, status: 'posting' },
-          data: { status: 'post_failed', postError: errorMsg },
-        })
         const updated = await db.submission.findUnique({ where: { id } })
-        try {
-          const settings = await getFilterSettings()
-          await recordPostFailure(settings.rateLimits)
-        } catch { /* best effort */ }
+
+        return NextResponse.json({
+          submission: updated,
+          autoPosted: true,
+          tweetId: postResult.tweetId,
+          postMethod: postResult.method,
+          description,
+        })
+      } else {
+        debug('[approve route] Post failed:', postResult.error, 'method:', postResult.method)
+        // Context-aware hint based on error type
+        const errorMsg = postResult.error || ''
+        let hint = ''
+        if (errorMsg.includes('code: 344') || errorMsg.includes('daily limit')) {
+          hint = 'Batas harian tweet tercapai. Coba lagi besok.'
+        } else if (errorMsg.includes('code: 32') || errorMsg.includes('Could not authenticate')) {
+          hint = 'Cookie expired. Perbarui cookie di X Settings lalu klik "Post to X".'
+        } else if (errorMsg.includes('code: 88') || errorMsg.includes('Rate limit')) {
+          hint = 'Rate limit tercapai. Tunggu beberapa menit lalu coba lagi.'
+        } else if (errorMsg.includes('226') || errorMsg.includes('automated')) {
+          hint = 'X mendeteksi otomatisasi (226). Semua retry gagal. Coba lagi dalam 1-2 menit.'
+        } else if (errorMsg.includes('Empty tweet_results') || errorMsg.includes('silently rejected')) {
+          hint = 'Tweet ditolak X (empty results). Semua retry gagal. Coba lagi dalam 1-2 menit.'
+        } else if (errorMsg.includes('Fallback API') || errorMsg.includes('fallback')) {
+          hint = 'Direct post gagal, fallback API juga gagal. Periksa API keys dan cookie.'
+        } else {
+          hint = 'Cek X Settings lalu klik "Post to X" untuk retry.'
+        }
+
+        const updated = await db.submission.findUnique({ where: { id } })
         return NextResponse.json({
           submission: updated,
           autoPosted: false,
-          error: `Gagal posting ke X: ${errorMsg}`,
-        }, { status: 502 })
-      } finally {
-        await releasePostingLock(lockValue!)
-        lockValue = null // Mark as released so outer catch doesn't double-release
+          error: `Disetujui, tapi gagal posting ke X: ${errorMsg}. ${hint}`,
+          postMethod: postResult.method,
+        })
       }
     }
 
@@ -250,15 +179,7 @@ export async function PATCH(
     const updated = await db.submission.findUnique({ where: { id } })
 
     return NextResponse.json({ submission: updated })
-  } catch (e) {
-    // Release lock if it was acquired but not yet released by inner finally
-    // (e.g. updateMany threw between lock acquisition and inner try/finally)
-    if (lockValue) {
-      await releasePostingLock(lockValue).catch(() => {})
-    }
-    console.error('[submissions] Reject error:', e)
-    return NextResponse.json({ error: 'Terjadi kesalahan server' }, { status: 500 })
-  }
+  })
 }
 
 // DELETE /api/submissions/[id] - Delete a submission

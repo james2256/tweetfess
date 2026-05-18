@@ -211,6 +211,226 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// ── Shared types & constants (hoisted from postTweetViaCookie) ──
+
+/** Result type for tweet posting operations */
+export type TweetResult = {
+  success: boolean
+  tweetId?: string
+  error?: string
+  method: 'direct' | 'retry' | 'fallback_cookie' | 'fallback_login'
+  retriesUsed?: number
+}
+
+/** Maximum direct posting attempts before falling back */
+const MAX_DIRECT_ATTEMPTS = 4
+
+/** Retry delay bases (ms) — indexed by failed attempt number */
+const RETRY_DELAYS = [1000, 2000, 4000]
+
+// Feature switches — synced from fa0311/TwitterInternalAPIDocument
+// develop branch (auto-updated daily). Last synced: 2025-07
+const CREATE_TWEET_FEATURES = {
+  premium_content_api_read_enabled: false,
+  communities_web_enable_tweet_community_results_fetch: true,
+  c9s_tweet_anatomy_moderator_badge_enabled: true,
+  responsive_web_grok_analyze_button_fetch_trends_enabled: false,
+  responsive_web_grok_analyze_post_followups_enabled: false,
+  rweb_cashtags_composer_attachment_enabled: false,
+  responsive_web_jetfuel_frame: true,
+  responsive_web_grok_share_attachment_enabled: true,
+  responsive_web_grok_annotations_enabled: true,
+  responsive_web_edit_tweet_api_enabled: true,
+  rweb_conversational_replies_downvote_enabled: false,
+  graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
+  view_counts_everywhere_api_enabled: true,
+  longform_notetweets_consumption_enabled: true,
+  responsive_web_twitter_article_tweet_consumption_enabled: true,
+  content_disclosure_indicator_enabled: true,
+  content_disclosure_ai_generated_indicator_enabled: true,
+  responsive_web_grok_show_grok_translated_post: true,
+  responsive_web_grok_analysis_button_from_backend: true,
+  responsive_web_enhance_cards_enabled: false,
+  post_ctas_fetch_enabled: false,
+  longform_notetweets_rich_text_read_enabled: true,
+  longform_notetweets_inline_media_enabled: false,
+  profile_label_improvements_pcf_label_in_post_enabled: true,
+  responsive_web_profile_redirect_enabled: false,
+  rweb_tipjar_consumption_enabled: false,
+  verified_phone_label_enabled: false,
+  articles_preview_enabled: true,
+  rweb_cashtags_enabled: true,
+  responsive_web_grok_community_note_auto_translation_is_enabled: true,
+  responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
+  freedom_of_speech_not_reach_fetch_enabled: true,
+  standardized_nudges_misinfo: true,
+  tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
+  responsive_web_grok_image_annotation_enabled: true,
+  responsive_web_grok_imagine_annotation_enabled: true,
+  responsive_web_graphql_timeline_navigation_enabled: true,
+}
+
+// Field toggles — required by X's CreateTweet endpoint since 2025.
+// Source: fa0311/TwitterInternalAPIDocument
+const CREATE_TWEET_FIELD_TOGGLES = {
+  withArticleRichContentState: true,
+  withArticlePlainText: true,
+  withArticleSummaryText: true,
+  withArticleVoiceOver: true,
+  withGrokAnalyze: true,
+  withDisallowedReplyControls: true,
+  withPayments: true,
+  withAuxiliaryUserLabels: true,
+}
+
+// Base headers for CreateTweet — static portion that never changes.
+// Dynamic headers (Authorization, Cookie, X-Csrf-Token, x-client-transaction-id)
+// are added by buildCreateTweetHeaders().
+const BASE_CREATE_TWEET_HEADERS: Record<string, string> = {
+  'Content-Type': 'application/json',
+  'X-Twitter-Auth-Type': 'OAuth2Session',
+  'X-Twitter-Active-User': 'yes',
+  'X-Twitter-Client-Language': 'en',
+  'User-Agent': BROWSER_UA,
+  Referer: 'https://x.com/',
+  'sec-ch-ua': SEC_CH_UA,
+  'sec-ch-ua-mobile': '?0',
+  'sec-ch-ua-platform': '"Linux"',
+  origin: 'https://x.com',
+  'sec-fetch-dest': 'empty',
+  'sec-fetch-mode': 'cors',
+  'sec-fetch-site': 'same-origin',
+  'cache-control': 'no-cache',
+  pragma: 'no-cache',
+  priority: 'u=1, i',
+  Accept: '*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
+}
+
+/** Build complete headers for CreateTweet, merging static + dynamic values */
+function buildCreateTweetHeaders(
+  bearerToken: string,
+  cookieRaw: string,
+  ct0: string,
+  transactionId: string | null,
+): Record<string, string> {
+  return {
+    ...BASE_CREATE_TWEET_HEADERS,
+    Authorization: `Bearer ${bearerToken}`,
+    Cookie: cookieRaw,
+    'X-Csrf-Token': ct0,
+    ...(transactionId ? { 'x-client-transaction-id': transactionId } : {}),
+  }
+}
+
+// ── Module-level helpers (extracted from postTweetViaCookie) ──
+
+/**
+ * Wait after a failed attempt before trying again.
+ * Randomized jitter prevents bot fingerprinting — real humans don't retry
+ * at exact intervals. Each retry waits longer than the previous one.
+ *   After attempt 0 fails: ~1s  (800-1500ms)
+ *   After attempt 1 fails: ~2s  (1500-3000ms)
+ *   After attempt 2 fails: ~4s  (3000-6000ms)
+ */
+async function waitBeforeRetry(failedAttempt: number): Promise<void> {
+  const base = RETRY_DELAYS[failedAttempt] ?? 4000
+  const jitter = Math.round(base * (0.8 + Math.random() * 0.5)) // 80%-130%
+  debug('[direct] Attempt', failedAttempt, 'failed — waiting', jitter, 'ms before retry')
+  await sleep(jitter)
+  clearXactCache() // Fresh transaction ID for each retry
+  clearPairCache() // Also clear pair-dict cache
+}
+
+/**
+ * Try API fallback — Layer 2 (cookie API) first, then Layer 3 (V2 login) if enabled.
+ * Used by both auto-mode (after direct fails) and api-only mode.
+ *
+ * BUG FIX (from closure extraction): The `text` field is the tweet content
+ * to post. The old closure code at L244 called `tryApiFallback(text)` which
+ * passed the tweet text as the `directError` parameter — leaking tweet
+ * content into error messages. The named-opts interface makes this class
+ * of mistake impossible: `text` and `directError` are clearly distinct.
+ */
+async function tryApiFallback(opts: {
+  text: string
+  directError?: string
+  retriesUsed?: number
+  directMethod?: 'direct' | 'retry'
+}): Promise<TweetResult> {
+  const { text, directError, retriesUsed = 0, directMethod } = opts
+  // Layer 2: Cookie-based API (300 credits)
+  debug('[direct] Trying Layer 2: Cookie API fallback')
+  const cookieResult = await postViaCookieApi(text)
+  if (cookieResult.success) {
+    return {
+      success: true,
+      tweetId: cookieResult.tweetId,
+      method: 'fallback_cookie',
+      retriesUsed,
+    }
+  }
+
+  debug('[direct] Layer 2 failed:', cookieResult.error?.slice(0, 100))
+
+  // Layer 3: V2 Login API (800 credits) — only if toggle is ON
+  const v2Enabled = await isV2LoginEnabled()
+  if (v2Enabled) {
+    debug('[direct] Trying Layer 3: V2 Login API fallback')
+    const v2Result = await postViaTwitterApi(text)
+    if (v2Result.success) {
+      return {
+        success: true,
+        tweetId: v2Result.tweetId,
+        method: 'fallback_login',
+        retriesUsed,
+      }
+    }
+    // Both layers failed
+    const combinedError = directError
+      ? `Direct gagal: ${directError.slice(0, 150)}. Cookie API gagal: ${cookieResult.error?.slice(0, 100)}. V2 Login gagal: ${v2Result.error?.slice(0, 100)}`
+      : `Cookie API gagal: ${cookieResult.error?.slice(0, 150)}. V2 Login gagal: ${v2Result.error?.slice(0, 100)}`
+    return {
+      success: false,
+      error: combinedError,
+      method: v2Result.method,
+      retriesUsed,
+    }
+  }
+
+  // V2 login not enabled — return Layer 2 error
+  const combinedError = directError
+    ? `Direct gagal: ${directError.slice(0, 150)}. Cookie API juga gagal: ${cookieResult.error || 'Unknown error'}`
+    : `Cookie API gagal: ${cookieResult.error || 'Unknown error'}`
+  return {
+    success: false,
+    error: combinedError,
+    method: cookieResult.method,
+    retriesUsed,
+  }
+}
+
+/**
+ * Fallback or fail — used when direct posting fails in auto mode.
+ * In direct mode, just returns the error.
+ */
+async function fallbackOrFail(opts: {
+  text: string
+  postMethod: string
+  error: string
+  method: 'direct' | 'retry'
+  retriesUsed?: number
+}): Promise<TweetResult> {
+  const { text, postMethod, error, method, retriesUsed = 0 } = opts
+  if (postMethod !== 'auto') {
+    return { success: false, error, method, retriesUsed }
+  }
+  debug('[direct] Direct posting failed, trying API fallback:', error.slice(0, 100))
+  return tryApiFallback({ text, directError: error, retriesUsed, directMethod: method })
+}
+
+// ── Main posting function ──
+
 /**
  * Post a tweet to X using cookie-based authentication.
  *
@@ -226,13 +446,12 @@ function sleep(ms: number): Promise<void> {
  */
 export async function postTweetViaCookie(
   text: string
-): Promise<{
-  success: boolean
-  tweetId?: string
-  error?: string
-  method: 'direct' | 'retry' | 'fallback_cookie' | 'fallback_login'
-  retriesUsed?: number
-}> {
+): Promise<TweetResult> {
+  // Input validation — prevent wasting retries on empty tweets
+  if (!text || !text.trim()) {
+    return { success: false, error: 'Empty tweet text', method: 'direct' }
+  }
+
   // 1. Get all settings in one DB query (includes post_method)
   const settings = await getSettings()
   const postMethod = (settings.post_method === 'direct' || settings.post_method === 'api') ? settings.post_method : 'auto'
@@ -241,7 +460,7 @@ export async function postTweetViaCookie(
   // Try Layer 2 (cookie API) first, then Layer 3 (V2 login) if enabled
   if (postMethod === 'api') {
     debug('[direct] Post method is API-only, skipping direct post')
-    return tryApiFallback(text)
+    return tryApiFallback({ text })
   }
 
   debug('[direct] Post method:', postMethod)
@@ -253,96 +472,12 @@ export async function postTweetViaCookie(
     has_api_keys: !!settings.twitterapi_keys,
   })
 
-  // Helper: try API fallback — Layer 2 (cookie API) first, then Layer 3 (V2 login) if enabled.
-  // This is used by both auto-mode (after direct fails) and api-only mode.
-  async function tryApiFallback(
-    directError?: string,
-    retriesUsed: number = 0,
-    directMethod?: 'direct' | 'retry',
-  ): Promise<{
-    success: boolean
-    tweetId?: string
-    error?: string
-    method: 'direct' | 'retry' | 'fallback_cookie' | 'fallback_login'
-    retriesUsed?: number
-  }> {
-    // Layer 2: Cookie-based API (300 credits)
-    debug('[direct] Trying Layer 2: Cookie API fallback')
-    const cookieResult = await postViaCookieApi(text)
-    if (cookieResult.success) {
-      return {
-        success: true,
-        tweetId: cookieResult.tweetId,
-        method: 'fallback_cookie',
-        retriesUsed,
-      }
-    }
-
-    debug('[direct] Layer 2 failed:', cookieResult.error?.slice(0, 100))
-
-    // Layer 3: V2 Login API (800 credits) — only if toggle is ON
-    const v2Enabled = await isV2LoginEnabled()
-    if (v2Enabled) {
-      debug('[direct] Trying Layer 3: V2 Login API fallback')
-      const v2Result = await postViaTwitterApi(text)
-      if (v2Result.success) {
-        return {
-          success: true,
-          tweetId: v2Result.tweetId,
-          method: 'fallback_login',
-          retriesUsed,
-        }
-      }
-      // Both layers failed
-      const combinedError = directError
-        ? `Direct gagal: ${directError.slice(0, 150)}. Cookie API gagal: ${cookieResult.error?.slice(0, 100)}. V2 Login gagal: ${v2Result.error?.slice(0, 100)}`
-        : `Cookie API gagal: ${cookieResult.error?.slice(0, 150)}. V2 Login gagal: ${v2Result.error?.slice(0, 100)}`
-      return {
-        success: false,
-        error: combinedError,
-        method: v2Result.method,
-        retriesUsed,
-      }
-    }
-
-    // V2 login not enabled — return Layer 2 error
-    const combinedError = directError
-      ? `Direct gagal: ${directError.slice(0, 150)}. Cookie API juga gagal: ${cookieResult.error || 'Unknown error'}`
-      : `Cookie API gagal: ${cookieResult.error || 'Unknown error'}`
-    return {
-      success: false,
-      error: combinedError,
-      method: cookieResult.method,
-      retriesUsed,
-    }
-  }
-
-  // Helper: fallbackOrFail — used when direct posting fails in auto mode.
-  // In direct mode, just returns the error.
-  async function fallbackOrFail(
-    error: string,
-    method: 'direct' | 'retry',
-    retriesUsed: number = 0,
-  ): Promise<{
-    success: boolean
-    tweetId?: string
-    error?: string
-    method: 'direct' | 'retry' | 'fallback_cookie' | 'fallback_login'
-    retriesUsed?: number
-  }> {
-    if (postMethod !== 'auto') {
-      return { success: false, error, method, retriesUsed }
-    }
-    debug('[direct] Direct posting failed, trying API fallback:', error.slice(0, 100))
-    return tryApiFallback(error, retriesUsed, method)
-  }
-
   // 2. Resolve cookie string: DB → env var → null
   const envCookie = process.env.X_COOKIE_STRING?.trim() || null
   const cookieString = settings.x_cookie_string || envCookie || null
 
   if (!cookieString) {
-    return fallbackOrFail('Cookie string not configured. Go to Admin → X Settings to set it up.', 'direct')
+    return fallbackOrFail({ text, postMethod, error: 'Cookie string not configured. Go to Admin → X Settings to set it up.', method: 'direct' })
   }
 
   // 3. Parse cookies
@@ -359,39 +494,20 @@ export async function postTweetViaCookie(
       !cookies.ct0 && 'ct0',
       !cookies.twid && 'twid',
     ].filter(Boolean).join(', ')
-    return fallbackOrFail(`Cookie string is missing ${missing}. Copy the full cookie string from your browser.`, 'direct')
+    return fallbackOrFail({ text, postMethod, error: `Cookie string is missing ${missing}. Copy the full cookie string from your browser.`, method: 'direct' })
   }
 
   // 4. Resolve bearer token (required — no default)
   const bearerToken = settings.x_bearer_token || null
   if (!bearerToken) {
-    return fallbackOrFail('x_bearer_token not set. Update in Admin → X Settings.', 'direct')
+    return fallbackOrFail({ text, postMethod, error: 'x_bearer_token not set. Update in Admin → X Settings.', method: 'direct' })
   }
 
   // 5-7. Resolve queryId + make request + parse response
-  // Retry loop: up to 4 attempts, delay happens right after each failure
-  const MAX_ATTEMPTS = 4
+  // Retry loop: up to MAX_DIRECT_ATTEMPTS, delay happens right after each failure
   let lastError = ''
 
-  /**
-   * Wait after a failed attempt before trying again.
-   * Randomized jitter prevents bot fingerprinting — real humans don't retry
-   * at exact intervals. Each retry waits longer than the previous one.
-   *   After attempt 0 fails: ~1s  (800-1500ms)
-   *   After attempt 1 fails: ~2s  (1500-3000ms)
-   *   After attempt 2 fails: ~4s  (3000-6000ms)
-   */
-  async function waitBeforeRetry(failedAttempt: number): Promise<void> {
-    const delays = [1000, 2000, 4000]
-    const base = delays[failedAttempt] ?? 4000
-    const jitter = Math.round(base * (0.8 + Math.random() * 0.5)) // 80%-130%
-    debug('[direct] Attempt', failedAttempt, 'failed — waiting', jitter, 'ms before retry')
-    await sleep(jitter)
-    clearXactCache() // Fresh transaction ID for each retry
-    clearPairCache() // Also clear pair-dict cache
-  }
-
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < MAX_DIRECT_ATTEMPTS; attempt++) {
     // On retry for stale cache: clear caches immediately (no delay needed)
     if (attempt === 1 && isStaleCacheError(lastError)) {
       clearAllCaches()
@@ -403,16 +519,20 @@ export async function postTweetViaCookie(
     debug('[direct] Attempt', attempt, '- queryId:', queryId ? `${queryId.slice(0, 8)}...` : '(null, will try DB)')
 
     if (queryId && queryId !== settings.x_query_id) {
-      await db.setting.upsert({
-        where: { key: 'x_query_id' },
-        update: { value: queryId },
-        create: { key: 'x_query_id', value: queryId },
-      })
+      try {
+        await db.setting.upsert({
+          where: { key: 'x_query_id' },
+          update: { value: queryId },
+          create: { key: 'x_query_id', value: queryId },
+        })
+      } catch {
+        // Non-fatal: cache update failed, but we can still use the queryId for this request
+      }
     }
 
     queryId = queryId || settings.x_query_id || null
     if (!queryId) {
-      return fallbackOrFail('x_query_id not set and live fetch failed. Check network or set manually in Admin → X Settings.', 'direct')
+      return fallbackOrFail({ text, postMethod, error: 'x_query_id not set and live fetch failed. Check network or set manually in Admin → X Settings.', method: 'direct' })
     }
 
     // Make the request
@@ -424,61 +544,6 @@ export async function postTweetViaCookie(
         dark_request: false,
         media: { media_entities: [], possibly_sensitive: false },
         semantic_annotation_ids: [],
-      }
-
-      // Feature switches — synced from fa0311/TwitterInternalAPIDocument
-      // develop branch (auto-updated daily). Last synced: 2025-07
-      const features = {
-        premium_content_api_read_enabled: false,
-        communities_web_enable_tweet_community_results_fetch: true,
-        c9s_tweet_anatomy_moderator_badge_enabled: true,
-        responsive_web_grok_analyze_button_fetch_trends_enabled: false,
-        responsive_web_grok_analyze_post_followups_enabled: false,
-        rweb_cashtags_composer_attachment_enabled: false,
-        responsive_web_jetfuel_frame: true,
-        responsive_web_grok_share_attachment_enabled: true,
-        responsive_web_grok_annotations_enabled: true,
-        responsive_web_edit_tweet_api_enabled: true,
-        rweb_conversational_replies_downvote_enabled: false,
-        graphql_is_translatable_rweb_tweet_is_translatable_enabled: true,
-        view_counts_everywhere_api_enabled: true,
-        longform_notetweets_consumption_enabled: true,
-        responsive_web_twitter_article_tweet_consumption_enabled: true,
-        content_disclosure_indicator_enabled: true,
-        content_disclosure_ai_generated_indicator_enabled: true,
-        responsive_web_grok_show_grok_translated_post: true,
-        responsive_web_grok_analysis_button_from_backend: true,
-        responsive_web_enhance_cards_enabled: false,
-        post_ctas_fetch_enabled: false,
-        longform_notetweets_rich_text_read_enabled: true,
-        longform_notetweets_inline_media_enabled: false,
-        profile_label_improvements_pcf_label_in_post_enabled: true,
-        responsive_web_profile_redirect_enabled: false,
-        rweb_tipjar_consumption_enabled: false,
-        verified_phone_label_enabled: false,
-        articles_preview_enabled: true,
-        rweb_cashtags_enabled: true,
-        responsive_web_grok_community_note_auto_translation_is_enabled: true,
-        responsive_web_graphql_skip_user_profile_image_extensions_enabled: false,
-        freedom_of_speech_not_reach_fetch_enabled: true,
-        standardized_nudges_misinfo: true,
-        tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
-        responsive_web_grok_image_annotation_enabled: true,
-        responsive_web_grok_imagine_annotation_enabled: true,
-        responsive_web_graphql_timeline_navigation_enabled: true,
-      }
-
-      // Field toggles — required by X's CreateTweet endpoint since 2025.
-      // Source: fa0311/TwitterInternalAPIDocument
-      const fieldToggles = {
-        withArticleRichContentState: true,
-        withArticlePlainText: true,
-        withArticleSummaryText: true,
-        withArticleVoiceOver: true,
-        withGrokAnalyze: true,
-        withDisallowedReplyControls: true,
-        withPayments: true,
-        withAuxiliaryUserLabels: true,
       }
 
       // Generate x-client-transaction-id (X's primary anti-bot header)
@@ -497,33 +562,7 @@ export async function postTweetViaCookie(
       }
 
       // Build headers — matches Chrome 148 on Linux per fa0311 captures
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${bearerToken}`,
-        Cookie: cookies.raw,
-        'X-Csrf-Token': cookies.ct0,
-        'Content-Type': 'application/json',
-        'X-Twitter-Auth-Type': 'OAuth2Session',
-        'X-Twitter-Active-User': 'yes',
-        'X-Twitter-Client-Language': 'en',
-        'User-Agent': BROWSER_UA,
-        Referer: 'https://x.com/',
-        'sec-ch-ua': SEC_CH_UA,
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Linux"',
-        origin: 'https://x.com',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-origin',
-        'cache-control': 'no-cache',
-        pragma: 'no-cache',
-        priority: 'u=1, i',
-        Accept: '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-      }
-
-      if (transactionId) {
-        headers['x-client-transaction-id'] = transactionId
-      }
+      const headers = buildCreateTweetHeaders(bearerToken, cookies.raw, cookies.ct0, transactionId)
 
       const response = await fetch(url, {
         method: 'POST',
@@ -531,8 +570,8 @@ export async function postTweetViaCookie(
         body: JSON.stringify({
           variables,
           queryId,
-          features,
-          fieldToggles,
+          features: CREATE_TWEET_FEATURES,
+          fieldToggles: CREATE_TWEET_FIELD_TOGGLES,
         }),
       })
 
@@ -549,13 +588,13 @@ export async function postTweetViaCookie(
           continue
         }
         // 226 → wait then retry
-        if (attempt < MAX_ATTEMPTS - 1 && is226Error(lastError)) {
+        if (attempt < MAX_DIRECT_ATTEMPTS - 1 && is226Error(lastError)) {
           await waitBeforeRetry(attempt)
           continue
         }
 
         // Other HTTP errors — don't retry (auth, rate limit, etc.), try fallback in auto mode
-        return fallbackOrFail(lastError, attempt > 0 ? 'retry' : 'direct', attempt)
+        return fallbackOrFail({ text, postMethod, error: lastError, method: attempt > 0 ? 'retry' : 'direct', retriesUsed: attempt })
       }
 
       const body = await response.json()
@@ -574,13 +613,13 @@ export async function postTweetViaCookie(
           continue
         }
         // 226 in GraphQL errors → wait then retry
-        if (attempt < MAX_ATTEMPTS - 1 && is226Error(lastError)) {
+        if (attempt < MAX_DIRECT_ATTEMPTS - 1 && is226Error(lastError)) {
           await waitBeforeRetry(attempt)
           continue
         }
 
         // Non-retryable GraphQL error — try fallback in auto mode
-        return fallbackOrFail(lastError, attempt > 0 ? 'retry' : 'direct', attempt)
+        return fallbackOrFail({ text, postMethod, error: lastError, method: attempt > 0 ? 'retry' : 'direct', retriesUsed: attempt })
       }
 
       // Layer 3: Missing data / empty tweet_results
@@ -589,13 +628,13 @@ export async function postTweetViaCookie(
         // Check for empty tweet_results — X silently rejected the tweet
         if (isEmptyResults(body)) {
           lastError = 'Empty tweet_results — X silently rejected the tweet'
-          if (attempt < MAX_ATTEMPTS - 1) {
+          if (attempt < MAX_DIRECT_ATTEMPTS - 1) {
             await waitBeforeRetry(attempt)
             continue
           }
         }
 
-        return fallbackOrFail(`Tweet was not created. Response: ${JSON.stringify(body).slice(0, 300)}`, attempt > 0 ? 'retry' : 'direct', attempt)
+        return fallbackOrFail({ text, postMethod, error: `Tweet was not created. Response: ${JSON.stringify(body).slice(0, 300)}`, method: attempt > 0 ? 'retry' : 'direct', retriesUsed: attempt })
       }
 
       // Success!
@@ -609,28 +648,28 @@ export async function postTweetViaCookie(
     } catch (error) {
       lastError = `Network error: ${error instanceof Error ? error.message : String(error)}`
       // Network errors are transient — wait then retry
-      if (attempt < MAX_ATTEMPTS - 1) {
+      if (attempt < MAX_DIRECT_ATTEMPTS - 1) {
         await waitBeforeRetry(attempt)
         continue
       }
 
       // All retries exhausted on network errors — try fallback in auto mode
-      return fallbackOrFail(lastError, attempt > 0 ? 'retry' : 'direct', attempt)
+      return fallbackOrFail({ text, postMethod, error: lastError, method: attempt > 0 ? 'retry' : 'direct', retriesUsed: attempt })
     }
   }
 
   // All direct retries exhausted — try API fallback (if auto mode)
   if (postMethod === 'auto') {
     debug('[direct] All retries exhausted, falling back to API')
-    return tryApiFallback(lastError, MAX_ATTEMPTS, 'retry')
+    return tryApiFallback({ text, directError: lastError, retriesUsed: MAX_DIRECT_ATTEMPTS, directMethod: 'retry' })
   }
 
   // Direct mode only — no fallback
   return {
     success: false,
-    error: `Post gagal setelah ${MAX_ATTEMPTS} percobaan. Coba lagi dalam 1-2 menit atau ubah ke mode Auto untuk fallback API.`,
+    error: `Post gagal setelah ${MAX_DIRECT_ATTEMPTS} percobaan. Coba lagi dalam 1-2 menit atau ubah ke mode Auto untuk fallback API.`,
     method: 'retry',
-    retriesUsed: MAX_ATTEMPTS,
+    retriesUsed: MAX_DIRECT_ATTEMPTS,
   }
 }
 
