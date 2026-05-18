@@ -2,7 +2,7 @@ import { db } from '@/lib/db'
 import { generateTransactionId, fetchXcomHtml, clearTransactionIdCache as clearXactCache } from '@/lib/x-transaction-id'
 import { generateTransactionIdFromPair, clearPairCache } from '@/lib/x-transaction-id-pair'
 import { postViaCookieApi, postViaTwitterApi, isV2LoginEnabled } from '@/lib/twitter-api-fallback'
-import { decryptSetting } from '@/lib/encrypt'
+import { readSettingsMap } from '@/lib/twitter-api-shared'
 import { debug } from '@/lib/debug'
 
 // ============================================================
@@ -123,22 +123,11 @@ async function fetchLiveQueryId(): Promise<string | null> {
 
 /**
  * Batch-read all X-related settings from DB in one query.
- * Empty values are filtered out so they don't shadow env vars or defaults.
+ * Uses the shared readSettingsMap helper to avoid duplicating the
+ * findMany→map→for→decryptSetting pattern.
  */
 async function getSettings(): Promise<Record<string, string>> {
-  const settings = await db.setting.findMany({
-    where: {
-      key: { in: ['x_cookie_string', 'x_query_id', 'x_bearer_token', 'post_method', 'twitterapi_keys'] },
-      value: { not: '' },
-    },
-  })
-  const map: Record<string, string> = {}
-  for (const s of settings) {
-    if (s.value) {
-      map[s.key] = decryptSetting(s.value)
-    }
-  }
-  return map
+  return readSettingsMap(['x_cookie_string', 'x_query_id', 'x_bearer_token', 'post_method', 'twitterapi_keys'])
 }
 
 /**
