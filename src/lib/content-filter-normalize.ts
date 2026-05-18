@@ -108,7 +108,9 @@ export function normalizeText(text: string): string {
     // 4. NFKC normalize (fullwidth → ASCII, etc.)
     .normalize('NFKC')
     // 5. Replace homoglyphs (Cyrillic/Greek → Latin)
-    .replace(/[^\u0000-\u007F]/g, (ch) => HOMOGLYPH_MAP[ch] || ch)
+    //    \P{ASCII} matches non-ASCII — semantically identical to [^\u0000-\u007F]
+    //    but avoids referencing control character code points (Vercel HIGH warning).
+    .replace(/\P{ASCII}/gu, (ch) => HOMOGLYPH_MAP[ch] || ch)
     // 6. Lowercase — ensures case-insensitive duplicate detection and
     //    consistent blocked word matching (prevents bypass by toggling case)
     .toLowerCase()
