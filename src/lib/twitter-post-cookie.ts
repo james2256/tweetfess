@@ -356,9 +356,8 @@ async function tryApiFallback(opts: {
   text: string
   directError?: string
   retriesUsed?: number
-  directMethod?: 'direct' | 'retry'
 }): Promise<TweetResult> {
-  const { text, directError, retriesUsed = 0, directMethod } = opts
+  const { text, directError, retriesUsed = 0 } = opts
   // Layer 2: Cookie-based API (300 credits)
   debug('[direct] Trying Layer 2: Cookie API fallback')
   const cookieResult = await postViaCookieApi(text)
@@ -426,7 +425,7 @@ async function fallbackOrFail(opts: {
     return { success: false, error, method, retriesUsed }
   }
   debug('[direct] Direct posting failed, trying API fallback:', error.slice(0, 100))
-  return tryApiFallback({ text, directError: error, retriesUsed, directMethod: method })
+  return tryApiFallback({ text, directError: error, retriesUsed })
 }
 
 // ── Main posting function ──
@@ -661,7 +660,7 @@ export async function postTweetViaCookie(
   // All direct retries exhausted — try API fallback (if auto mode)
   if (postMethod === 'auto') {
     debug('[direct] All retries exhausted, falling back to API')
-    return tryApiFallback({ text, directError: lastError, retriesUsed: MAX_DIRECT_ATTEMPTS, directMethod: 'retry' })
+    return tryApiFallback({ text, directError: lastError, retriesUsed: MAX_DIRECT_ATTEMPTS })
   }
 
   // Direct mode only — no fallback

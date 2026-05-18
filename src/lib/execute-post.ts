@@ -112,11 +112,11 @@ export async function executePostAndRecord(
   let lockReleased = false
 
   /** Release lock and return result. Every exit path must go through here. */
-  const releaseAndReturn = async (
+  async function releaseAndReturn(
     result: ExecutePostResult,
-  ): Promise<ExecutePostResult> => {
+  ): Promise<ExecutePostResult> {
     if (!lockReleased) {
-      await releasePostingLock(lockValue)
+      await releasePostingLock(lockValue!)
       lockReleased = true
     }
     return result
