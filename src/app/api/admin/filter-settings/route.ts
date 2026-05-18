@@ -43,12 +43,17 @@ async function upsertRateLimits(
         ? Math.min(def.max, Math.max(def.min, raw))
         : Math.max(def.min, raw)
       const val = clamped.toString()
-      await db.setting.upsert({
-        where: { key: def.key },
-        update: { value: val },
-        create: { key: def.key, value: val },
-      })
-      results.push({ key: def.key, updated: true })
+      try {
+        await db.setting.upsert({
+          where: { key: def.key },
+          update: { value: val },
+          create: { key: def.key, value: val },
+        })
+        results.push({ key: def.key, updated: true })
+      } catch (e) {
+        console.error(`[filter-settings] Failed to upsert ${def.key}:`, e)
+        results.push({ key: def.key, updated: false })
+      }
     }
   }
 }

@@ -162,3 +162,21 @@ Stage Summary:
 - 4 steps implemented, ~28 CC reduced, ~150 lines removed
 - Zero new bugs introduced (all type-checked, lint-clean, runtime-verified)
 - Steps 4 and 6 (executePostAndRecord + withPostingLock, postTweetViaCookie helpers) remain for future implementation
+
+---
+Task ID: CC-1-hotfix
+Agent: main
+Task: Fix unhandled errors in async upsertRateLimits() — security finding
+
+Work Log:
+- Identified: `upsertRateLimits()` had no try/catch inside its loop — a single `db.setting.upsert()` failure would throw an unhandled rejection and abort the entire batch, leaving partial state in the DB
+- Fixed: Added per-item try/catch inside the for loop
+  - On success: pushes `{ key, updated: true }` (same as before)
+  - On failure: logs error with `console.error` and pushes `{ key, updated: false }` instead of throwing
+- This makes the function resilient: one bad upsert doesn't abort the remaining 11, and the caller gets feedback about which specific rate limit failed
+- Verification: ESLint clean, `tsc --noEmit` clean, dev server compiles route
+
+Stage Summary:
+- Security finding resolved: async errors in upsertRateLimits() are now properly handled
+- Per-item error handling provides better resilience and diagnostics than the original code (which also had no per-item try/catch)
+- Zero behavior change for the happy path
