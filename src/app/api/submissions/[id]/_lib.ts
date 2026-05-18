@@ -141,11 +141,14 @@ export function getPostErrorHint(errorMsg: string): string {
 
 // --- Helper 4: Method description ---
 
-const METHOD_LABELS: Record<string, string> = {
-  direct: 'Pesan otomatis diposting ke X.',
-  fallback_cookie: 'Pesan diposting via Cookie API (twitterapi.io).',
-  fallback_login: 'Pesan diposting via V2 Login API (twitterapi.io).',
-}
+// Map (not Record) avoids the "Generic Object Injection Sink" SAST warning:
+// plain objects have a prototype chain (__proto__, constructor) that SAST
+// flags on dynamic-key access. Map.get() has no prototype chain.
+const METHOD_LABELS = new Map<string, string>([
+  ['direct', 'Pesan otomatis diposting ke X.'],
+  ['fallback_cookie', 'Pesan diposting via Cookie API (twitterapi.io).'],
+  ['fallback_login', 'Pesan diposting via V2 Login API (twitterapi.io).'],
+])
 
 /**
  * Build a human-readable description for the posting method used.
@@ -162,5 +165,5 @@ export function getMethodDescription(
   if (method === 'retry') {
     return `Pesan diposting setelah retry (${retriesUsed}x).`
   }
-  return METHOD_LABELS[method] ?? ''
+  return METHOD_LABELS.get(method) ?? ''
 }
