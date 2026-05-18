@@ -11,6 +11,48 @@ import { getFilterSettings, DEFAULT_RATE_LIMITS } from '@/lib/filter-settings'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
 
+// Rate-limit settings: field name → DB key + clamp bounds
+// max: null means no upper clamp (e.g. autoPostCooldown, globalPostDailyCap)
+const RATE_LIMIT_DEFS = [
+  { field: 'submissionCooldown',                key: 'submission_cooldown',                 min: 0, max: 60 },
+  { field: 'submissionDailyCap',                key: 'submission_daily_cap',                min: 0, max: 100 },
+  { field: 'autoPostCooldown',                  key: 'auto_post_cooldown',                  min: 0, max: null as number | null },
+  { field: 'autoPostWindowCap',                 key: 'auto_post_window_cap',                min: 0, max: 500 },
+  { field: 'autoPostWindowMinutes',             key: 'auto_post_window_minutes',            min: 1, max: 1440 },
+  { field: 'globalPostDailyCap',                key: 'global_post_daily_cap',               min: 0, max: null as number | null },
+  { field: 'userPostDailyCap',                  key: 'user_post_daily_cap',                 min: 0, max: 100 },
+  { field: 'userPendingCap',                    key: 'user_pending_cap',                    min: 1, max: 50 },
+  { field: 'globalSubmissionDailyCap',          key: 'global_submission_daily_cap',         min: 0, max: 10000 },
+  { field: 'circuitBreakerThreshold',           key: 'circuit_breaker_threshold',           min: 1, max: 20 },
+  { field: 'circuitBreakerCooldownMinutes',     key: 'circuit_breaker_cooldown_minutes',    min: 1, max: 1440 },
+  { field: 'circuitBreakerFailureWindowMinutes', key: 'circuit_breaker_failure_window_minutes', min: 1, max: 1440 },
+] as const
+
+/**
+ * Upsert rate-limit settings using the definition table.
+ * Replaces 12 identical typeof→clamp→upsert→push blocks.
+ */
+async function upsertRateLimits(
+  rateLimits: Record<string, number | undefined>,
+  results: { key: string; updated: boolean }[],
+): Promise<void> {
+  for (const def of RATE_LIMIT_DEFS) {
+    const raw = rateLimits[def.field]
+    if (typeof raw === 'number') {
+      const clamped = def.max !== null
+        ? Math.min(def.max, Math.max(def.min, raw))
+        : Math.max(def.min, raw)
+      const val = clamped.toString()
+      await db.setting.upsert({
+        where: { key: def.key },
+        update: { value: val },
+        create: { key: def.key, value: val },
+      })
+      results.push({ key: def.key, updated: true })
+    }
+  }
+}
+
 // GET /api/admin/filter-settings — Return filter settings
 export async function GET(req: NextRequest) {
   const auth = verifyAdmin(getAdminTokenFromRequest(req))
@@ -159,114 +201,7 @@ export async function POST(req: NextRequest) {
 
     // Save rate limit settings (not encrypted, simple integers)
     if (rateLimits) {
-      if (typeof rateLimits.submissionCooldown === 'number') {
-        const val = Math.min(60, Math.max(0, rateLimits.submissionCooldown)).toString()
-        await db.setting.upsert({
-          where: { key: 'submission_cooldown' },
-          update: { value: val },
-          create: { key: 'submission_cooldown', value: val },
-        })
-        results.push({ key: 'submission_cooldown', updated: true })
-      }
-      if (typeof rateLimits.submissionDailyCap === 'number') {
-        const val = Math.min(100, Math.max(0, rateLimits.submissionDailyCap)).toString()
-        await db.setting.upsert({
-          where: { key: 'submission_daily_cap' },
-          update: { value: val },
-          create: { key: 'submission_daily_cap', value: val },
-        })
-        results.push({ key: 'submission_daily_cap', updated: true })
-      }
-      if (typeof rateLimits.autoPostCooldown === 'number') {
-        const val = Math.max(0, rateLimits.autoPostCooldown).toString()
-        await db.setting.upsert({
-          where: { key: 'auto_post_cooldown' },
-          update: { value: val },
-          create: { key: 'auto_post_cooldown', value: val },
-        })
-        results.push({ key: 'auto_post_cooldown', updated: true })
-      }
-      if (typeof rateLimits.autoPostWindowCap === 'number') {
-        const val = Math.min(500, Math.max(0, rateLimits.autoPostWindowCap)).toString()
-        await db.setting.upsert({
-          where: { key: 'auto_post_window_cap' },
-          update: { value: val },
-          create: { key: 'auto_post_window_cap', value: val },
-        })
-        results.push({ key: 'auto_post_window_cap', updated: true })
-      }
-      if (typeof rateLimits.autoPostWindowMinutes === 'number') {
-        const val = Math.min(1440, Math.max(1, rateLimits.autoPostWindowMinutes)).toString()
-        await db.setting.upsert({
-          where: { key: 'auto_post_window_minutes' },
-          update: { value: val },
-          create: { key: 'auto_post_window_minutes', value: val },
-        })
-        results.push({ key: 'auto_post_window_minutes', updated: true })
-      }
-      if (typeof rateLimits.globalPostDailyCap === 'number') {
-        const val = Math.max(0, rateLimits.globalPostDailyCap).toString()
-        await db.setting.upsert({
-          where: { key: 'global_post_daily_cap' },
-          update: { value: val },
-          create: { key: 'global_post_daily_cap', value: val },
-        })
-        results.push({ key: 'global_post_daily_cap', updated: true })
-      }
-      if (typeof rateLimits.userPostDailyCap === 'number') {
-        const val = Math.min(100, Math.max(0, rateLimits.userPostDailyCap)).toString()
-        await db.setting.upsert({
-          where: { key: 'user_post_daily_cap' },
-          update: { value: val },
-          create: { key: 'user_post_daily_cap', value: val },
-        })
-        results.push({ key: 'user_post_daily_cap', updated: true })
-      }
-      if (typeof rateLimits.userPendingCap === 'number') {
-        const val = Math.min(50, Math.max(1, rateLimits.userPendingCap)).toString()
-        await db.setting.upsert({
-          where: { key: 'user_pending_cap' },
-          update: { value: val },
-          create: { key: 'user_pending_cap', value: val },
-        })
-        results.push({ key: 'user_pending_cap', updated: true })
-      }
-      if (typeof rateLimits.globalSubmissionDailyCap === 'number') {
-        const val = Math.min(10000, Math.max(0, rateLimits.globalSubmissionDailyCap)).toString()
-        await db.setting.upsert({
-          where: { key: 'global_submission_daily_cap' },
-          update: { value: val },
-          create: { key: 'global_submission_daily_cap', value: val },
-        })
-        results.push({ key: 'global_submission_daily_cap', updated: true })
-      }
-      if (typeof rateLimits.circuitBreakerThreshold === 'number') {
-        const val = Math.min(20, Math.max(1, rateLimits.circuitBreakerThreshold)).toString()
-        await db.setting.upsert({
-          where: { key: 'circuit_breaker_threshold' },
-          update: { value: val },
-          create: { key: 'circuit_breaker_threshold', value: val },
-        })
-        results.push({ key: 'circuit_breaker_threshold', updated: true })
-      }
-      if (typeof rateLimits.circuitBreakerCooldownMinutes === 'number') {
-        const val = Math.min(1440, Math.max(1, rateLimits.circuitBreakerCooldownMinutes)).toString()
-        await db.setting.upsert({
-          where: { key: 'circuit_breaker_cooldown_minutes' },
-          update: { value: val },
-          create: { key: 'circuit_breaker_cooldown_minutes', value: val },
-        })
-        results.push({ key: 'circuit_breaker_cooldown_minutes', updated: true })
-      }
-      if (typeof rateLimits.circuitBreakerFailureWindowMinutes === 'number') {
-        const val = Math.min(1440, Math.max(1, rateLimits.circuitBreakerFailureWindowMinutes)).toString()
-        await db.setting.upsert({
-          where: { key: 'circuit_breaker_failure_window_minutes' },
-          update: { value: val },
-          create: { key: 'circuit_breaker_failure_window_minutes', value: val },
-        })
-        results.push({ key: 'circuit_breaker_failure_window_minutes', updated: true })
-      }
+      await upsertRateLimits(rateLimits, results)
     }
 
     // NOTE: whitelist_usernames and blocked_usernames are NO LONGER saved here.

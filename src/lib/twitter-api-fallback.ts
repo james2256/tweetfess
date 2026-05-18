@@ -608,27 +608,9 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
           method: 'fallback_login',
         }
       }
-
-      // Invalid API key — try next key
-      if (
-        response.status === 401 ||
-        errorMsg.includes('API key is invalid') ||
-        errorMsg.includes('Unauthorized')
-      ) {
-        continue
-      }
-
-      // Rate limit or credit exhaustion — try next key
-      if (
-        response.status === 429 ||
-        errorMsg.includes('rate limit') ||
-        errorMsg.includes('credits') ||
-        errorMsg.includes('quota')
-      ) {
-        continue
-      }
-
-      // Other error — try next key (but keep lastApiError for diagnostics)
+      // All errors (invalid key, rate limit, other) — try next key.
+      // login_cookies errors are handled above (return, not continue).
+      // lastApiError is already set for diagnostics.
       continue
     } catch (error) {
       lastApiError = `Network error: ${error instanceof Error ? error.message : String(error)}`

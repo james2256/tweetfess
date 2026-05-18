@@ -21,6 +21,46 @@ export const FILTER_SETTING_KEYS = [
 ]
 
 /**
+ * Parse a JSON setting value with try/catch and type validation.
+ * Eliminates repeated try/catch JSON.parse blocks in getFilterSettings().
+ * Returns fallback when raw is null/empty, JSON is malformed, or validate returns null.
+ */
+function parseJsonSetting<T>(
+  raw: string | null,
+  validate: (parsed: unknown) => T | null,
+  fallback: T,
+): T {
+  if (!raw) return fallback
+  try {
+    const parsed = JSON.parse(raw)
+    const result = validate(parsed)
+    return result ?? fallback
+  } catch (e) {
+    console.error('[filter-settings] Failed to parse setting:', e)
+    return fallback
+  }
+}
+
+/**
+ * Validate a JSON-parsed value as a string array, filtering out non-string/empty entries.
+ * Shared by blocked_words, nsfw_words, whitelist_usernames, blocked_usernames.
+ */
+function validateStringArray(parsed: unknown): string[] | null {
+  if (!Array.isArray(parsed)) return null
+  return parsed.filter((w: unknown) => typeof w === 'string' && w.trim())
+}
+
+/**
+ * Validate a JSON-parsed value as a string array with lowercase trimming.
+ * Used for username arrays (whitelist, blocked).
+ */
+function validateLowercaseStringArray(parsed: unknown): string[] | null {
+  const filtered = validateStringArray(parsed)
+  if (!filtered) return null
+  return filtered.map((u: string) => u.toLowerCase().trim())
+}
+
+/**
  * Safely parse an integer from a setting value, returning the fallback
  * only when the value is missing/null/empty/NaN. Unlike `parseInt(x) || fallback`,
  * this correctly returns 0 when the admin intentionally sets a value to 0.
@@ -91,45 +131,21 @@ export async function getFilterSettings(): Promise<{
   const autoApprove = getRaw('auto_approve') === 'true'
 
   // Blocked words: default list
-  let blockedWords = DEFAULT_BLOCKED_WORDS
-  const blockedWordsRaw = getRaw('blocked_words')
-  if (blockedWordsRaw) {
-    try {
-      const parsed = JSON.parse(blockedWordsRaw)
-      if (Array.isArray(parsed)) {
-        blockedWords = parsed.filter((w: unknown) => typeof w === 'string' && w.trim())
-      }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse blocked_words:', e)
-    }
-  }
+  const blockedWords = parseJsonSetting(
+    getRaw('blocked_words'), validateStringArray, DEFAULT_BLOCKED_WORDS,
+  )
 
   // NSFW words: default list
-  let nsfwWords = DEFAULT_NSFW_WORDS
-  const nsfwWordsRaw = getRaw('nsfw_words')
-  if (nsfwWordsRaw) {
-    try {
-      const parsed = JSON.parse(nsfwWordsRaw)
-      if (Array.isArray(parsed)) {
-        nsfwWords = parsed.filter((w: unknown) => typeof w === 'string' && w.trim())
-      }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse nsfw_words:', e)
-    }
-  }
+  const nsfwWords = parseJsonSetting(
+    getRaw('nsfw_words'), validateStringArray, DEFAULT_NSFW_WORDS,
+  )
 
-  // Filter rules: defaults
-  let filterRules = { ...DEFAULT_FILTER_RULES }
-  const filterRulesRaw = getRaw('filter_rules')
-  if (filterRulesRaw) {
-    try {
-      const parsed = JSON.parse(filterRulesRaw) as Partial<FilterRules>
-      // Merge with defaults so new rules are added automatically
-      filterRules = { ...DEFAULT_FILTER_RULES, ...parsed }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse filter_rules:', e)
-    }
-  }
+  // Filter rules: defaults (merge with defaults so new rules are added automatically)
+  const filterRules = parseJsonSetting<FilterRules>(
+    getRaw('filter_rules'),
+    (p) => (p && typeof p === 'object' && !Array.isArray(p)) ? { ...DEFAULT_FILTER_RULES, ...(p as Partial<FilterRules>) } : null,
+    { ...DEFAULT_FILTER_RULES },
+  )
 
   // Gemini AI filter
   const geminiEnabled = getRaw('gemini_enabled') === 'true'
@@ -153,36 +169,14 @@ export async function getFilterSettings(): Promise<{
   const circuitBreakerFailureWindowMinutes = Math.max(1, parseIntSafe(getRaw('circuit_breaker_failure_window_minutes'), DEFAULT_RATE_LIMITS.circuitBreakerFailureWindowMinutes))
 
   // Whitelist usernames (bypass rate limits)
-  let whitelistUsernames: string[] = []
-  const whitelistRaw = getRaw('whitelist_usernames')
-  if (whitelistRaw) {
-    try {
-      const parsed = JSON.parse(whitelistRaw)
-      if (Array.isArray(parsed)) {
-        whitelistUsernames = parsed
-          .filter((u: unknown) => typeof u === 'string' && u.trim())
-          .map((u: string) => u.toLowerCase().trim())
-      }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse whitelist_usernames:', e)
-    }
-  }
+  const whitelistUsernames = parseJsonSetting(
+    getRaw('whitelist_usernames'), validateLowercaseStringArray, [] as string[],
+  )
 
   // Blocked usernames (cannot submit at all)
-  let blockedUsernames: string[] = []
-  const blockedRaw = getRaw('blocked_usernames')
-  if (blockedRaw) {
-    try {
-      const parsed = JSON.parse(blockedRaw)
-      if (Array.isArray(parsed)) {
-        blockedUsernames = parsed
-          .filter((u: unknown) => typeof u === 'string' && u.trim())
-          .map((u: string) => u.toLowerCase().trim())
-      }
-    } catch (e) {
-      console.error('[filter-settings] Failed to parse blocked_usernames:', e)
-    }
-  }
+  const blockedUsernames = parseJsonSetting(
+    getRaw('blocked_usernames'), validateLowercaseStringArray, [] as string[],
+  )
 
   return {
     autoApprove,
