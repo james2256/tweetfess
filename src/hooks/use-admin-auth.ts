@@ -20,7 +20,7 @@ export function useAdminAuth() {
     if (initialCheckDone.current) return
     initialCheckDone.current = true
 
-    apiClient.getStats().then(() => {
+    apiClient.checkSession().then(() => {
       // Cookie is valid — we're authenticated
       setIsAdmin(true)
       setAdminToken('session')

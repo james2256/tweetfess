@@ -67,7 +67,8 @@ export function generateAdminToken(password: string): string {
 }
 
 /**
- * Verify an Authorization header against the admin password.
+ * Verify an admin token against the admin password.
+ * Accepts either a raw token (from cookie) or a Bearer header string.
  * Returns { authorized: true } if valid and not expired,
  * or a NextResponse error if not.
  *
@@ -75,7 +76,7 @@ export function generateAdminToken(password: string): string {
  * crypto.timingSafeEqual to prevent timing side-channel attacks.
  * Also checks that the embedded expiry timestamp has not passed.
  */
-export function verifyAdmin(authHeader: string | null):
+export function verifyAdmin(token: string | null):
   | { authorized: true }
   | { authorized: false; response: NextResponse } {
   const password = process.env.ADMIN_PASSWORD
@@ -89,17 +90,17 @@ export function verifyAdmin(authHeader: string | null):
     }
   }
 
-  if (!authHeader) {
+  if (!token) {
     return {
       authorized: false,
       response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
     }
   }
 
-  // Extract token from "Bearer <token>" header
-  const submitted = authHeader.startsWith('Bearer ')
-    ? authHeader.slice(7)
-    : authHeader
+  // Extract token from "Bearer <token>" header (cookie tokens are already raw)
+  const submitted = token.startsWith('Bearer ')
+    ? token.slice(7)
+    : token
 
   // Parse token format: <hmac_hex>.<expiresAt_hex>
   const dotIndex = submitted.lastIndexOf('.')

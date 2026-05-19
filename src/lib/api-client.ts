@@ -138,6 +138,10 @@ class ApiClient {
     await this.request('/api/admin/logout', { method: 'POST' })
   }
 
+  async checkSession(): Promise<{ authenticated: boolean }> {
+    return this.request('/api/admin/session')
+  }
+
   async getStats(): Promise<Stats> {
     return this.request<Stats>('/api/admin/stats')
   }
