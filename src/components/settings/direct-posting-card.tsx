@@ -116,7 +116,7 @@ export function DirectPostingCard({
                   </Button>
                 </div>
                 <Button
-                  onClick={() => { saveSetting('x_cookie_string', cookieString, () => setCookieString('')) }}
+                  onClick={() => { saveSetting('x_cookie_string', cookieString, () => { setCookieString('') }) }}
                   disabled={!!isSavingSetting || !cookieString.trim()}
                   className="bg-[#0F1419] hover:bg-[#272c30]"
                 >
@@ -184,7 +184,7 @@ export function DirectPostingCard({
                   </Button>
                 </div>
                 <Button
-                  onClick={() => { saveSetting('x_bearer_token', bearerToken, () => setBearerToken('')) }}
+                  onClick={() => { saveSetting('x_bearer_token', bearerToken, () => { setBearerToken('') }) }}
                   disabled={!!isSavingSetting || !bearerToken.trim()}
                   className="bg-[#0F1419] hover:bg-[#272c30]"
                 >
@@ -239,7 +239,7 @@ export function DirectPostingCard({
                 />
                 <div className="flex gap-1">
                   <Button
-                    onClick={() => { saveSetting('x_query_id', queryId, () => setQueryId('')) }}
+                    onClick={() => { saveSetting('x_query_id', queryId, () => { setQueryId('') }) }}
                     disabled={!!isSavingSetting || !queryId.trim()}
                     className="bg-[#0F1419] hover:bg-[#272c30]"
                   >
@@ -248,7 +248,7 @@ export function DirectPostingCard({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => { saveSetting('x_query_id', '', () => setQueryId('')) }}
+                    onClick={() => { saveSetting('x_query_id', '', () => { setQueryId('') }) }}
                     disabled={!!isSavingSetting}
                     className="border-[#EFF3F4] text-[#536471]"
                     title="Clear saved Query ID"

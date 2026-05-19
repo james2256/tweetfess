@@ -278,7 +278,7 @@ export function ApiFallbackCard({
                   className="border-[#EFF3F4] text-xs"
                 />
                 <Button
-                  onClick={() => { saveSetting('twitterapi_keys', apiKeys, () => setApiKeys('')) }}
+                  onClick={() => { saveSetting('twitterapi_keys', apiKeys, () => { setApiKeys('') }) }}
                   disabled={!!isSavingSetting || !apiKeys.trim()}
                   className="bg-purple-500 hover:bg-purple-600 shrink-0"
                 >
@@ -303,7 +303,7 @@ export function ApiFallbackCard({
                   className="border-[#EFF3F4] text-xs"
                 />
                 <Button
-                  onClick={() => { saveSetting('twitterapi_proxy', apiProxy, () => setApiProxy('')) }}
+                  onClick={() => { saveSetting('twitterapi_proxy', apiProxy, () => { setApiProxy('') }) }}
                   disabled={!!isSavingSetting || !apiProxy.trim()}
                   variant="outline"
                   className="border-purple-200 text-purple-700 hover:bg-purple-50 shrink-0"

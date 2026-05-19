@@ -127,7 +127,7 @@ export function WhitelistCard({
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => { handleRemove(username) }}
+                      onClick={() => { void handleRemove(username) }}
                       disabled={removingUser === username}
                       className="h-6 w-6 p-0 text-[#71767B] hover:text-red-500 hover:bg-red-50"
                     >

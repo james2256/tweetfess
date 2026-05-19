@@ -127,7 +127,7 @@ export function BlocklistCard({
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => { handleRemove(username) }}
+                      onClick={() => { void handleRemove(username) }}
                       disabled={removingUser === username}
                       className="h-6 w-6 p-0 text-[#71767B] hover:text-green-600 hover:bg-green-50"
                     >

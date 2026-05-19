@@ -186,7 +186,7 @@ export function UsersDialog({
                         variant="outline"
                         size="sm"
                         className="text-[10px] h-6 px-2 ml-auto text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200 flex-shrink-0"
-                        onClick={() => { onUnblock(username) }}
+                        onClick={() => { void onUnblock(username) }}
                       >
                         Unblock
                       </Button>
@@ -341,7 +341,7 @@ export function UsersDialog({
                                 variant="outline"
                                 size="sm"
                                 className="text-[10px] h-6 px-2 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                                onClick={() => { onBlock(s.username) }}
+                                onClick={() => { void onBlock(s.username) }}
                               >
                                 <Ban className="w-3 h-3 mr-1" /> Block
                               </Button>
@@ -350,7 +350,7 @@ export function UsersDialog({
                                 variant="outline"
                                 size="sm"
                                 className="text-[10px] h-6 px-2 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
-                                onClick={() => { onUnblock(s.username) }}
+                                onClick={() => { void onUnblock(s.username) }}
                               >
                                 Unblock
                               </Button>
@@ -388,7 +388,7 @@ export function UsersDialog({
                               <Button
                                 size="sm"
                                 className="text-[10px] h-6 px-3 bg-purple-600 hover:bg-purple-700 text-white"
-                                onClick={() => { handleSaveLimits(s.username) }}
+                                onClick={() => { void handleSaveLimits(s.username) }}
                                 disabled={isSaving}
                               >
                                 {isSaving ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
@@ -399,7 +399,7 @@ export function UsersDialog({
                                   variant="outline"
                                   size="sm"
                                   className="text-[10px] h-6 px-3 text-amber-600 hover:text-amber-700 hover:bg-amber-50 border-amber-200"
-                                  onClick={() => { handleClearLimits(s.username) }}
+                                  onClick={() => { void handleClearLimits(s.username) }}
                                   disabled={isSaving}
                                 >
                                   Reset ke Default
