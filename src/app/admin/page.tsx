@@ -87,6 +87,7 @@ export default function AdminDashboardPage() {
       }, 15000)
       return () => { clearInterval(interval) }
     }
+    return undefined
   }, [isAdmin, fetchStats])
 
   const handleRefresh = useCallback(() => {

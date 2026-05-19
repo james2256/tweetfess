@@ -11,7 +11,10 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "prisma migrate reset",
+    "db:studio": "prisma studio",
+    "typecheck": "prisma generate && tsc --noEmit",
+    "ci": "bun run typecheck && bun run lint"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",

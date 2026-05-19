@@ -66,6 +66,7 @@ export function useSubmitterAuth() {
       const timer = setTimeout(() => { void tryAuth() }, 300)
       return () => { clearTimeout(timer) }
     }
+    return undefined
   }, [checkAuth, toast])
 
   // Handle non-success auth callback params (denied / error)

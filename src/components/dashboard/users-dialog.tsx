@@ -99,6 +99,7 @@ export function UsersDialog({
         setEditingUsername(null)
         setEditValues({})
       }
+      return success
     } finally {
       setIsSaving(false)
     }

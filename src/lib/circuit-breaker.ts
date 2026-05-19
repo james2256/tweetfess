@@ -114,11 +114,10 @@ export async function getCircuitBreakerStatus(rateLimits?: { circuitBreakerThres
   const settings = await db.setting.findMany({
     where: { key: { in: [FAIL_COUNT_KEY, PAUSED_UNTIL_KEY] } },
   })
-  const getValue = (key: string): string | null =>
-    settings.find(s => s.key === key)?.value ?? null
+  const settingsMap = new Map(settings.map(s => [s.key, s.value]))
 
-  const failCount = parseInt(getValue(FAIL_COUNT_KEY) || '0', 10) || 0
-  const pausedUntilStr = getValue(PAUSED_UNTIL_KEY)
+  const failCount = parseInt(settingsMap.get(FAIL_COUNT_KEY) || '0', 10) || 0
+  const pausedUntilStr = settingsMap.get(PAUSED_UNTIL_KEY) ?? null
   const pausedUntil = pausedUntilStr && pausedUntilStr !== '0' ? parseInt(pausedUntilStr, 10) : null
 
   let remainingMinutes = 0

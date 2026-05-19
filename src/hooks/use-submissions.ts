@@ -90,6 +90,7 @@ export function useSubmissions({ isAdmin, adminToken, onStatsRefresh }: UseSubmi
       const interval = setInterval(() => { void fetchSubmissions(true) }, 15000)
       return () => { clearInterval(interval) }
     }
+    return undefined
   }, [isAdmin, filterStatus, fetchSubmissions])
 
   // Debounced search: trigger server-side search after 300ms of inactivity
