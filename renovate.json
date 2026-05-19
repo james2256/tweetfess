@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":maintainLockFilesWeekly",
+    ":rebaseStalePrs"
+  ],
+  "assignees": ["james2256"],
+  "configMigration": true,
+  "osvVulnerabilityAlerts": true,
+  "postUpdateOptions": ["npmDedupe"],
+  "ignoreDeps": ["z-ai-web-dev-sdk"],
+  "packageRules": [
+    {
+      "description": "Update @types packages once per week",
+      "matchDatasources": ["npm"],
+      "matchPackagePatterns": ["^@types/"],
+      "extends": ["schedule:weekly"]
+    },
+    {
+      "description": "Group Radix UI packages together",
+      "matchPackagePatterns": ["^@radix-ui/"],
+      "groupName": "radix-ui"
+    },
+    {
+      "description": "Group Prisma packages together (must stay in sync)",
+      "matchPackagePatterns": ["^@prisma/"],
+      "matchPackageNames": ["prisma"],
+      "groupName": "prisma"
+    }
+  ]
+}
