@@ -67,7 +67,7 @@ export async function runGeminiFilter(
   }
 
   try {
-    debug('[gemini-filter] Running AI filter on message:', message.length, 'chars')
+    debug('gemini-filter', 'Running AI filter on message:', message.length, 'chars')
 
     const controller = new AbortController()
     const timeoutId = setTimeout(() => { controller.abort() }, TIMEOUT_MS)
@@ -101,7 +101,7 @@ export async function runGeminiFilter(
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => 'unknown')
-      debug('[gemini-filter] API error:', response.status, errorBody)
+      debug('gemini-filter', 'API error:', response.status, errorBody)
       // Send to pending on API errors — don't auto-approve if we can't verify
       return {
         checked: true,
@@ -116,7 +116,7 @@ export async function runGeminiFilter(
     // Extract text from Gemini response
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
     if (!text) {
-      debug('[gemini-filter] Empty response from Gemini')
+      debug('gemini-filter', 'Empty response from Gemini')
       return {
         checked: true,
         passed: false,
@@ -125,14 +125,14 @@ export async function runGeminiFilter(
       }
     }
 
-    debug('[gemini-filter] Gemini response:', text)
+    debug('gemini-filter', 'Gemini response:', text)
 
     // Parse JSON response
     let result: { safe: boolean; reason?: string }
     try {
       result = JSON.parse(text)
     } catch {
-      debug('[gemini-filter] Failed to parse Gemini response as JSON:', text)
+      debug('gemini-filter', 'Failed to parse Gemini response as JSON:', text)
       // Can't parse — send to pending for manual review
       return {
         checked: true,
@@ -157,7 +157,7 @@ export async function runGeminiFilter(
     const errorMsg = getErrorMessage(err, String(err))
 
     if (errorMsg.includes('abort')) {
-      debug('[gemini-filter] Request timed out')
+      debug('gemini-filter', 'Request timed out')
       return {
         checked: true,
         passed: false,
@@ -166,7 +166,7 @@ export async function runGeminiFilter(
       }
     }
 
-    debug('[gemini-filter] Exception:', errorMsg)
+    debug('gemini-filter', 'Exception:', errorMsg)
     // Send to pending on exceptions — don't auto-approve if we can't verify
     return {
       checked: true,

@@ -157,14 +157,14 @@ export async function postViaCookieApi(text: string): Promise<FallbackResult> {
         proxy,
       }
 
-      debug('[cookie-api] create_tweet_v2 request:', {
+      debug('cookie-api', 'create_tweet_v2 request:', {
         login_cookies: `(${loginCookies.length} chars, base64)`,
         tweet_text: text ? `(${text.length} chars)` : '(missing)',
         proxy: maskProxyUrl(proxy),
         apiKey: maskApiKey(apiKey),
       })
 
-      const { response, data } = await callCreateTweetV2(apiKey, body, '[cookie-api] create_tweet_v2 response:')
+      const { response, data } = await callCreateTweetV2(apiKey, body, 'cookie-api')
 
       // Success
       const tweetId = extractTweetId(data)
@@ -180,7 +180,7 @@ export async function postViaCookieApi(text: string): Promise<FallbackResult> {
 
       // Error handling
       const errorMsg = extractApiError(data)
-      debug('[cookie-api] create_tweet_v2 failed:', errorMsg)
+      debug('cookie-api', 'create_tweet_v2 failed:', errorMsg)
 
       const errorClass = classifyApiError(errorMsg, response.status)
 
@@ -203,7 +203,7 @@ export async function postViaCookieApi(text: string): Promise<FallbackResult> {
         method: 'fallback_cookie',
       }
     } catch (error) {
-      debug('[cookie-api] Network error:', error instanceof Error ? error.message : String(error))
+      debug('cookie-api', 'Network error:', error instanceof Error ? error.message : String(error))
       // Network error — try next key
       continue
     }

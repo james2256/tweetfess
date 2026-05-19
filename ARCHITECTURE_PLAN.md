@@ -196,15 +196,15 @@ All consumers import from `@/types`, which will re-export from `@/lib/format`. Z
 - `DEFAULT_RATE_LIMITS` re-export (line 271) — already a re-export from filter-settings
 
 ### Batch 1 Verification Checklist
-- [ ] `bun run lint` passes
-- [ ] `grep -r "as PostMethod" src/` returns 0 results (all renamed)
-- [ ] `grep -r "PostMethodResult" src/` returns matches in types/index.ts + submission-card.tsx
-- [ ] `grep -r "PostMethodSetting" src/` returns matches in types/index.ts + hooks + api-fallback-card
-- [ ] `grep -r "interface FilterRules" src/` returns only 1 definition (content-filter-engine.ts)
-- [ ] `grep -r "const DEFAULT_FILTER_RULES" src/` returns only 1 definition (content-filter-engine.ts)
-- [ ] `grep -r "from '@/types'" src/components/` all still resolve (re-exports work)
-- [ ] No circular imports: `grep -r "from '@/types'" src/lib/content-filter-engine.ts` returns 0 results
-- [ ] TypeScript compiles without errors
+- [x] `bun run lint` passes
+- [x] `grep -r "as PostMethod" src/` returns 0 results (all renamed)
+- [x] `grep -r "PostMethodResult" src/` returns matches in types/index.ts + submission-card.tsx
+- [x] `grep -r "PostMethodSetting" src/` returns matches in types/index.ts + hooks + api-fallback-card
+- [x] `grep -r "interface FilterRules" src/` returns only 1 definition (content-filter-engine.ts)
+- [x] `grep -r "const DEFAULT_FILTER_RULES" src/` returns only 1 definition (content-filter-engine.ts)
+- [x] `grep -r "from '@/types'" src/components/` all still resolve (re-exports work)
+- [x] No circular imports: `grep -r "from '@/types'" src/lib/content-filter-engine.ts` returns 0 results
+- [x] TypeScript compiles without errors
 
 ### Commit Message
 ```
@@ -231,10 +231,10 @@ refactor: split PostMethod type, deduplicate FilterRules, extract format helpers
 - Keep `z-ai-web-dev-sdk` per user instruction
 
 ### Verification
-- [ ] `bun install` succeeds
-- [ ] `bun run lint` passes
-- [ ] `grep -r "from 'sonner'" src/` returns 0 results (already verified)
-- [ ] `grep -r "from '@tanstack/react-query'" src/` returns 0 results (already verified)
+- [x] `bun install` succeeds
+- [x] `bun run lint` passes
+- [x] `grep -r "from 'sonner'" src/` returns 0 results (already verified)
+- [x] `grep -r "from '@tanstack/react-query'" src/` returns 0 results (already verified)
 
 ### Commit Message
 ```
@@ -252,9 +252,9 @@ Zero imports found in src/ for either package. z-ai-web-dev-sdk retained.
 > confirm that no `as PostMethod` casts remain after Batch 1.
 
 ### Verification
-- [ ] `grep -rn "as PostMethod" src/` returns 0 results
-- [ ] `grep -rn "as PostMethodSetting" src/` returns 4 results (the renamed casts)
-- [ ] `grep -rn "PostMethod[^SR]" src/` — only the deprecated shim and comments should remain
+- [x] `grep -rn "as PostMethod" src/` returns 0 results
+- [x] `grep -rn "as PostMethodSetting" src/` returns 4 results (the renamed casts)
+- [x] `grep -rn "PostMethod[^SR]" src/` — only the deprecated shim and comments should remain
 
 ---
 
@@ -399,12 +399,12 @@ This eliminates **2 extra DB roundtrips** per submission POST.
 Add to `prisma/schema.prisma` or create a cleanup script. Not urgent — these tables grow slowly.
 
 ### Batch 4 Verification Checklist
-- [ ] `bun run db:push` succeeds (new index created)
-- [ ] `bun run lint` passes
-- [ ] `getFilterSettings` is called once per submission POST (not 3x)
-- [ ] Cache invalidation works: save settings → next getFilterSettings returns fresh data
-- [ ] Circuit breaker status uses 1 findMany instead of 2 findUnique calls
-- [ ] `grep -rn "await getGeminiApiKey()" src/` returns 0 results (or only the deprecated shim)
+- [x] `bun run db:push` succeeds (new index created)
+- [x] `bun run lint` passes
+- [x] `getFilterSettings` is called once per submission POST (not 3x)
+- [x] Cache invalidation works: save settings → next getFilterSettings returns fresh data
+- [x] Circuit breaker status uses 1 findMany instead of 2 findUnique calls
+- [x] `grep -rn "await getGeminiApiKey()" src/` returns 0 results (or only the deprecated shim)
 
 ### Commit Message
 ```
@@ -474,11 +474,11 @@ apiClient.checkSession().then(() => {
 ```
 
 ### Batch 5 Verification Checklist
-- [ ] `/api/admin/session` returns 200 when admin cookie is valid
-- [ ] `/api/admin/session` returns 401 when no cookie / invalid cookie
-- [ ] Admin login flow still works (login → redirect → session check)
-- [ ] `bun run lint` passes
-- [ ] No `getStats()` call in use-admin-auth.ts anymore
+- [x] `/api/admin/session` returns 200 when admin cookie is valid
+- [x] `/api/admin/session` returns 401 when no cookie / invalid cookie
+- [x] Admin login flow still works (login → redirect → session check)
+- [x] `bun run lint` passes
+- [x] No `getStats()` call in use-admin-auth.ts anymore
 
 ### Commit Message
 ```
@@ -872,10 +872,10 @@ import { validateSubmission, checkSubmissionRateLimits, runFilterPipeline, creat
 ```
 
 ### Batch 8 Verification Checklist
-- [ ] `submissions/route.ts` is under 150 lines (just GET + POST handlers)
-- [ ] `submissions/_lib.ts` contains all pipeline logic
-- [ ] Submission flow still works: submit → filter → auto-post
-- [ ] `bun run lint` passes
+- [x] `submissions/route.ts` is under 150 lines (just GET + POST handlers)
+- [x] `submissions/_lib.ts` contains all pipeline logic
+- [x] Submission flow still works: submit → filter → auto-post
+- [x] `bun run lint` passes
 
 ### Commit Message
 ```
@@ -890,69 +890,63 @@ types to submissions/_lib.ts. Route file becomes thin GET/POST handler.
 
 ## BATCH 9: Debug System Upgrade
 
-### File: `src/lib/debug.ts`
+### 9A. `debug.ts` Signature Change
+
+**File: `src/lib/debug.ts`**
 
 ```ts
 /**
  * Namespaced debug logging with timestamps.
  *
- * Set DEBUG=1 or DEBUG=direct,execute-post in .env or Vercel env vars.
- * Namespaces: comma-separated list. If DEBUG=1 or DEBUG=*, all namespaces pass.
- * Timestamps are always included in ISO format.
+ * Set DEBUG=1 or DEBUG=* to enable all namespaces.
+ * Set DEBUG=submit,direct to enable specific namespaces (comma-separated).
+ * Unset or empty to disable (production-clean logs).
+ *
+ * Usage:
+ *   import { debug } from '@/lib/debug'
+ *   debug('submit', 'Post succeeded! tweetId:', tweetId)
+ *   debug('direct', 'Attempt', attempt, 'failed')
  */
 
-const DEBUG_ENV = process.env.DEBUG ?? ''
+const DEBUG_ENV = process.env.DEBUG || ''
+const DEBUG_ALL = DEBUG_ENV === '1' || DEBUG_ENV === '*' || DEBUG_ENV === 'true'
+const ENABLED_NAMESPACES = DEBUG_ALL ? null : new Set(DEBUG_ENV.split(',').map(s => s.trim()).filter(Boolean))
 
-const isDebugEnabled = !!DEBUG_ENV
-
-// Parse namespaces from DEBUG env var
-const namespaces: Set<string> | null = DEBUG_ENV === '1' || DEBUG_ENV === '*' || DEBUG_ENV === 'true'
-  ? null  // null = all namespaces pass
-  : new Set(DEBUG_ENV.split(',').map(ns => ns.trim()).filter(Boolean))
-
-function shouldLog(namespace: string): boolean {
-  if (!isDebugEnabled) return false
-  if (namespaces === null) return true  // DEBUG=1 or DEBUG=*
-  return namespaces.has(namespace)
+function isNamespaceEnabled(namespace: string): boolean {
+  if (!DEBUG_ENV) return false
+  if (DEBUG_ALL) return true
+  return ENABLED_NAMESPACES!.has(namespace)
 }
 
 function timestamp(): string {
-  return new Date().toISOString().slice(11, 23) // HH:mm:ss.SSS
+  const d = new Date()
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  const ss = String(d.getSeconds()).padStart(2, '0')
+  const ms = String(d.getMilliseconds()).padStart(3, '0')
+  return `${hh}:${mm}:${ss}.${ms}`
 }
 
 export function debug(namespace: string, ...args: unknown[]): void {
-  if (shouldLog(namespace)) {
-    console.log(`[${timestamp()}] [debug:${namespace}]`, ...args)
+  if (isNamespaceEnabled(namespace)) {
+    console.log(`${timestamp()} [${namespace}]`, ...args)
   }
 }
 
 export function debugError(namespace: string, ...args: unknown[]): void {
-  if (shouldLog(namespace)) {
-    console.error(`[${timestamp()}] [debug:${namespace}]`, ...args)
+  if (isNamespaceEnabled(namespace)) {
+    console.error(`${timestamp()} [${namespace}]`, ...args)
   }
 }
 ```
 
-### Update All `debug()` Callers
-
-**Current pattern:** `debug('[submit] All filters passed')`
-**New pattern:** `debug('submit', 'All filters passed')`
-
-This requires updating all ~50 `debug()` calls across the codebase. Files:
-
-| File | Namespace | Approximate Call Count |
-|------|-----------|----------------------|
-| `circuit-breaker.ts` | `circuit-breaker` | 5 |
-| `submissions/route.ts` | `submit` | 10 |
-| `submissions/[id]/route.ts` | `approve` | 3 |
-| `submissions/[id]/post/route.ts` | `retry` | 3 |
-| `autopost/route.ts` | `autopost` | 8 |
-| `twitter-post-cookie.ts` | `cookie` | 5 |
-| `twitter-api-fallback.ts` | `fallback` | 5 |
-| `execute-post.ts` | `execute-post` | 8 |
-| `posting-lock.ts` | `lock` | 3 |
-| `test-x/route.ts` | `test-x` | 2 |
-| `stale-posting.ts` | `stale` | 2 |
+**Key design decisions:**
+- `DEBUG=1`, `DEBUG=*`, `DEBUG=true` → all namespaces enabled (backward compatible)
+- `DEBUG=submit,direct` → only those namespaces
+- Empty/undefined `DEBUG` → nothing logs (production-safe)
+- Timestamp format `HH:mm:ss.SSS` in every line
+- Namespace printed as `[namespace]` replacing the old `['[namespace] message']` pattern
+- `debugError` matches the new signature exactly
 
 ### 9B. DB Query Duration Logging
 
@@ -971,40 +965,195 @@ export const db =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: DEBUG_DB
-      ? [
-          { emit: 'event', level: 'query' },
-          { emit: 'stdout', level: 'error' },
-        ]
+      ? [{ emit: 'event', level: 'query' }]
       : process.env.NODE_ENV === 'development'
         ? ['query']
         : ['error'],
   })
 
-if (DEBUG_DB) {
+if (DEBUG_DB && !globalForPrisma.prisma) {
   db.$on('query', (e) => {
-    console.log(`[db] ${e.query} — ${e.duration}ms (${e.params})`)
+    console.log(`[db] ${e.query} — ${e.duration}ms`)
   })
 }
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
 ```
 
+**Key decisions:**
+- `DEBUG_DB=1` → switches from `log: ['query']` to `log: [{ emit: 'event', level: 'query' }]` so we get duration
+- `$on('query')` handler logs query + duration in ms
+- Guard `!globalForPrisma.prisma` prevents duplicate listeners on Next.js hot reload
+- Without `DEBUG_DB`, behavior is unchanged from current
+
+**Also update `.env.example`** — add `# DEBUG_DB=1` in the OPTIONAL section (near `# DEBUG=`).
+
+### 9C. Migrate All 84 Old-Style Calls + 6 Variable Calls
+
+**Current pattern:** `debug('[submit] All filters passed')`
+**New pattern:** `debug('submit', 'All filters passed')`
+
+The namespace is extracted by removing the `[` `]` brackets and keeping only the namespace part (not the message after it).
+
+**Category A — Old-style embedded-label calls (84 total) — need migration**
+
+| File | Calls | Current embedded label | Correct namespace |
+|------|------:|----------------------|-------------------|
+| `submissions/route.ts` | 12 | `[submit]` | `submit` |
+| `submissions/_lib.ts` | 12 | `[submit]` | `submit` |
+| `twitter-post-cookie.ts` | 15 | `[direct]` | `direct` |
+| `circuit-breaker.ts` | 7 | `[circuit-breaker]` | `circuit-breaker` |
+| `gemini-filter.ts` | 7 | `[gemini-filter]` | `gemini-filter` |
+| `execute-post.ts` | 6 | `[execute-post]` | `execute-post` |
+| `autopost/route.ts` | 6 | `[autopost]` | `autopost` |
+| `twitter-v2-login.ts` | 4 | `[twitterapi]` | `twitterapi` |
+| `twitter-cookie-api.ts` | 3 | `[cookie-api]` | `cookie-api` |
+| `x-transaction-id-pair.ts` | 3 | `[pair-dict]` | `pair-dict` |
+| `submissions/[id]/route.ts` | 2 | `[approve route]` | `approve` |
+| `submissions/[id]/post/route.ts` | 2 | `[post route]` | `retry` |
+| `posting-lock.ts` | 2 | `[posting-lock]` | `posting-lock` |
+| `test-x/route.ts` | 2 | `[test-x]` | `test-x` |
+| `stale-posting.ts` | 1 | `[stale-posting]` | `stale-posting` |
+| **Total** | **84** | | |
+
+**Category B — Variable-first calls (6 total) — 5 passthrough + 1 code change**
+
+Five of these already call `debug(variable, 'message')` where `variable` becomes the namespace argument automatically — no code change needed, only confirming the variable holds a valid namespace string at runtime.
+
+**Exception:** `twitter-api-shared.ts:192` currently calls `debug(debugLabel, JSON.stringify(data))` with no context label in the second arg. After callers switch from `'[cookie-api] create_tweet_v2 response:'` to `'cookie-api'`, the log output loses its context (`[cookie-api] {"id":"..."}` — can't tell what produced this JSON). The fix is to add the context label back into the function body: `debug(debugLabel, 'create_tweet_v2 response:', JSON.stringify(data))`.
+
+| File | Lines | Variable | Resolution |
+|------|-------|----------|------------|
+| `execute-post.ts` | 292, 308 | `logPrefix` | Passthrough — no code change; callers must pass clean namespace |
+| `submissions/[id]/_lib.ts` | 96, 103, 110 | `logLabel` | Passthrough — no code change; callers must pass clean namespace |
+| `twitter-api-shared.ts` | 192 | `debugLabel` | **Code change required** — add `'create_tweet_v2 response:'` as second arg |
+
+#### File-by-File Migration Details
+
+**1. `src/lib/circuit-breaker.ts` — 7 calls, namespace `circuit-breaker`**
+
+Replace `debug('[circuit-breaker] ` with `debug('circuit-breaker', '` in every call.
+
+**2. `src/lib/execute-post.ts` — 6 static + 2 variable, namespace `execute-post`**
+
+Static calls (lines 141, 157, 166, 184, 203, 222): Replace `debug('[execute-post] ` with `debug('execute-post', '`
+
+Variable calls (lines 292, 308): **No change needed.** `logPrefix` is a parameter — callers pass the namespace.
+
+**3. `src/lib/twitter-post-cookie.ts` — 15 calls, namespace `direct`**
+
+Replace `debug('[direct] ` with `debug('direct', '` in every call.
+
+**4. `src/lib/twitter-cookie-api.ts` — 3 calls, namespace `cookie-api`**
+
+Replace `debug('[cookie-api] ` with `debug('cookie-api', '` in every call.
+
+**5. `src/lib/twitter-v2-login.ts` — 4 calls, namespace `twitterapi`**
+
+Replace `debug('[twitterapi] ` with `debug('twitterapi', '` in every call.
+
+**6. `src/lib/twitter-api-shared.ts` — 1 variable call**
+
+Line 192: `debug(debugLabel, JSON.stringify(data))` → `debug(debugLabel, 'create_tweet_v2 response:', JSON.stringify(data))`
+
+The message part (`'create_tweet_v2 response:'`) moves into the function body since it's always the same context.
+
+**7. `src/lib/gemini-filter.ts` — 7 calls, namespace `gemini-filter`**
+
+Replace `debug('[gemini-filter] ` with `debug('gemini-filter', '` in every call.
+
+**8. `src/lib/x-transaction-id-pair.ts` — 3 calls, namespace `pair-dict`**
+
+Replace `debug('[pair-dict] ` with `debug('pair-dict', '` in every call. Note: one call spans multiple lines (126-129).
+
+**9. `src/lib/stale-posting.ts` — 1 call, namespace `stale-posting`**
+
+Replace `debug('[stale-posting] ` with `debug('stale-posting', '`.
+
+**10. `src/lib/posting-lock.ts` — 2 calls, namespace `posting-lock`**
+
+Replace `debug('[posting-lock]', ` with `debug('posting-lock', ` (note: no message after the bracket — the second arg is the first message).
+
+**11. `src/app/api/submissions/route.ts` — 12 calls, namespace `submit`**
+
+Replace `debug('[submit] ` with `debug('submit', '` in every call.
+
+**12. `src/app/api/submissions/_lib.ts` — 12 calls, namespace `submit`**
+
+Replace `debug('[submit] ` with `debug('submit', '` in every call.
+
+**13. `src/app/api/submissions/[id]/route.ts` — 2 calls, namespace `approve`**
+
+Replace `debug('[approve route] ` with `debug('approve', '` in every call.
+
+**14. `src/app/api/submissions/[id]/_lib.ts` — 3 variable calls**
+
+Lines 96, 103, 110: **No change needed.** `logLabel` is a parameter — callers pass the namespace.
+
+**15. `src/app/api/submissions/[id]/post/route.ts` — 2 calls, namespace `retry`**
+
+Replace `debug('[post route] ` with `debug('retry', '` in every call.
+
+**16. `src/app/api/autopost/route.ts` — 6 calls, namespace `autopost`**
+
+Replace `debug('[autopost] ` with `debug('autopost', '` in every call.
+
+**17. `src/app/api/test-x/route.ts` — 2 calls, namespace `test-x`**
+
+Replace `debug('[test-x] ` with `debug('test-x', '` in every call.
+
+**18. `src/lib/twitter-api-fallback.ts` — SKIP**
+
+Zero debug calls. Nothing to do. (The original monolith had 10 calls; they were moved to `twitter-cookie-api.ts`, `twitter-v2-login.ts`, and `twitter-api-shared.ts` during the split refactor.)
+
+#### Caller-Only Updates (7 sites)
+
+These are lines where a namespace string is passed as an argument to a function (not a `debug()` call itself), but must be updated to match the new namespace convention:
+
+> **Note on Batch 8 interaction:** The `createCooldownWindowChecks` call at `submissions/route.ts:258` was NOT moved by Batch 8. Batch 8 only extracted `runFilterPipeline` (filter/validation logic) to `_lib.ts`. The posting logic — including `executePostAndRecord`, `createCooldownWindowChecks`, and all post-result debug calls — remained in `route.ts`. The target file is correct.
+
+| File | Line | Before | After |
+|------|------|--------|-------|
+| `submissions/route.ts` | 258 | `createCooldownWindowChecks(..., '[submit]')` | `createCooldownWindowChecks(..., 'submit')` |
+| `autopost/route.ts` | 137 | `createCooldownWindowChecks(..., '[autopost]')` | `createCooldownWindowChecks(..., 'autopost')` |
+| `submissions/[id]/route.ts` | ~50 | `handlePostEarlyReturns(postResult, '[approve route]')` | `handlePostEarlyReturns(postResult, 'approve')` |
+| `submissions/[id]/post/route.ts` | ~28 | `handlePostEarlyReturns(postResult, '[post route]')` | `handlePostEarlyReturns(postResult, 'retry')` |
+| `twitter-cookie-api.ts` | 167 | `callCreateTweetV2(apiKey, body, '[cookie-api] create_tweet_v2 response:')` | `callCreateTweetV2(apiKey, body, 'cookie-api')` |
+| `twitter-v2-login.ts` | 235 | `callCreateTweetV2(apiKey, retryBody, '[twitterapi] create_tweet_v2 retry response:')` | `callCreateTweetV2(apiKey, retryBody, 'twitterapi')` |
+| `twitter-v2-login.ts` | 317 | `callCreateTweetV2(apiKey, body, '[twitterapi] create_tweet_v2 response:')` | `callCreateTweetV2(apiKey, body, 'twitterapi')` |
+
+### Execution Order
+
+1. **Write new `debug.ts`** (signature change)
+2. **Update `db.ts`** (9B — DB query duration logging)
+3. **Update `.env.example`** (add `# DEBUG_DB=1`)
+4. **Migrate all 17 files** (84 static calls + 1 shared function body change + 7 caller updates)
+5. **Run verification**
+
 ### Batch 9 Verification Checklist
-- [ ] `DEBUG=1 bun run dev` — all debug messages show with timestamps
-- [ ] `DEBUG=submit bun run dev` — only submit namespace messages show
-- [ ] `DEBUG_DB=1 bun run dev` — query duration logs appear
-- [ ] `bun run lint` passes
-- [ ] No `debug('[namespace]')` pattern remains (all use two-arg form)
+- [x] `grep -rn "debug('\[" src/` returns 0 results (no old-style embedded-label calls remain)
+- [x] `grep -rn "'\[submit\]\|'\[autopost\]\|'\[approve route\]\|'\[post route\]\|'\[cookie-api\]\|'\[twitterapi\]" src/` returns 0 results (all callers pass clean namespace strings)
+- [x] `grep -rn "debug(logPrefix\|debug(logLabel\|debug(debugLabel" src/` returns 6 results (passthrough variables unchanged)
+- [x] `grep -n "create_tweet_v2 response" src/lib/twitter-api-shared.ts` confirms the context label was added to line 192 (Bug #1 fix)
+- [x] Total debug call count per file matches: 7+8+15+3+4+7+3+1+2+1+12+12+2+3+2+6+2 = 90
+- [x] `grep -n "debug" src/lib/twitter-api-fallback.ts` returns 0 results (file not touched)
+- [x] `grep "globalForPrisma.prisma" src/lib/db.ts` shows the hot-reload guard condition
+- [x] `bun run ci` passes (typecheck + lint)
+- [x] `DEBUG=1` — all debug messages show with timestamps
+- [x] `DEBUG=submit` — only submit namespace messages show
+- [x] `DEBUG_DB=1` — query duration logs appear
 
 ### Commit Message
 ```
 feat: namespaced debug logging with timestamps, DB query duration
 
 - debug(): now takes (namespace, ...args) instead of (...args)
-- Supports DEBUG=1 (all), DEBUG=direct,execute-post (specific namespaces)
-- Always includes ISO timestamp in output
+- Supports DEBUG=1 (all), DEBUG=direct,submit (specific namespaces)
+- Always includes HH:mm:ss.SSS timestamp in output
 - DEBUG_DB=1 enables Prisma query duration logging
-- Update ~50 debug() call sites with namespace separation
+- Migrate 84 old-style debug() calls across 17 files
+- 7 caller-site updates for variable-namespace passthrough
+- twitter-api-fallback.ts: no changes needed (zero debug calls)
 ```
 
 ---
@@ -1044,12 +1193,12 @@ DEBUG=1
 ```
 
 ### Batch 10 Verification Checklist
-- [ ] `bun run typecheck` passes
-- [ ] `bun run ci` passes (typecheck + lint)
-- [ ] `bun run db:studio` launches Prisma Studio
-- [ ] tsconfig: `noImplicitReturns` catches missing returns
-- [ ] tsconfig: `noFallthroughCasesInSwitch` catches switch fallthroughs
-- [ ] `.env.development` loaded by Next.js in dev mode
+- [x] `bun run typecheck` passes
+- [x] `bun run ci` passes (typecheck + lint)
+- [x] `bun run db:studio` launches Prisma Studio
+- [x] tsconfig: `noImplicitReturns` catches missing returns
+- [x] tsconfig: `noFallthroughCasesInSwitch` catches switch fallthroughs
+- [x] `.env.development` loaded by Next.js in dev mode
 
 ### Commit Message
 ```
@@ -1074,7 +1223,7 @@ chore: add typecheck/ci scripts, tsconfig strictness, dev env file
 | **6** Contexts | High | High | ~5 files + 2 new | Batch 5 |
 | **7** Remove adminToken | High | High | ~10 files | Batch 6 |
 | **8** Submissions _lib | Low | Medium | 2 files | Batch 1 |
-| **9** Debug upgrade | Low | Medium | ~12 files | None |
+| **9** Debug upgrade | Low | Medium | ~19 files | None |
 | **10** CI/tooling | Low | Low | 3 files | None |
 
 **Recommended order:** 1 → 2 → 4 → 5 → 10 → 8 → 9 → 6 → 7

@@ -100,7 +100,7 @@ export async function checkSubmissionRateLimits(
   const isBlocked = filterSettings.blockedUsernames.includes(submitter.username.toLowerCase())
 
   if (isBlocked) {
-    debug('[submit] User is blocked:', submitter.username)
+    debug('submit', 'User is blocked:', submitter.username)
     return NextResponse.json({
       error: 'Akun diblokir',
       message: 'Akun kamu tidak diperbolehkan mengirim pesan.',
@@ -118,7 +118,7 @@ export async function checkSubmissionRateLimits(
       where: { createdAt: { gte: startOfToday } },
     })
     if (globalCount >= filterSettings.rateLimits.globalSubmissionDailyCap) {
-      debug('[submit] Global daily cap reached:', globalCount)
+      debug('submit', 'Global daily cap reached:', globalCount)
       logLimitHit(submitter.username, 'global_cap')
       return NextResponse.json({
         error: 'Sistem sedang sibuk',
@@ -149,7 +149,7 @@ export async function checkSubmissionRateLimits(
           const waitMinutes = Math.ceil((cooldownMs - elapsedMs) / 60000)
           const waitSeconds = Math.ceil((cooldownMs - elapsedMs) / 1000)
           const waitMsg = waitMinutes > 1 ? `${waitMinutes} menit` : `${waitSeconds} detik`
-          debug('[submit] Cooldown: user must wait', waitMsg)
+          debug('submit', 'Cooldown: user must wait', waitMsg)
           logLimitHit(submitter.username, 'cooldown')
           return NextResponse.json({
             error: 'Tunggu sebentar',
@@ -169,7 +169,7 @@ export async function checkSubmissionRateLimits(
         },
       })
       if (todayCount >= effectiveDailyCap) {
-        debug('[submit] Daily cap reached:', todayCount)
+        debug('submit', 'Daily cap reached:', todayCount)
         logLimitHit(submitter.username, 'daily_cap')
         return NextResponse.json({
           error: 'Batas harian tercapai',
@@ -189,7 +189,7 @@ export async function checkSubmissionRateLimits(
         },
       })
       if (pendingCount >= effectivePendingCap) {
-        debug('[submit] User pending cap reached:', pendingCount, 'for user', submitter.username)
+        debug('submit', 'User pending cap reached:', pendingCount, 'for user', submitter.username)
         logLimitHit(submitter.username, 'pending_cap')
         return NextResponse.json({
           error: 'Terlalu banyak pesan menunggu',
@@ -198,7 +198,7 @@ export async function checkSubmissionRateLimits(
       }
     }
   } else {
-    debug('[submit] User whitelisted, skipping rate limits:', submitter.username)
+    debug('submit', 'User whitelisted, skipping rate limits:', submitter.username)
   }
 
   return { isWhitelisted, effectivePostCap }
@@ -231,7 +231,7 @@ export async function runFilterPipeline(
   // These are spam/low-quality submissions with zero chance of admin approval
   if (hasAlwaysOnReason(filterResult.reasons)) {
     const rejectionMsg = getRejectionMessage(filterResult.reasons)
-    debug('[submit] Rejected (always-on rule):', filterResult.reasons)
+    debug('submit', 'Rejected (always-on rule):', filterResult.reasons)
     return NextResponse.json({
       error: 'Pesan ditolak',
       message: rejectionMsg,
@@ -250,28 +250,28 @@ export async function runFilterPipeline(
     try {
       const geminiApiKey = filterSettings.geminiApiKey  // Already loaded — no extra DB call
       if (geminiApiKey) {
-        debug('[submit] Running Gemini AI filter')
+        debug('submit', 'Running Gemini AI filter')
         const geminiResult = await runGeminiFilter(trimmedMessage, geminiApiKey, filterSettings.geminiModel)
 
         if (!geminiResult.passed) {
           if (geminiResult.error) {
             // Gemini error/timeout — skip it, don't block the submission
-            debug('[submit] Gemini error (skipping):', geminiResult.error)
+            debug('submit', 'Gemini error (skipping):', geminiResult.error)
             geminiError = true
           } else {
             // Gemini genuinely flagged the submission
             geminiPassed = false
             const geminiReason = geminiResult.reason || 'Flagged by AI'
             allFilterReasons.push(`ai:${geminiReason}`)
-            debug('[submit] Gemini flagged submission:', geminiReason)
+            debug('submit', 'Gemini flagged submission:', geminiReason)
           }
         } else {
-          debug('[submit] Gemini passed submission')
+          debug('submit', 'Gemini passed submission')
         }
       }
     } catch (err) {
       // Gemini threw an exception — skip it, don't block the submission
-      debug('[submit] Gemini exception (skipping):', err)
+      debug('submit', 'Gemini exception (skipping):', err)
       geminiError = true
     }
   }

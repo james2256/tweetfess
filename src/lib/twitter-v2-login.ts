@@ -77,7 +77,7 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
   const settings = await getApiSettings()
 
   // Debug: log what we're sending (mask sensitive values)
-  debug('[twitterapi] loginViaTwitterApi settings:', {
+  debug('twitterapi', 'loginViaTwitterApi settings:', {
     x_username: settings.x_username || '(missing)',
     x_email: settings.x_email ? settings.x_email.slice(0, 3) + '***' : '(missing)',
     x_password: settings.x_password ? `(${settings.x_password.length} chars)` : '(missing)',
@@ -130,7 +130,7 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
     })
 
     const data = await response.json()
-    debug('[twitterapi] user_login_v2 response:', JSON.stringify(data))
+    debug('twitterapi', 'user_login_v2 response:', JSON.stringify(data))
 
     if (response.ok && (data?.login_cookie || data?.login_cookies)) {
       // API returns "login_cookies" (plural) despite docs saying "login_cookie"
@@ -232,7 +232,7 @@ async function retryWithNewLogin(opts: {
   if (proxy) retryBody.proxy = proxy
 
   const { response: retryResponse, data: retryData } = await callCreateTweetV2(
-    apiKey, retryBody, '[twitterapi] create_tweet_v2 retry response:'
+    apiKey, retryBody, 'twitterapi'
   )
 
   const retryTweetId = extractTweetId(retryData)
@@ -308,13 +308,13 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
         body.proxy = proxy
       }
 
-      debug('[twitterapi] create_tweet_v2 request:', {
+      debug('twitterapi', 'create_tweet_v2 request:', {
         login_cookies: loginCookie ? `(${loginCookie.length} chars)` : '(missing)',
         tweet_text: text ? `(${text.length} chars)` : '(missing)',
         proxy: proxy ? maskProxyUrl(proxy) : '(missing)',
       })
 
-      const { response, data } = await callCreateTweetV2(apiKey, body, '[twitterapi] create_tweet_v2 response:')
+      const { response, data } = await callCreateTweetV2(apiKey, body, 'twitterapi')
 
       // Success — try multiple possible response formats
       const tweetId = extractTweetId(data)
@@ -331,7 +331,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
 
       const errorMsg = extractApiError(data)
       lastApiError = `HTTP ${response.status}: ${errorMsg}`
-      debug('[twitterapi] create_tweet_v2 failed:', lastApiError)
+      debug('twitterapi', 'create_tweet_v2 failed:', lastApiError)
 
       // login_cookies expired/invalid → re-login and retry ONCE (always returns, never continues)
       // Only match specific login_cookie errors — broad matches cause false positives

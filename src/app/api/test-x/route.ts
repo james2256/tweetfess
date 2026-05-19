@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   const lockValue = await acquirePostingLock()
   if (!lockValue) {
-    debug('[test-x] Posting lock busy')
+    debug('test-x', 'Posting lock busy')
     return NextResponse.json(
       { success: false, error: 'Sedang ada posting lain yang berjalan. Coba lagi dalam beberapa detik.' },
       { status: 409 }
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await postTweetViaCookie(testText)
-    debug('[test-x] Test post result:', { success: result.success, tweetId: result.tweetId, method: result.method, retriesUsed: result.retriesUsed, error: result.error?.slice(0, 100) })
+    debug('test-x', 'Test post result:', { success: result.success, tweetId: result.tweetId, method: result.method, retriesUsed: result.retriesUsed, error: result.error?.slice(0, 100) })
 
     // Update circuit breaker state
     if (result.success) {

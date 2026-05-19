@@ -67,7 +67,7 @@ export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThresh
   const now = Date.now()
   if (now < pausedUntil) {
     const remaining = Math.ceil((pausedUntil - now) / 60000)
-    debug('[circuit-breaker] Paused, resuming in', remaining, 'minutes')
+    debug('circuit-breaker', 'Paused, resuming in', remaining, 'minutes')
     return true
   }
 
@@ -78,7 +78,7 @@ export async function isCircuitBreakerPaused(rateLimits?: { circuitBreakerThresh
   // Also conditionally clears last_failure_at so the next failure starts a fresh streak.
   // Statement 3 is conditional on fail_count='0' to prevent erasing a concurrent
   // recordPostFailure's timestamp (matches recordPostSuccess pattern).
-  debug('[circuit-breaker] Pause expired, auto-resetting')
+  debug('circuit-breaker', 'Pause expired, auto-resetting')
   await db.$executeRaw`
     UPDATE "Setting" SET "value" = '0', "updatedAt" = NOW()
     WHERE "key" = ${FAIL_COUNT_KEY} AND (
@@ -169,7 +169,7 @@ export async function recordPostSuccess(): Promise<void> {
       AND (SELECT "value" FROM "Setting" WHERE "key" = ${FAIL_COUNT_KEY}) = '0'
   `
 
-  debug('[circuit-breaker] Post succeeded, resetting fail count and clearing pause')
+  debug('circuit-breaker', 'Post succeeded, resetting fail count and clearing pause')
 
   // Invalidate API credits cache so next dashboard refresh shows accurate credits
   try {
@@ -206,7 +206,7 @@ export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?:
 
   if (lastFailure > 0 && (now - lastFailure) > windowMs) {
     // Streak broken — reset counter before this new failure
-    debug('[circuit-breaker] Stale streak — gap', Math.round((now - lastFailure) / 60000), 'min exceeds window', config.failureWindowMinutes, 'min. Resetting count.')
+    debug('circuit-breaker', 'Stale streak — gap', Math.round((now - lastFailure) / 60000), 'min exceeds window', config.failureWindowMinutes, 'min. Resetting count.')
     await db.$executeRaw`
       INSERT INTO "Setting" (id, key, value, "updatedAt")
       VALUES (${FAIL_COUNT_KEY}, ${FAIL_COUNT_KEY}, '0', NOW())
@@ -231,14 +231,14 @@ export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?:
   const newCountStr = await getSettingValue(FAIL_COUNT_KEY)
   const newCount = parseInt(newCountStr ?? '0', 10) || 0
 
-  debug('[circuit-breaker] Post failed, fail count now:', newCount, '(threshold:', config.threshold, ', window:', config.failureWindowMinutes, 'min)')
+  debug('circuit-breaker', 'Post failed, fail count now:', newCount, '(threshold:', config.threshold, ', window:', config.failureWindowMinutes, 'min)')
 
   // Set pause when threshold is reached or exceeded — handles concurrent failures
   // that may skip past the exact threshold count. Conditional write prevents
   // resetting the cooldown timer when failures occur while already paused.
   if (newCount >= config.threshold) {
     const pausedUntil = now + config.cooldownMinutes * 60 * 1000
-    debug('[circuit-breaker] Threshold reached! Pausing auto-post until', new Date(pausedUntil).toISOString())
+    debug('circuit-breaker', 'Threshold reached! Pausing auto-post until', new Date(pausedUntil).toISOString())
     // Atomic conditional set: INSERT if row missing, UPDATE only if not already
     // paused (value='0' or expired). Skips update when already paused, preventing
     // concurrent failures from resetting the cooldown timer.
@@ -256,7 +256,7 @@ export async function recordPostFailure(rateLimits?: { circuitBreakerThreshold?:
  * Manually reset the circuit breaker (admin action).
  */
 export async function resetCircuitBreaker(): Promise<void> {
-  debug('[circuit-breaker] Manual reset')
+  debug('circuit-breaker', 'Manual reset')
   await setSettingValue(FAIL_COUNT_KEY, '0')
   await setSettingValue(PAUSED_UNTIL_KEY, '0')
   await setSettingValue(LAST_FAILURE_AT_KEY, '0')

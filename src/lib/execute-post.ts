@@ -138,7 +138,7 @@ export async function executePostAndRecord(
         where: { status: 'posted', createdAt: { gte: startOfToday } },
       })
       if (globalPostCount >= rateLimits.globalPostDailyCap) {
-        debug('[execute-post] Global post daily cap reached:', globalPostCount)
+        debug('execute-post', 'Global post daily cap reached:', globalPostCount)
         return await releaseAndReturn({
           success: false,
           underLockAbortReason: 'global_post_daily_cap_reached',
@@ -154,7 +154,7 @@ export async function executePostAndRecord(
       data: { status: 'posting' },
     })
     if (marked.count === 0) {
-      debug('[execute-post] CAS abort — status changed before posting')
+      debug('execute-post', 'CAS abort — status changed before posting')
       return await releaseAndReturn({ success: false, casAborted: true })
     }
 
@@ -163,7 +163,7 @@ export async function executePostAndRecord(
       const tweetResult = await postTweetViaCookie(message)
 
       if (tweetResult.success) {
-        debug('[execute-post] Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
+        debug('execute-post', 'Post succeeded! tweetId:', tweetResult.tweetId, 'method:', tweetResult.method)
 
         // CAS posting→posted
         const result = await db.submission.updateMany({
@@ -181,7 +181,7 @@ export async function executePostAndRecord(
 
         // Warning: tweet posted but status was changed by admin mid-flight
         if (result.count === 0) {
-          debug('[execute-post] Post succeeded but status was changed by another process')
+          debug('execute-post', 'Post succeeded but status was changed by another process')
           return await releaseAndReturn({
             success: true,
             tweetId: tweetResult.tweetId,
@@ -200,7 +200,7 @@ export async function executePostAndRecord(
       } else {
         // Post failed — CAS posting→post_failed
         const errorMsg = tweetResult.error || 'Unknown error'
-        debug('[execute-post] Post failed:', errorMsg)
+        debug('execute-post', 'Post failed:', errorMsg)
         await db.submission.updateMany({
           where: { id: submissionId, status: 'posting' },
           data: { status: 'post_failed', postError: errorMsg },
@@ -219,7 +219,7 @@ export async function executePostAndRecord(
     } catch (postError) {
       // Exception — CAS posting→post_failed
       const errorMsg = postError instanceof Error ? postError.message : String(postError)
-      debug('[execute-post] Post exception:', errorMsg)
+      debug('execute-post', 'Post exception:', errorMsg)
       await db.submission.updateMany({
         where: { id: submissionId, status: 'posting' },
         data: { status: 'post_failed', postError: errorMsg },

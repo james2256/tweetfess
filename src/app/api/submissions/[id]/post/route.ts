@@ -38,11 +38,11 @@ export async function POST(
     })
 
     // Map result to HTTP response
-    const earlyReturn = handlePostEarlyReturns(postResult, '[post route]')
+    const earlyReturn = handlePostEarlyReturns(postResult, 'retry')
     if (earlyReturn) return earlyReturn
 
     if (postResult.success) {
-      debug('[post route] Post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method, 'retries:', postResult.retriesUsed)
+      debug('retry', 'Post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method, 'retries:', postResult.retriesUsed)
       if (postResult.warning) {
         return NextResponse.json({
           autoPosted: true,
@@ -59,7 +59,7 @@ export async function POST(
         retriesUsed: postResult.retriesUsed,
       })
     } else {
-      debug('[post route] Post failed:', postResult.error, 'method:', postResult.method)
+      debug('retry', 'Post failed:', postResult.error, 'method:', postResult.method)
       return NextResponse.json(
         { error: `Gagal posting ke X: ${postResult.error}`, postMethod: postResult.method },
         { status: 502 },

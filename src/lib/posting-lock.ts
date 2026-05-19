@@ -52,7 +52,7 @@ export async function acquirePostingLock(): Promise<string | null> {
   `
 
   const acquired = affected > 0
-  debug('[posting-lock]', acquired ? 'Lock acquired' : 'Lock busy')
+  debug('posting-lock', acquired ? 'Lock acquired' : 'Lock busy')
   return acquired ? String(now) : null
 }
 
@@ -75,6 +75,6 @@ export async function releasePostingLock(lockValue: string): Promise<boolean> {
   `
 
   const released = affected > 0
-  debug('[posting-lock]', released ? 'Lock released' : 'Lock not released (expired or stolen by another process)')
+  debug('posting-lock', released ? 'Lock released' : 'Lock not released (expired or stolen by another process)')
   return released
 }

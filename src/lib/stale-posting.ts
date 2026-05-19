@@ -65,7 +65,7 @@ export async function checkStalePosting(
   // - updatedAt: { lte: staleCutoff } — prevents overwriting a fresh "posting"
   //   set by another process after we fetched the stale object.
   const minutes = Math.round(timeInPostingMs / 60000)
-  debug('[stale-posting] Auto-recovering stuck posting, stuck for', minutes, 'minutes, id:', submission.id)
+  debug('stale-posting', 'Auto-recovering stuck posting, stuck for', minutes, 'minutes, id:', submission.id)
 
   const staleCutoff = new Date(Date.now() - POSTING_STALE_MS)
   const result = await db.submission.updateMany({

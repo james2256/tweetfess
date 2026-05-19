@@ -61,7 +61,7 @@ async function fetchPairs(): Promise<PairDict[]> {
     return cachedPairs
   }
 
-  debug('[pair-dict] Fetching pair.json from GitHub CDN')
+  debug('pair-dict', 'Fetching pair.json from GitHub CDN')
   const resp = await fetch(PAIR_URL)
   if (!resp.ok) {
     throw new Error(`Failed to fetch pair.json: ${resp.status}`)
@@ -93,7 +93,7 @@ async function fetchPairs(): Promise<PairDict[]> {
 
   cachedPairs = validPairs
   cachedPairsTime = now
-  debug('[pair-dict] Loaded', validPairs.length, 'pairs, cached for 4h')
+  debug('pair-dict', 'Loaded', validPairs.length, 'pairs, cached for 4h')
   return cachedPairs
 }
 
@@ -124,7 +124,8 @@ export async function generateTransactionIdFromPair(
     return buildTransactionId(method, path, keyBytes, pair.animationKey)
   } catch (error) {
     debug(
-      '[pair-dict] Failed:',
+      'pair-dict',
+      'Failed:',
       error instanceof Error ? error.message : String(error)
     )
     return null

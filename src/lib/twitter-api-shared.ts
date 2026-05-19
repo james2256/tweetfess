@@ -189,7 +189,7 @@ export async function callCreateTweetV2(
     body: JSON.stringify(body),
   })
   const data = await response.json()
-  debug(debugLabel, JSON.stringify(data))
+  debug(debugLabel, 'create_tweet_v2 response:', JSON.stringify(data))
   return { response, data }
 }
 

@@ -46,11 +46,11 @@ export async function PATCH(
       })
 
       // Map result to HTTP response
-      const earlyReturn = handlePostEarlyReturns(postResult, '[approve route]')
+      const earlyReturn = handlePostEarlyReturns(postResult, 'approve')
       if (earlyReturn) return earlyReturn
 
       if (postResult.success) {
-        debug('[approve route] Post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method)
+        debug('approve', 'Post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method)
 
         const description = getMethodDescription(postResult.method ?? '', postResult.retriesUsed ?? 0)
 
@@ -72,7 +72,7 @@ export async function PATCH(
           description,
         })
       } else {
-        debug('[approve route] Post failed:', postResult.error, 'method:', postResult.method)
+        debug('approve', 'Post failed:', postResult.error, 'method:', postResult.method)
         const errorMsg = postResult.error || ''
         const hint = getPostErrorHint(errorMsg)
 

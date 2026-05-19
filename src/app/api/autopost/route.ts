@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
     try {
       filterSettings = await getFilterSettings()
     } catch {
-      debug('[autopost] Failed to load filter settings')
+      debug('autopost', 'Failed to load filter settings')
       return NextResponse.json(
         { processed: false, reason: 'settings_load_failed' },
         { status: 500 }
@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
           },
         })
         if (userPostCount >= effectivePostCap) {
-          debug('[autopost] Skipping — user post cap reached:', submitterUsername, userPostCount, '/', effectivePostCap)
+          debug('autopost', 'Skipping — user post cap reached:', submitterUsername, userPostCount, '/', effectivePostCap)
           continue
         }
       }
@@ -134,23 +134,23 @@ export async function GET(req: NextRequest) {
       message: decodeHtmlEntities(submission.message),
       rateLimits: filterSettings.rateLimits,
       casStatuses: ['pending', 'post_failed'],
-      extraUnderLockChecks: createCooldownWindowChecks(filterSettings.rateLimits, '[autopost]'),
+      extraUnderLockChecks: createCooldownWindowChecks(filterSettings.rateLimits, 'autopost'),
     })
 
     // Map result — File 4 returns 200 with processed:false for soft failures
     if (postResult.lockBusy) {
-      debug('[autopost] Posting lock busy')
+      debug('autopost', 'Posting lock busy')
       return NextResponse.json({ processed: false, reason: 'posting_lock_busy' })
     }
     if (postResult.underLockAbortReason) {
       return NextResponse.json({ processed: false, reason: postResult.underLockAbortReason })
     }
     if (postResult.casAborted) {
-      debug('[autopost] Status changed before posting, aborting')
+      debug('autopost', 'Status changed before posting, aborting')
       return NextResponse.json({ processed: false, reason: 'status_changed' })
     }
     if (postResult.success) {
-      debug('[autopost] Post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method)
+      debug('autopost', 'Post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method)
       // ★ BUG FIX: warning path now handled (was missing in original)
       if (postResult.warning) {
         return NextResponse.json({
@@ -169,7 +169,7 @@ export async function GET(req: NextRequest) {
       })
     } else {
       const errorMsg = postResult.error || 'Unknown error'
-      debug('[autopost] Post failed:', errorMsg)
+      debug('autopost', 'Post failed:', errorMsg)
       return NextResponse.json({
         processed: false,
         reason: 'post_failed',

@@ -79,7 +79,7 @@ export async function POST(req: NextRequest) {
       filterSettings = await getFilterSettings()
     } catch {
       // If filter settings can't be loaded, fall back to defaults with auto-approve OFF
-      debug('[submit] Failed to load filter settings, using defaults with auto-approve OFF')
+      debug('submit', 'Failed to load filter settings, using defaults with auto-approve OFF')
       filterSettings = {
         autoApprove: false,
         blockedWords: DEFAULT_BLOCKED_WORDS,
@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
 
     // 6. Auto-approve ON + filter failed
     if (!passedAllFilters) {
-      debug('[submit] Filter blocked submission:', allFilterReasons)
+      debug('submit', 'Filter blocked submission:', allFilterReasons)
       const submission = await db.submission.create({
         data: {
           message: trimmedMessage,
@@ -152,12 +152,12 @@ export async function POST(req: NextRequest) {
     }
 
     // 7. Auto-approve ON + all filters passed
-    debug('[submit] All filters passed, auto-posting submission')
+    debug('submit', 'All filters passed, auto-posting submission')
 
     // Circuit breaker check
     const circuitBreakerPaused = await isCircuitBreakerPaused(filterSettings.rateLimits)
     if (circuitBreakerPaused) {
-      debug('[submit] Circuit breaker active, rejecting submission')
+      debug('submit', 'Circuit breaker active, rejecting submission')
       return NextResponse.json({
         error: 'Sistem sedang sibuk',
         message: 'Auto-post sedang dijeda karena gangguan pada X. Coba lagi dalam beberapa menit.',
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest) {
         const elapsedMs = Date.now() - lastPosted.updatedAt.getTime()
         const cooldownMs = filterSettings.rateLimits.autoPostCooldown * 1000
         if (elapsedMs < cooldownMs) {
-          debug('[submit] Auto-post cooldown active, queuing instead')
+          debug('submit', 'Auto-post cooldown active, queuing instead')
           return createQueuedSubmission(trimmedMessage, sanitizedCategory, submitter.id)
         }
       }
@@ -188,7 +188,7 @@ export async function POST(req: NextRequest) {
         where: { status: 'posted', updatedAt: { gte: windowStart } },
       })
       if (windowPostCount >= filterSettings.rateLimits.autoPostWindowCap) {
-        debug('[submit] Auto-post window cap reached:', windowPostCount, 'in last', filterSettings.rateLimits.autoPostWindowMinutes, 'min, queuing instead')
+        debug('submit', 'Auto-post window cap reached:', windowPostCount, 'in last', filterSettings.rateLimits.autoPostWindowMinutes, 'min, queuing instead')
         return createQueuedSubmission(trimmedMessage, sanitizedCategory, submitter.id)
       }
     }
@@ -200,7 +200,7 @@ export async function POST(req: NextRequest) {
         where: { status: 'posted', createdAt: { gte: startOfToday } },
       })
       if (globalPostCount >= filterSettings.rateLimits.globalPostDailyCap) {
-        debug('[submit] Global post daily cap reached:', globalPostCount, 'queuing instead')
+        debug('submit', 'Global post daily cap reached:', globalPostCount, 'queuing instead')
         return createQueuedSubmission(trimmedMessage, sanitizedCategory, submitter.id)
       }
     }
@@ -216,7 +216,7 @@ export async function POST(req: NextRequest) {
         },
       })
       if (userPostCount >= effectivePostCap) {
-        debug('[submit] User post daily cap reached:', userPostCount, 'for user', submitter.username, 'queuing instead')
+        debug('submit', 'User post daily cap reached:', userPostCount, 'for user', submitter.username, 'queuing instead')
         logLimitHit(submitter.username, 'post_cap')
         const submission = await db.submission.create({
           data: {
@@ -255,12 +255,12 @@ export async function POST(req: NextRequest) {
       message: decodeHtmlEntities(trimmedMessage),
       rateLimits: filterSettings.rateLimits,
       casStatuses: ['pending'],
-      extraUnderLockChecks: createCooldownWindowChecks(filterSettings.rateLimits, '[submit]'),
+      extraUnderLockChecks: createCooldownWindowChecks(filterSettings.rateLimits, 'submit'),
     })
 
     // Map result to HTTP response (File 1 returns soft 201 for lock-busy / cap-exceeded)
     if (postResult.lockBusy) {
-      debug('[submit] Posting lock busy, queuing submission')
+      debug('submit', 'Posting lock busy, queuing submission')
       return NextResponse.json({
         submission,
         autoPosted: false,
@@ -272,7 +272,7 @@ export async function POST(req: NextRequest) {
     if (postResult.underLockAbortReason) {
       // File 1 treats ALL under-lock aborts as "queued" (soft 201)
       // This includes cooldown_active, window_cap_reached, global_post_daily_cap_reached
-      debug('[submit] Under-lock abort, queuing submission:', postResult.underLockAbortReason)
+      debug('submit', 'Under-lock abort, queuing submission:', postResult.underLockAbortReason)
       return NextResponse.json({
         submission,
         autoPosted: false,
@@ -282,7 +282,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (postResult.casAborted) {
-      debug('[submit] Submission status changed before posting, aborting')
+      debug('submit', 'Submission status changed before posting, aborting')
       return NextResponse.json({
         submission,
         autoPosted: false,
@@ -291,7 +291,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (postResult.success) {
-      debug('[submit] Auto-post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method)
+      debug('submit', 'Auto-post succeeded! tweetId:', postResult.tweetId, 'method:', postResult.method)
       if (postResult.warning) {
         return NextResponse.json({
           autoPosted: true,

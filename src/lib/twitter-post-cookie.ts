@@ -327,7 +327,7 @@ function buildCreateTweetHeaders(
 async function waitBeforeRetry(failedAttempt: number): Promise<void> {
   const base = RETRY_DELAYS[failedAttempt] ?? 4000
   const jitter = Math.round(base * (0.8 + crypto.randomInt(501) / 1000)) // 80%-130%
-  debug('[direct] Attempt', failedAttempt, 'failed — waiting', jitter, 'ms before retry')
+  debug('direct', 'Attempt', failedAttempt, 'failed — waiting', jitter, 'ms before retry')
   await sleep(jitter)
   clearXactCache() // Fresh transaction ID for each retry
   clearPairCache() // Also clear pair-dict cache
@@ -350,7 +350,7 @@ async function tryApiFallback(opts: {
 }): Promise<TweetResult> {
   const { text, directError, retriesUsed = 0 } = opts
   // Layer 2: Cookie-based API (300 credits)
-  debug('[direct] Trying Layer 2: Cookie API fallback')
+  debug('direct', 'Trying Layer 2: Cookie API fallback')
   const cookieResult = await postViaCookieApi(text)
   if (cookieResult.success) {
     return {
@@ -361,12 +361,12 @@ async function tryApiFallback(opts: {
     }
   }
 
-  debug('[direct] Layer 2 failed:', cookieResult.error?.slice(0, 100))
+  debug('direct', 'Layer 2 failed:', cookieResult.error?.slice(0, 100))
 
   // Layer 3: V2 Login API (800 credits) — only if toggle is ON
   const v2Enabled = await isV2LoginEnabled()
   if (v2Enabled) {
-    debug('[direct] Trying Layer 3: V2 Login API fallback')
+    debug('direct', 'Trying Layer 3: V2 Login API fallback')
     const v2Result = await postViaTwitterApi(text)
     if (v2Result.success) {
       return {
@@ -415,7 +415,7 @@ async function fallbackOrFail(opts: {
   if (postMethod !== 'auto') {
     return { success: false, error, method, retriesUsed }
   }
-  debug('[direct] Direct posting failed, trying API fallback:', error.slice(0, 100))
+  debug('direct', 'Direct posting failed, trying API fallback:', error.slice(0, 100))
   return tryApiFallback({ text, directError: error, retriesUsed })
 }
 
@@ -449,12 +449,12 @@ export async function postTweetViaCookie(
   // If API-only mode, skip direct posting entirely
   // Try Layer 2 (cookie API) first, then Layer 3 (V2 login) if enabled
   if (postMethod === 'api') {
-    debug('[direct] Post method is API-only, skipping direct post')
+    debug('direct', 'Post method is API-only, skipping direct post')
     return tryApiFallback({ text })
   }
 
-  debug('[direct] Post method:', postMethod)
-  debug('[direct] Settings loaded:', {
+  debug('direct', 'Post method:', postMethod)
+  debug('direct', 'Settings loaded:', {
     has_cookie: !!settings.x_cookie_string,
     has_bearer: !!settings.x_bearer_token,
     has_query_id: !!settings.x_query_id,
@@ -472,7 +472,7 @@ export async function postTweetViaCookie(
 
   // 3. Parse cookies
   const cookies = parseXCookies(cookieString)
-  debug('[direct] Cookie parsed:', {
+  debug('direct', 'Cookie parsed:', {
     has_auth_token: !!cookies.auth_token,
     has_ct0: !!cookies.ct0,
     has_twid: !!cookies.twid,
@@ -506,7 +506,7 @@ export async function postTweetViaCookie(
     // Resolve queryId: in-memory cache → live fetch → DB fallback
     let queryId = await fetchLiveQueryId()
 
-    debug('[direct] Attempt', attempt, '- queryId:', queryId ? `${queryId.slice(0, 8)}...` : '(null, will try DB)')
+    debug('direct', 'Attempt', attempt, '- queryId:', queryId ? `${queryId.slice(0, 8)}...` : '(null, will try DB)')
 
     if (queryId && queryId !== settings.x_query_id) {
       try {
@@ -539,7 +539,7 @@ export async function postTweetViaCookie(
       let transactionId: string | null = null
       transactionId = await generateTransactionIdFromPair('POST', apiPath)
       if (!transactionId) {
-        debug('[direct] Pair-dict failed, falling back to live SVG approach')
+        debug('direct', 'Pair-dict failed, falling back to live SVG approach')
         try {
           transactionId = await generateTransactionId('POST', apiPath)
         } catch {
@@ -561,7 +561,7 @@ export async function postTweetViaCookie(
         }),
       })
 
-      debug('[direct] Attempt', attempt, '- X API response status:', response.status)
+      debug('direct', 'Attempt', attempt, '- X API response status:', response.status)
 
       // Layer 1: HTTP status
       if (!response.ok) {
@@ -584,7 +584,7 @@ export async function postTweetViaCookie(
       }
 
       const body = await response.json()
-      debug('[direct] Attempt', attempt, '- Response body keys:', Object.keys(body).join(','))
+      debug('direct', 'Attempt', attempt, '- Response body keys:', Object.keys(body).join(','))
 
       // Layer 2: GraphQL errors array
       if (body.errors?.length) {
@@ -624,7 +624,7 @@ export async function postTweetViaCookie(
       }
 
       // Success!
-      debug('[direct] Attempt', attempt, '- Tweet posted! tweetId:', tweetId)
+      debug('direct', 'Attempt', attempt, '- Tweet posted! tweetId:', tweetId)
       return {
         success: true,
         tweetId,
@@ -646,7 +646,7 @@ export async function postTweetViaCookie(
 
   // All direct retries exhausted — try API fallback (if auto mode)
   if (postMethod === 'auto') {
-    debug('[direct] All retries exhausted, falling back to API')
+    debug('direct', 'All retries exhausted, falling back to API')
     return tryApiFallback({ text, directError: lastError, retriesUsed: MAX_DIRECT_ATTEMPTS })
   }
 
