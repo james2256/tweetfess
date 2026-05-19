@@ -622,3 +622,21 @@ Stage Summary:
 - FilterRules/DEFAULT_FILTER_RULES: single definition in content-filter-engine.ts, re-exported from @/types
 - 4 UI helpers moved to lib/format.ts, re-exported from @/types — zero consumer changes needed
 - Zero regressions, zero new bugs
+
+---
+Task ID: batch-1-hotfix
+Agent: main
+Task: Fix Vercel build failure — FilterRules not in local scope after re-export
+
+Work Log:
+- Vercel build failed: `Type error: Cannot find name 'FilterRules'` at types/index.ts:99
+- Root cause: `export type { FilterRules } from '@/lib/content-filter-engine'` only creates a re-export, does NOT bind FilterRules locally for use within the file (FilterSettings and SaveFilterSettingsRequest interfaces reference it)
+- Fix: Added `import type { FilterRules } from '@/lib/content-filter-engine'` at top of file + changed re-export to `export type { FilterRules }` (re-exports the locally imported binding)
+- TypeScript `import type` is hoisted regardless of position, but placed at file top for cleanliness
+- Decision: PostMethod backward compat shim (`type PostMethod = PostMethodSetting`) will be kept until all 10 batches complete, then removed in final cleanup. Added FINAL CLEANUP section to ARCHITECTURE_PLAN.md.
+- Verification: `npx tsc --noEmit` clean, `bun run lint` clean, dev server 200
+
+Stage Summary:
+- Build failure fixed: FilterRules now both imported locally AND re-exported from types/index.ts
+- Key lesson: `export type { X } from 'module'` does NOT create a local binding — need separate `import type { X }` if the file itself uses X
+- PostMethod shim removal added to ARCHITECTURE_PLAN.md as FINAL CLEANUP step (after all batches)

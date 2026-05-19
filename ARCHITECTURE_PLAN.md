@@ -1083,6 +1083,26 @@ chore: add typecheck/ci scripts, tsconfig strictness, dev env file
 
 ---
 
+## FINAL CLEANUP (After All Batches Complete)
+
+### Remove PostMethod Backward Compat Shim
+
+**File: `src/types/index.ts`**
+
+After all batches are done, grep the codebase for any remaining `PostMethod` usage. If zero consumers remain, delete the shim:
+```ts
+// DELETE this line:
+/** @deprecated Use PostMethodSetting or PostMethodResult instead */
+export type PostMethod = PostMethodSetting
+```
+
+**Verification:**
+- [ ] `grep -rn "PostMethod[^SR]" src/` returns 0 results (no consumers of bare `PostMethod`)
+- [ ] `bun run lint` passes
+- [ ] `npx tsc --noEmit` passes
+
+---
+
 ## ROLLBACK STRATEGY
 
 Each batch is a **single atomic commit**. If a batch causes regression:
