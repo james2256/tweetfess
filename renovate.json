@@ -14,18 +14,21 @@
     {
       "description": "Update @types packages once per week",
       "matchDatasources": ["npm"],
-      "matchPackagePatterns": ["^@types/"],
-      "extends": ["schedule:weekly"]
+      "extends": ["schedule:weekly"],
+      "matchPackageNames": [
+        "/^@types//"
+      ]
     },
     {
       "description": "Group Radix UI packages together",
-      "matchPackagePatterns": ["^@radix-ui/"],
-      "groupName": "radix-ui"
+      "groupName": "radix-ui",
+      "matchPackageNames": [
+        "/^@radix-ui//"
+      ]
     },
     {
       "description": "Group Prisma packages together (must stay in sync)",
-      "matchPackagePatterns": ["^@prisma/"],
-      "matchPackageNames": ["prisma"],
+      "matchPackageNames": ["prisma", "/^@prisma//"],
       "groupName": "prisma"
     }
   ]
