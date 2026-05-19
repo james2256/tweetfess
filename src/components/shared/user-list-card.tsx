@@ -1,12 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { X, Plus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { apiClient } from '@/lib/api-client'
 import { useToast } from '@/hooks/use-toast'
 import { SettingsCard } from '@/components/shared/settings-card'
 
@@ -41,7 +40,7 @@ export function UserListCard({ config, usernames, onChange }: UserListCardProps)
   const [removingUser, setRemovingUser] = useState<string | null>(null)
   const { toast } = useToast()
 
-  const handleAdd = async () => {
+  const handleAdd = useCallback(async () => {
     const username = addInput.trim().toLowerCase()
     if (!username) return
 
@@ -65,9 +64,9 @@ export function UserListCard({ config, usernames, onChange }: UserListCardProps)
     } finally {
       setIsAdding(false)
     }
-  }
+  }, [addInput, usernames, config, onChange, toast])
 
-  const handleRemove = async (username: string) => {
+  const handleRemove = useCallback(async (username: string) => {
     setRemovingUser(username)
     try {
       const result = await config.removeApi(username)
@@ -82,7 +81,7 @@ export function UserListCard({ config, usernames, onChange }: UserListCardProps)
     } finally {
       setRemovingUser(null)
     }
-  }
+  }, [config, onChange, toast])
 
   return (
     <SettingsCard
