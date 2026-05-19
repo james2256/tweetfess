@@ -1,5 +1,6 @@
 import crypto from 'crypto'
 import { db } from '@/lib/db'
+import { upsertSetting } from '@/lib/db-helpers'
 import { generateTransactionId, fetchXcomHtml, clearTransactionIdCache as clearXactCache } from '@/lib/x-transaction-id'
 import { generateTransactionIdFromPair, clearPairCache } from '@/lib/x-transaction-id-pair'
 import { postViaCookieApi, postViaTwitterApi, isV2LoginEnabled } from '@/lib/twitter-api-fallback'
@@ -509,11 +510,7 @@ export async function postTweetViaCookie(
 
     if (queryId && queryId !== settings.x_query_id) {
       try {
-        await db.setting.upsert({
-          where: { key: 'x_query_id' },
-          update: { value: queryId },
-          create: { key: 'x_query_id', value: queryId },
-        })
+        await upsertSetting('x_query_id', queryId)
       } catch {
         // Non-fatal: cache update failed, but we can still use the queryId for this request
       }

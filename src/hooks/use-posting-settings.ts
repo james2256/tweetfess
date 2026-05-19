@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react'
 import type { PostMethod } from '@/types'
 import { apiClient } from '@/lib/api-client'
+import { getErrorMessage } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 
 interface UsePostingSettingsParams {
@@ -81,8 +82,7 @@ export function usePostingSettings({ adminToken, onStatsRefresh }: UsePostingSet
       onSuccess?.()
       onStatsRefresh?.()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Gagal menyimpan'
-      toast({ title: 'Gagal', description: message, variant: 'destructive' })
+      toast({ title: 'Gagal', description: getErrorMessage(err, 'Gagal menyimpan'), variant: 'destructive' })
       onFailure?.()
     } finally {
       setSavingKeys(prev => {

@@ -8,6 +8,7 @@
 // ============================================================
 
 import { debug } from './debug'
+import { getErrorMessage } from './utils'
 import { DEFAULT_GEMINI_MODEL } from './filter-settings'
 
 const TIMEOUT_MS = 8000 // 8 second timeout — don't block submissions too long
@@ -153,7 +154,7 @@ export async function runGeminiFilter(
       error: null,
     }
   } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : String(err)
+    const errorMsg = getErrorMessage(err, String(err))
 
     if (errorMsg.includes('abort')) {
       debug('[gemini-filter] Request timed out')

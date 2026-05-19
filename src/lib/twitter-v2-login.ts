@@ -31,6 +31,8 @@
 // ============================================================
 
 import { db } from '@/lib/db'
+import { upsertSetting } from '@/lib/db-helpers'
+import { getErrorMessage } from '@/lib/utils'
 import { encrypt } from '@/lib/encrypt'
 import { debug } from '@/lib/debug'
 import {
@@ -57,11 +59,7 @@ import {
  */
 async function cacheLoginCookie(loginCookie: string): Promise<void> {
   const encrypted = encrypt(loginCookie)
-  await db.setting.upsert({
-    where: { key: 'twitterapi_login_cookie' },
-    update: { value: encrypted },
-    create: { key: 'twitterapi_login_cookie', value: encrypted },
-  })
+  await upsertSetting('twitterapi_login_cookie', encrypted)
 }
 
 // --- Login ---
@@ -159,7 +157,7 @@ export async function loginViaTwitterApi(): Promise<LoginResult> {
   } catch (error) {
     return {
       success: false,
-      error: `Login network error: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Login network error: ${getErrorMessage(error)}`,
     }
   }
 }
@@ -349,7 +347,7 @@ export async function postViaTwitterApi(text: string): Promise<FallbackResult> {
       // All other errors (invalid key, rate limit, etc.) — try next key
       continue
     } catch (error) {
-      lastApiError = `Network error: ${error instanceof Error ? error.message : String(error)}`
+      lastApiError = `Network error: ${getErrorMessage(error)}`
       // Network error — try next key
       continue
     }

@@ -11,6 +11,7 @@
 // ============================================================
 
 import { db } from '@/lib/db'
+import { upsertSetting } from '@/lib/db-helpers'
 import { decryptSetting } from '@/lib/encrypt'
 import { debug } from '@/lib/debug'
 
@@ -154,11 +155,7 @@ export async function getRotationIndex(): Promise<number> {
  * Update the rotation index after using a key.
  */
 export async function setRotationIndex(index: number): Promise<void> {
-  await db.setting.upsert({
-    where: { key: 'twitterapi_key_index' },
-    update: { value: String(index) },
-    create: { key: 'twitterapi_key_index', value: String(index) },
-  })
+  await upsertSetting('twitterapi_key_index', String(index))
 }
 
 /**

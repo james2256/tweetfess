@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { Submission, SubmissionStatus } from '@/types'
 import { apiClient } from '@/lib/api-client'
+import { getErrorMessage } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 
 interface UseSubmissionsParams {
@@ -134,8 +135,7 @@ export function useSubmissions({ isAdmin, adminToken, onStatsRefresh }: UseSubmi
       void fetchSubmissions(true) // silent — don't nuke the list with spinner
       onStatsRefresh?.()
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : 'Gagal menyetujui'
-      toast({ title: 'Gagal', description: errMsg, variant: 'destructive' })
+      toast({ title: 'Gagal', description: getErrorMessage(err, 'Gagal menyetujui'), variant: 'destructive' })
     } finally {
       setActionLoading(null)
     }
@@ -149,8 +149,7 @@ export function useSubmissions({ isAdmin, adminToken, onStatsRefresh }: UseSubmi
       void fetchSubmissions(true) // silent — don't nuke the list with spinner
       onStatsRefresh?.()
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : 'Gagal menolak'
-      toast({ title: 'Gagal', description: errMsg, variant: 'destructive' })
+      toast({ title: 'Gagal', description: getErrorMessage(err, 'Gagal menolak'), variant: 'destructive' })
     } finally {
       setActionLoading(null)
     }
@@ -182,8 +181,7 @@ export function useSubmissions({ isAdmin, adminToken, onStatsRefresh }: UseSubmi
       void fetchSubmissions(true) // silent — don't nuke the list with spinner
       onStatsRefresh?.()
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : 'Gagal posting ke X'
-      toast({ title: 'Gagal posting', description: errMsg, variant: 'destructive' })
+      toast({ title: 'Gagal posting', description: getErrorMessage(err, 'Gagal posting ke X'), variant: 'destructive' })
     } finally {
       setActionLoading(null)
     }

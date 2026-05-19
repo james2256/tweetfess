@@ -3,6 +3,7 @@ import { verifyAdmin, getAdminTokenFromRequest } from '@/lib/admin-auth'
 import { getGeminiModel } from '@/lib/filter-settings'
 import { db } from '@/lib/db'
 import { decryptSetting } from '@/lib/encrypt'
+import { getErrorMessage } from '@/lib/utils'
 import { NextRequest, NextResponse } from 'next/server'
 
 export async function GET(req: NextRequest) {
@@ -39,7 +40,7 @@ export async function GET(req: NextRequest) {
       healthy: false,
       model,
       encryptionEnabled: isEncryptionEnabled(),
-      error: err instanceof Error ? err.message : 'Unknown error',
+      error: getErrorMessage(err),
     })
   }
 }

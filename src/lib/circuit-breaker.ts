@@ -1,4 +1,5 @@
 import { db } from '@/lib/db'
+import { upsertSetting } from '@/lib/db-helpers'
 import { debug } from '@/lib/debug'
 
 // Circuit breaker protects against cascading X API failures.
@@ -48,11 +49,7 @@ async function getSettingValue(key: string): Promise<string | null> {
  * Upsert a Setting row value.
  */
 async function setSettingValue(key: string, value: string): Promise<void> {
-  await db.setting.upsert({
-    where: { key },
-    update: { value },
-    create: { key, value },
-  })
+  await upsertSetting(key, value)
 }
 
 /**
