@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/james2256/tweetfess/compare/v1.1.0...v1.2.0) (2026-05-19)
+
+
+### Features
+
+* add lightweight session endpoint and rename verifyAdmin parameter ([2f836e5](https://github.com/james2256/tweetfess/commit/2f836e5d9469680c70b508035e0e0361e25a4677))
+* namespaced debug logging with timestamps, DB query duration ([09646ee](https://github.com/james2256/tweetfess/commit/09646ee3f6966cae9ea6b81d2cb3a04cb26d6c31))
+
+
+### Bug Fixes
+
+* add [status, createdAt] index, batch circuit-breaker reads, cache filter settings ([13cefbe](https://github.com/james2256/tweetfess/commit/13cefbeef28240209659c1f5f29573e70f311f7f))
+
 ## [1.1.0](https://github.com/james2256/tweetfess/compare/v1.0.0...v1.1.0) (2026-05-19)
 
 
