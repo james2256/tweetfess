@@ -7,7 +7,7 @@ import { debug } from '@/lib/debug'
 import { runContentFilter, checkDuplicate24h, normalizeText, sanitizeInput, decodeHtmlEntities, hasAlwaysOnReason, getRejectionMessage, DEFAULT_BLOCKED_WORDS, DEFAULT_NSFW_WORDS, DEFAULT_FILTER_RULES } from '@/lib/content-filter'
 import { runGeminiFilter } from '@/lib/gemini-filter'
 import { isCircuitBreakerPaused } from '@/lib/circuit-breaker'
-import { getFilterSettings, getGeminiApiKey, getGeminiModel, DEFAULT_RATE_LIMITS, DEFAULT_GEMINI_MODEL } from '@/lib/filter-settings'
+import { getFilterSettings, DEFAULT_RATE_LIMITS, DEFAULT_GEMINI_MODEL } from '@/lib/filter-settings'
 import { getEffectiveLimit } from '@/lib/limit-resolver'
 import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
@@ -252,11 +252,10 @@ async function runFilterPipeline(
 
   if (filterResult.passed && filterSettings.geminiEnabled && filterSettings.geminiApiKeySet) {
     try {
-      const geminiApiKey = await getGeminiApiKey()
+      const geminiApiKey = filterSettings.geminiApiKey  // Already loaded — no extra DB call
       if (geminiApiKey) {
         debug('[submit] Running Gemini AI filter')
-        const geminiModel = await getGeminiModel()
-        const geminiResult = await runGeminiFilter(trimmedMessage, geminiApiKey, geminiModel)
+        const geminiResult = await runGeminiFilter(trimmedMessage, geminiApiKey, filterSettings.geminiModel)
 
         if (!geminiResult.passed) {
           if (geminiResult.error) {
@@ -403,6 +402,7 @@ export async function POST(req: NextRequest) {
         filterRules: { ...DEFAULT_FILTER_RULES },
         geminiEnabled: false,
         geminiApiKeySet: false,
+        geminiApiKey: null,
         geminiModel: DEFAULT_GEMINI_MODEL,
         rateLimits: { ...DEFAULT_RATE_LIMITS },
         whitelistUsernames: [],

@@ -10,8 +10,6 @@ export type SubmissionStatus = 'pending' | 'censored' | 'posting' | 'post_failed
 
 export type PostMethodSetting = 'direct' | 'api' | 'auto'
 export type PostMethodResult = 'direct' | 'retry' | 'fallback' | 'fallback_cookie' | 'fallback_login'
-/** @deprecated Use PostMethodSetting or PostMethodResult */
-export type PostMethod = PostMethodSetting
 
 // --- Models ---
 

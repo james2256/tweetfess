@@ -40,6 +40,12 @@ export async function GET(req: NextRequest) {
       )
     }
 
+    // ── Opportunistic cleanup: old LimitHit records ──────────
+    // Delete records older than 7 days (fire-and-forget, never blocks)
+    void db.limitHit.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } },
+    }).catch(() => {})
+
     // ── Gate: auto-approve must be ON ───────────────────────
     if (!filterSettings.autoApprove) {
       return NextResponse.json({ processed: false, reason: 'auto_approve_off' })

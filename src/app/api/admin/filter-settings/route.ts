@@ -7,7 +7,7 @@ import {
   DEFAULT_FILTER_RULES,
   type FilterRules,
 } from '@/lib/content-filter'
-import { getFilterSettings, DEFAULT_RATE_LIMITS } from '@/lib/filter-settings'
+import { getFilterSettings, DEFAULT_RATE_LIMITS, invalidateFilterSettingsCache } from '@/lib/filter-settings'
 import { NextRequest, NextResponse } from 'next/server'
 import { getCircuitBreakerStatus } from '@/lib/circuit-breaker'
 
@@ -220,6 +220,9 @@ export async function POST(req: NextRequest) {
     // re-add usernames removed by concurrent block/unblock operations when the admin
     // saved filter settings with stale form data. The dedicated routes use atomic
     // PostgreSQL jsonb operations that prevent this race condition entirely.
+
+    // Invalidate cache so next getFilterSettings() reads fresh data from DB
+    invalidateFilterSettingsCache()
 
     return NextResponse.json({ success: true, results })
   } catch (e) {

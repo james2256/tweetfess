@@ -32,6 +32,9 @@ export async function GET(req: NextRequest) {
         getFilterSettings(),
       ])
 
+    // Strip geminiApiKey before sending to client (server-side only field)
+    const { geminiApiKey: _geminiApiKey, ...safeFilterSettings } = filterSettingsData
+
     // API credits — non-blocking: returns cached data or null, kicks off background fetch
     const apiCredits = getApiCreditsNonBlocking()
 
@@ -49,7 +52,7 @@ export async function GET(req: NextRequest) {
       apiCredits,
       apiLoginStatus,
       postMethodSetting,
-      filterSettings: filterSettingsData,
+      filterSettings: safeFilterSettings,
       circuitBreaker,
       encryptionEnabled: isEncryptionEnabled(),
     })

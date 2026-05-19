@@ -109,9 +109,16 @@ export async function getCircuitBreakerStatus(rateLimits?: { circuitBreakerThres
   threshold: number
 }> {
   const config = getConfig(rateLimits)
-  const failCountStr = await getSettingValue(FAIL_COUNT_KEY)
-  const failCount = parseInt(failCountStr || '0', 10) || 0
-  const pausedUntilStr = await getSettingValue(PAUSED_UNTIL_KEY)
+
+  // Single findMany instead of 2 separate findUnique calls
+  const settings = await db.setting.findMany({
+    where: { key: { in: [FAIL_COUNT_KEY, PAUSED_UNTIL_KEY] } },
+  })
+  const getValue = (key: string): string | null =>
+    settings.find(s => s.key === key)?.value ?? null
+
+  const failCount = parseInt(getValue(FAIL_COUNT_KEY) || '0', 10) || 0
+  const pausedUntilStr = getValue(PAUSED_UNTIL_KEY)
   const pausedUntil = pausedUntilStr && pausedUntilStr !== '0' ? parseInt(pausedUntilStr, 10) : null
 
   let remainingMinutes = 0

@@ -43,6 +43,9 @@ export async function GET(req: NextRequest) {
       getFilterSettings(),
     ])
 
+  // Strip geminiApiKey before sending to client (server-side only field)
+  const { geminiApiKey: _geminiApiKey, ...safeFilterSettings } = filterSettingsData
+
   // 3. API credits — non-blocking: returns cached data or null, kicks off background fetch.
   // On cold start, external calls to twitterapi.io take 2-5s and would block the entire
   // stats response. Instead, return null on first load; the 15s auto-refresh will pick up
@@ -66,7 +69,7 @@ export async function GET(req: NextRequest) {
     apiCredits,
     apiLoginStatus,
     postMethodSetting,
-    filterSettings: filterSettingsData,
+    filterSettings: safeFilterSettings,
     circuitBreaker,
     encryptionEnabled: isEncryptionEnabled(),
   })

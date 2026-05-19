@@ -105,18 +105,34 @@ export interface RateLimitSettings {
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.1-flash-lite'
 
+// --- TTL Cache for getFilterSettings() ---
+
+let cachedSettings: { data: Awaited<ReturnType<typeof getFilterSettings>>; ts: number } | null = null
+const CACHE_TTL_MS = 30_000 // 30 seconds
+
+function isCacheValid(): boolean {
+  return cachedSettings !== null && (Date.now() - cachedSettings.ts) < CACHE_TTL_MS
+}
+
+export function invalidateFilterSettingsCache(): void {
+  cachedSettings = null
+}
+
 export async function getFilterSettings(): Promise<{
   autoApprove: boolean
   blockedWords: string[]
   nsfwWords: string[]
   filterRules: FilterRules
   geminiEnabled: boolean
-  geminiApiKeySet: boolean  // Only whether a key exists (never expose the key)
+  geminiApiKeySet: boolean  // Only whether a key exists (never expose to browser)
+  geminiApiKey: string | null  // The actual key — server-side only, strip before sending to client
   geminiModel: string
   rateLimits: RateLimitSettings
   whitelistUsernames: string[]  // Twitter usernames bypassing rate limits
   blockedUsernames: string[]    // Twitter usernames blocked from submitting
 }> {
+  if (isCacheValid()) return cachedSettings!.data
+
   const settings = await db.setting.findMany({
     where: { key: { in: FILTER_SETTING_KEYS } },
   })
@@ -178,37 +194,40 @@ export async function getFilterSettings(): Promise<{
     getRaw('blocked_usernames'), validateLowercaseStringArray, [] as string[],
   )
 
-  return {
+  const result = {
     autoApprove,
     blockedWords,
     nsfwWords,
     filterRules,
     geminiEnabled,
     geminiApiKeySet,
+    geminiApiKey: geminiApiKey?.trim() || null,
     geminiModel,
     rateLimits: { submissionCooldown, submissionDailyCap, autoPostCooldown, autoPostWindowCap, autoPostWindowMinutes, globalPostDailyCap, userPostDailyCap, userPendingCap, globalSubmissionDailyCap, circuitBreakerThreshold, circuitBreakerCooldownMinutes, circuitBreakerFailureWindowMinutes },
     whitelistUsernames,
     blockedUsernames,
   }
+
+  cachedSettings = { data: result, ts: Date.now() }
+  return result
 }
 
 /**
  * Get the actual Gemini API key (for server-side use only).
  * Returns null if not configured.
+ * @deprecated Use getFilterSettings() instead — geminiApiKey is now included (cache-aware)
  */
 export async function getGeminiApiKey(): Promise<string | null> {
-  const setting = await db.setting.findUnique({ where: { key: 'gemini_api_key' } })
-  if (!setting) return null
-  const decrypted = decryptSetting(setting.value)
-  return decrypted?.trim() || null
+  const settings = await getFilterSettings()
+  return settings.geminiApiKey
 }
 
 /**
  * Get the configured Gemini model name (for server-side use only).
  * Falls back to DEFAULT_GEMINI_MODEL if not configured.
+ * @deprecated Use getFilterSettings() instead — geminiModel is already included (cache-aware)
  */
 export async function getGeminiModel(): Promise<string> {
-  const setting = await db.setting.findUnique({ where: { key: 'gemini_model' } })
-  if (!setting) return DEFAULT_GEMINI_MODEL
-  return setting.value.trim() || DEFAULT_GEMINI_MODEL
+  const settings = await getFilterSettings()
+  return settings.geminiModel
 }

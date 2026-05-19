@@ -50,6 +50,7 @@ model Submission {
   @@index([submitterId, createdAt])           // per-user cooldown, daily cap, user list
   @@index([submitterId, status, updatedAt])   // per-user post daily cap
   @@index([submitterId, normalizedMessage, createdAt])  // duplicate detection: same user, same fingerprint, within 24h
+  @@index([status, createdAt])              // globalPostCount: WHERE status='posted' AND createdAt >= today
 }
 
 model Setting {
