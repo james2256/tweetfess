@@ -97,8 +97,9 @@ export function CircuitBreakerCard({
             {/* Threshold + Cooldown + Window inputs */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <div>
-                <label className="text-[10px] font-medium text-[#536471] block mb-1">Kegagalan berturut-turut</label>
+                <label htmlFor="cb-threshold" className="text-[10px] font-medium text-[#536471] block mb-1">Kegagalan berturut-turut</label>
                 <Input
+                  id="cb-threshold"
                   type="number"
                   min={1}
                   max={20}
@@ -112,8 +113,9 @@ export function CircuitBreakerCard({
                 <p className="text-[9px] text-[#71767B] mt-0.5">Gagal N kali → pause</p>
               </div>
               <div>
-                <label className="text-[10px] font-medium text-[#536471] block mb-1">Jeda pause (menit)</label>
+                <label htmlFor="cb-cooldown" className="text-[10px] font-medium text-[#536471] block mb-1">Jeda pause (menit)</label>
                 <Input
+                  id="cb-cooldown"
                   type="number"
                   min={1}
                   max={1440}
@@ -127,8 +129,9 @@ export function CircuitBreakerCard({
                 <p className="text-[9px] text-[#71767B] mt-0.5">Durasi pause</p>
               </div>
               <div>
-                <label className="text-[10px] font-medium text-[#536471] block mb-1">Window kegagalan (menit)</label>
+                <label htmlFor="cb-window" className="text-[10px] font-medium text-[#536471] block mb-1">Window kegagalan (menit)</label>
                 <Input
+                  id="cb-window"
                   type="number"
                   min={1}
                   max={1440}

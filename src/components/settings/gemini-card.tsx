@@ -106,17 +106,17 @@ export function GeminiCard({
           <CardContent className="space-y-4">
             {/* Toggle */}
             <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+              <label htmlFor="gemini-toggle" className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5" /> Gemini AI Filter
                 {geminiSaving && (
                   <Loader2 className="w-3 h-3 animate-spin text-[#536471]" />
                 )}
               </label>
               <Switch
+                id="gemini-toggle"
                 checked={geminiEnabled}
                 onCheckedChange={() => { setGeminiEnabled(!geminiEnabled) }}
                 disabled={geminiSaving}
-                aria-label="Toggle Gemini AI Filter"
               />
             </div>
             <p className="text-[10px] text-[#71767B]">
@@ -134,10 +134,11 @@ export function GeminiCard({
 
             {/* API Key Input */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471]">Gemini API Key</label>
+              <label htmlFor="gemini-api-key-input" className="text-xs font-medium text-[#536471]">Gemini API Key</label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <div className="flex-1 relative">
                   <Input
+                    id="gemini-api-key-input"
                     type={showGeminiKey ? 'text' : 'password'}
                     placeholder={geminiApiKeySet ? 'Key is set — enter new key to replace' : 'AIzaSy...'}
                     value={geminiApiKeyInput}
@@ -174,9 +175,10 @@ export function GeminiCard({
 
             {/* Model Input */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471]">Gemini Model</label>
+              <label htmlFor="gemini-model-input" className="text-xs font-medium text-[#536471]">Gemini Model</label>
               <div className="flex gap-2">
                 <Input
+                  id="gemini-model-input"
                   type="text"
                   placeholder="gemini-3.1-flash-lite"
                   value={geminiModel}
@@ -203,9 +205,9 @@ export function GeminiCard({
             {/* Health Check */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                <span className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                   <Activity className="w-3.5 h-3.5" /> Health Check
-                </label>
+                </span>
                 <Button
                   variant="outline"
                   size="sm"

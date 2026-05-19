@@ -103,11 +103,11 @@ export function FilterCard({
             {/* Auto-Approve Toggle */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-medium text-[#536471]">Auto-Approve</label>
+                <label htmlFor="auto-approve-switch" className="text-xs font-medium text-[#536471]">Auto-Approve</label>
                 <Switch
+                  id="auto-approve-switch"
                   checked={autoApprove}
                   onCheckedChange={toggleAutoApprove}
-                  aria-label="Auto-approve submissions"
                 />
               </div>
               {autoApprove && (
@@ -122,7 +122,7 @@ export function FilterCard({
 
             {/* Blocked Words */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471] flex items-center justify-between">
+              <label htmlFor="blocked-words-textarea" className="text-xs font-medium text-[#536471] flex items-center justify-between">
                 <span>Blocked Words</span>
                 <Button
                   variant="ghost"
@@ -134,6 +134,7 @@ export function FilterCard({
                 </Button>
               </label>
               <Textarea
+                id="blocked-words-textarea"
                 placeholder="kontol, memek, ngentot, wts, wtb, ..."
                 value={blockedWordsText}
                 onChange={(e) => { setBlockedWordsText(e.target.value) }}
@@ -148,7 +149,7 @@ export function FilterCard({
 
             {/* NSFW Words */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471] flex items-center justify-between">
+              <label htmlFor="nsfw-words-textarea" className="text-xs font-medium text-[#536471] flex items-center justify-between">
                 <span>NSFW Words</span>
                 <Button
                   variant="ghost"
@@ -160,6 +161,7 @@ export function FilterCard({
                 </Button>
               </label>
               <Textarea
+                id="nsfw-words-textarea"
                 placeholder="bokep, telanjang, milf, ..."
                 value={nsfwWordsText}
                 onChange={(e) => { setNsfwWordsText(e.target.value) }}
@@ -174,7 +176,7 @@ export function FilterCard({
 
             {/* Filter Rules */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471]">Filter Rules</label>
+              <span className="text-xs font-medium text-[#536471]">Filter Rules</span>
               <div className="space-y-2">
                 {/* Toggleable rules */}
                 {TOGGLEABLE_RULES.map((rule) => (

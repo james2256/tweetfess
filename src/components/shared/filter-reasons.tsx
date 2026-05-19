@@ -28,9 +28,9 @@ export function FilterReasons({ filterReasons }: FilterReasonsProps) {
           {censorReasons.length} filter flag{censorReasons.length > 1 ? 's' : ''}
         </Badge>
       )}
-      {censorReasons.slice(0, 3).map((reason, i) => (
+      {censorReasons.slice(0, 3).map((reason) => (
         <span
-          key={`censor-${i}`}
+          key={`censor-${reason}`}
           className="text-[8px] px-1 py-0.5 rounded bg-red-50 text-red-600 border border-red-200"
         >
           {getFilterReasonLabel(reason)}
@@ -43,9 +43,9 @@ export function FilterReasons({ filterReasons }: FilterReasonsProps) {
       )}
 
       {/* Informational flags (Gemini skipped due to error) */}
-      {infoReasons.map((reason, i) => (
+      {infoReasons.map((reason) => (
         <span
-          key={`info-${i}`}
+          key={`info-${reason}`}
           className="text-[8px] px-1 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200 flex items-center gap-0.5"
         >
           <Info className="w-2 h-2" />

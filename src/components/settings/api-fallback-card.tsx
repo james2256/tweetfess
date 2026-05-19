@@ -127,7 +127,7 @@ export function ApiFallbackCard({
           <CardContent className="space-y-4">
             {/* Post Method Toggle */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471]">Post Method</label>
+              <span className="text-xs font-medium text-[#536471]">Post Method</span>
               <div className="flex flex-wrap gap-2">
                 {postMethodOptions.map((opt) => (
                   <Button
@@ -161,7 +161,7 @@ export function ApiFallbackCard({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <Shield className="w-3.5 h-3.5 text-[#536471]" />
-                  <label id="v2-login-label" className="text-xs font-medium text-[#536471]">V2 Login Fallback</label>
+                  <span id="v2-login-label" className="text-xs font-medium text-[#536471]">V2 Login Fallback</span>
                 </div>
                 <Button
                   size="sm"
@@ -187,10 +187,10 @@ export function ApiFallbackCard({
             {/* X Login Credentials — only shown when V2 toggle is ON */}
             {v2LoginEnabled && (
               <div className="space-y-3 p-4 bg-amber-50/50 rounded-lg border border-amber-100">
-                <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                <span className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                   <User className="w-3 h-3" /> X Login Credentials
                   <span className="text-[10px] text-amber-600 font-normal">(untuk V2 login fallback)</span>
-                </label>
+                </span>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* X Username */}
@@ -267,11 +267,12 @@ export function ApiFallbackCard({
 
             {/* API Keys */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+              <label htmlFor="api-keys-input" className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                 <Key className="w-3 h-3" /> API Keys (JSON array)
               </label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <Input
+                  id="api-keys-input"
                   placeholder='["key1","key2","key3"]'
                   value={apiKeys}
                   onChange={(e) => { setApiKeys(e.target.value) }}
@@ -292,11 +293,12 @@ export function ApiFallbackCard({
 
             {/* Proxy */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+              <label htmlFor="proxy-url-input" className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                 <Globe className="w-3 h-3" /> Proxy URL (required)
               </label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <Input
+                  id="proxy-url-input"
                   placeholder="http://user:pass@ip:port"
                   value={apiProxy}
                   onChange={(e) => { setApiProxy(e.target.value) }}
@@ -319,9 +321,9 @@ export function ApiFallbackCard({
             {/* API Status — dual status display */}
             {apiLoginStatus && (
               <div className="space-y-2">
-                <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                <span className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                   <Shield className="w-3 h-3" /> API Status
-                </label>
+                </span>
                 <div className="space-y-1.5">
                   {/* Cookie API Status */}
                   <div className="flex items-center gap-2 bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4]">
@@ -381,7 +383,7 @@ export function ApiFallbackCard({
             {/* Credit Status */}
             {apiCredits.length > 0 && (
               <div className="space-y-2">
-                <label className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
+                <span className="text-xs font-medium text-[#536471] flex items-center gap-1.5">
                   <BarChart3 className="w-3 h-3" /> Credit Status
                   <Button
                     variant="ghost"
@@ -391,10 +393,10 @@ export function ApiFallbackCard({
                   >
                     <RefreshCw className={`w-3 h-3 ${isLoadingCredits ? 'animate-spin' : ''}`} />
                   </Button>
-                </label>
+                </span>
                 <div className="space-y-1.5">
-                  {apiCredits.map((credit, idx) => (
-                    <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4] gap-1">
+                  {apiCredits.map((credit) => (
+                    <div key={credit.apiKey} className="flex flex-col sm:flex-row sm:items-center justify-between bg-[#F7F9F9] rounded-lg p-2 border border-[#EFF3F4] gap-1">
                       <div className="flex items-center gap-2">
                         <span className="text-[10px] font-mono text-[#536471]">{credit.apiKey}</span>
                         {credit.error && (

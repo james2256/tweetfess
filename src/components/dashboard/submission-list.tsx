@@ -116,23 +116,23 @@ export function SubmissionList({
             ‹
           </Button>
           {(() => {
-            const pages: (number | '...')[] = []
+            const pages: (number | 'ellipsis-start' | 'ellipsis-end')[] = []
             const tp = totalPages
             const cp = page
             if (tp <= 7) {
               for (let i = 1; i <= tp; i++) pages.push(i)
             } else {
               pages.push(1)
-              if (cp > 3) pages.push('...')
+              if (cp > 3) pages.push('ellipsis-start')
               const start = Math.max(2, cp - 1)
               const end = Math.min(tp - 1, cp + 1)
               for (let i = start; i <= end; i++) pages.push(i)
-              if (cp < tp - 2) pages.push('...')
+              if (cp < tp - 2) pages.push('ellipsis-end')
               pages.push(tp)
             }
-            return pages.map((p, i) =>
-              p === '...' ? (
-                <span key={`dots-${i}`} className="px-1 text-xs text-[#71767B]">
+            return pages.map((p) =>
+              typeof p !== 'number' ? (
+                <span key={p} className="px-1 text-xs text-[#71767B]">
                   …
                 </span>
               ) : (

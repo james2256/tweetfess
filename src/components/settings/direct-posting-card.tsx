@@ -96,10 +96,11 @@ export function DirectPostingCard({
           <CardContent className="space-y-4">
             {/* Cookie String */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471]">Cookie String</label>
+              <label htmlFor="cookie-string-input" className="text-xs font-medium text-[#536471]">Cookie String</label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <div className="flex-1 relative">
                   <Input
+                    id="cookie-string-input"
                     type={showCookieValue ? 'text' : 'password'}
                     placeholder="auth_token=...; ct0=...; twid=...; ..."
                     value={cookieString}
@@ -164,10 +165,11 @@ export function DirectPostingCard({
 
             {/* Bearer Token */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-[#536471]">Bearer Token</label>
+              <label htmlFor="bearer-token-input" className="text-xs font-medium text-[#536471]">Bearer Token</label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <div className="flex-1 relative">
                   <Input
+                    id="bearer-token-input"
                     type={showBearerValue ? 'text' : 'password'}
                     placeholder="AAAAAAAAAAAAAAAAAAAAANRILg..."
                     value={bearerToken}
@@ -224,13 +226,14 @@ export function DirectPostingCard({
             {/* Query ID (auto-fetch, manual fallback) */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-[#536471]">Query ID</label>
+                <label htmlFor="query-id-input" className="text-xs font-medium text-[#536471]">Query ID</label>
                 <Badge variant="outline" className="text-[9px] px-1 py-0 bg-[#F7F9F9] text-[#536471] border-[#EFF3F4]">
                   Auto-fetch
                 </Badge>
               </div>
               <div className="flex flex-col sm:flex-row gap-2">
                 <Input
+                  id="query-id-input"
                   type="text"
                   placeholder="Manual fallback (optional)"
                   value={queryId}

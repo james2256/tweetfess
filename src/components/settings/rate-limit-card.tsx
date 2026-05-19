@@ -127,8 +127,9 @@ export function RateLimitCard({
                 <div className={`grid gap-2 ${group.fields.length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 sm:grid-cols-4'}`}>
                   {group.fields.map((field) => (
                     <div key={field.key}>
-                      <label className="text-[10px] font-medium text-[#536471] block mb-1">{field.label}</label>
+                      <label htmlFor={field.key} className="text-[10px] font-medium text-[#536471] block mb-1">{field.label}</label>
                       <Input
+                        id={field.key}
                         type="number"
                         min={field.min}
                         max={field.max}
