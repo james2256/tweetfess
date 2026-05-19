@@ -8,7 +8,15 @@
       "bump-patch-for-minor-pre-major": true,
       "draft": false,
       "prerelease": false,
-      "initial-version": "1.0.0"
+      "initial-version": "1.0.0",
+      "changelog-sections": [
+        {"type": "feat",     "section": "Features",   "bump": "minor"},
+        {"type": "fix",      "section": "Bug Fixes",   "bump": "patch"},
+        {"type": "refactor", "section": "Refactors",   "bump": "patch"},
+        {"type": "perf",     "section": "Performance", "bump": "patch"},
+        {"type": "docs",     "section": "Documentation"},
+        {"type": "chore",    "section": "Miscellaneous", "hidden": true}
+      ]
     }
   }
 }
